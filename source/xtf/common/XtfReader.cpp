@@ -193,7 +193,16 @@ void XtfReader::Impl::onStartElement(
         }
 
         // Check for end of header section — first basket
-        if (lowerLocal == "basket") {
+        bool hasBasketId = false;
+        bool hasObjectId = false;
+        for (const auto& a : attrs) {
+            std::string attrLocal(a.first);
+            const auto attrSep = attrLocal.find('\xFF');
+            if (attrSep != std::string::npos) attrLocal = attrLocal.substr(attrSep + 1);
+            if (lowerAscii(attrLocal) == "bid") hasBasketId = true;
+            if (lowerAscii(attrLocal) == "tid") hasObjectId = true;
+        }
+        if (lowerLocal == "basket" || (hasBasketId && !hasObjectId)) {
             // Emit StartTransfer, then switch to content
             emitStartTransfer();
             phase = ParserPhase::InContent;

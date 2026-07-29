@@ -6,9 +6,43 @@
 #include <utility>
 #include <stdexcept>
 #include <map>
+#include <cctype>
 
 namespace iox {
 namespace xtf {
+
+namespace {
+
+constexpr const char* GEOMETRY_NS = "http://www.interlis.ch/geometry/1.0";
+
+std::string lowerAscii(std::string_view value) {
+    std::string result;
+    result.reserve(value.size());
+    for (const auto character : value) {
+        result.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(character))));
+    }
+    return result;
+}
+
+bool isGeometryLocalName(std::string_view name) {
+    std::string lower;
+    lower.reserve(name.size());
+    for (const auto character : name) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(character))));
+    }
+    static constexpr std::string_view geometryNames[] = {
+        "coord", "arc", "polyline", "multicoord", "multipolyline",
+        "surface", "area", "multisurface", "multiarea", "boundary",
+        "exterior", "interior", "segments", "sequence", "c1", "c2",
+        "c3", "a1", "a2", "a3", "r"
+    };
+    for (const auto candidate : geometryNames) {
+        if (candidate == lower) return true;
+    }
+    return false;
+}
+
+}
 
 // ============================================================================
 // Writer event state machine
@@ -33,27 +67,40 @@ struct XtfWriter::Impl {
     std::unique_ptr<xml::XmlWriter> xml;
     WriterState state = WriterState::BeforeTransfer;
     bool closed_ = false;
+    bool dataSectionOpen = false;
     std::vector<Diagnostic> diagnostics;
     std::map<std::string, std::string> modelPrefixes;
+    std::map<std::string, std::string> prefixOwners;
     std::size_t nextModelPrefix = 0;
+    std::string basketTag;
 
     std::string elementName(const IomName& name) {
-        if (options.version != XtfVersion::Xtf24 || !name.xmlName()) {
+        if (options.version != XtfVersion::Xtf24) {
+            return name.iliName();
+        }
+        if (!name.xmlName()) {
+            if (isGeometryLocalName(name.iliName())) {
+                return "geom:" + lowerAscii(name.iliName());
+            }
             return name.iliName();
         }
         const auto& xmlName = *name.xmlName();
         if (xmlName.namespaceUri == "http://www.interlis.ch/xtf/2.4/INTERLIS") {
             return "ili:" + xmlName.localName;
         }
-        if (xmlName.namespaceUri == "http://www.interlis.ch/geometry/1.0") {
+        if (xmlName.namespaceUri == GEOMETRY_NS) {
             return "geom:" + xmlName.localName;
         }
         auto found = modelPrefixes.find(xmlName.namespaceUri);
         if (found == modelPrefixes.end()) {
             std::string prefix = xmlName.prefixHint;
-            if (prefix.empty() || prefix == "ili" || prefix == "geom") {
-                prefix = "m" + std::to_string(nextModelPrefix++);
+            if (prefix.empty() || prefix == "ili" || prefix == "geom" ||
+                (prefixOwners.count(prefix) && prefixOwners.at(prefix) != xmlName.namespaceUri)) {
+                do {
+                    prefix = "m" + std::to_string(nextModelPrefix++);
+                } while (prefixOwners.count(prefix));
             }
+            prefixOwners.emplace(prefix, xmlName.namespaceUri);
             found = modelPrefixes.emplace(xmlName.namespaceUri, std::move(prefix)).first;
         }
         return found->second + ":" + xmlName.localName;
@@ -65,7 +112,7 @@ struct XtfWriter::Impl {
         const auto& xmlName = *name.xmlName();
         if (xmlName.namespaceUri.empty() ||
             xmlName.namespaceUri == "http://www.interlis.ch/xtf/2.4/INTERLIS" ||
-            xmlName.namespaceUri == "http://www.interlis.ch/geometry/1.0") return;
+            xmlName.namespaceUri == GEOMETRY_NS) return;
         const auto lexical = elementName(name);
         const auto separator = lexical.find(':');
         if (separator != std::string::npos) {
@@ -149,14 +196,13 @@ void XtfWriter::Impl::writeStartTransfer(const StartTransferEvent& e) {
 
     if (options.version == XtfVersion::Xtf24) {
         writeHeaderElement("ili:HEADERSECTION", "");
-        // Actually XTF 2.4 uses ili:HeaderSection
-        xml->writeStartElement("ili:HeaderSection");
-        writeHeaderElement("ili:Sender", e.sender.empty() ? options.sender : e.sender);
-        writeHeaderElement("ili:Comment", e.comment.empty() ? options.comment : e.comment);
-        writeHeaderElement("ili:Version", e.iliVersion);
-        writeHeaderElement("ili:Software", options.software);
-        writeHeaderElement("ili:Date", e.date);
-        xml->writeEndElement("ili:HeaderSection");
+        xml->writeStartElement("ili:headersection");
+        writeHeaderElement("ili:sender", e.sender.empty() ? options.sender : e.sender);
+        writeHeaderElement("ili:comment", e.comment.empty() ? options.comment : e.comment);
+        writeHeaderElement("ili:version", e.iliVersion);
+        writeHeaderElement("ili:software", options.software);
+        writeHeaderElement("ili:date", e.date);
+        xml->writeEndElement("ili:headersection");
     } else {
         // XTF 2.3 header
         xml->writeStartElement("ili:HEADERSECTION");
@@ -172,31 +218,42 @@ void XtfWriter::Impl::writeStartTransfer(const StartTransferEvent& e) {
 void XtfWriter::Impl::writeStartBasket(const StartBasketEvent& e) {
     state = WriterState::InBasket;
 
-    std::vector<std::pair<std::string, std::string>> attrs;
-    attrs.push_back({"BID", e.bid});
-    if (e.consistency == "incomplete") {
-        attrs.push_back({"CONSISTENCY", "incomplete"});
-    }
-    if (!e.operation.empty() && e.operation != "insert") {
-        attrs.push_back({"OPERATION", e.operation});
+    if (!dataSectionOpen) {
+        xml->writeStartElement(options.version == XtfVersion::Xtf24
+                                   ? "ili:datasection" : "ili:DATASECTION");
+        dataSectionOpen = true;
     }
 
-    xml->writeStartElement("ili:BASKET", attrs);
+    std::vector<std::pair<std::string, std::string>> attrs;
+    const auto controlPrefix = options.version == XtfVersion::Xtf24 ? "ili:" : "";
+    attrs.push_back({std::string(controlPrefix) + (options.version == XtfVersion::Xtf24 ? "bid" : "BID"), e.bid});
+    if (e.consistency == "incomplete") {
+        attrs.push_back({std::string(controlPrefix) + (options.version == XtfVersion::Xtf24 ? "consistency" : "CONSISTENCY"), "incomplete"});
+    }
+    if (!e.operation.empty() && e.operation != "insert") {
+        attrs.push_back({std::string(controlPrefix) + (options.version == XtfVersion::Xtf24 ? "operation" : "OPERATION"), e.operation});
+    }
+
+    basketTag = elementName(e.basketType);
+    if (basketTag.empty()) basketTag = options.version == XtfVersion::Xtf24 ? "ili:basket" : "ili:BASKET";
+    addNamespaceBinding(attrs, e.basketType);
+    xml->writeStartElement(basketTag, attrs);
 }
 
 void XtfWriter::Impl::writeObject(const ObjectEvent& e) {
     state = WriterState::InBasket;
 
     std::vector<std::pair<std::string, std::string>> attrs;
-    attrs.push_back({"TID", e.objectId});
+    const auto controlPrefix = options.version == XtfVersion::Xtf24 ? "ili:" : "";
+    attrs.push_back({std::string(controlPrefix) + (options.version == XtfVersion::Xtf24 ? "tid" : "TID"), e.objectId});
     if (!e.operation.empty() && e.operation != "insert") {
-        attrs.push_back({"OPERATION", e.operation});
+        attrs.push_back({std::string(controlPrefix) + (options.version == XtfVersion::Xtf24 ? "operation" : "OPERATION"), e.operation});
     }
     if (e.refBid) {
-        attrs.push_back({"REF", *e.refBid});
+        attrs.push_back({std::string(controlPrefix) + (options.version == XtfVersion::Xtf24 ? "ref" : "REF"), *e.refBid});
     }
     if (e.object.bid()) {
-        attrs.push_back({"BID", *e.object.bid()});
+        attrs.push_back({std::string(controlPrefix) + (options.version == XtfVersion::Xtf24 ? "bid" : "BID"), *e.object.bid()});
     }
 
     auto tagName = elementName(e.object.tag());
@@ -205,84 +262,107 @@ void XtfWriter::Impl::writeObject(const ObjectEvent& e) {
 
     xml->writeStartElement(tagName, attrs);
 
-    // Helper: recursively write an IomObject's attributes as XTF elements
-    std::function<void(const IomObject&)> writeIomAsXml;
-    writeIomAsXml = [this, &writeIomAsXml](const IomObject& obj) {
-        for (std::size_t i = 0; i < obj.attributeCount(); ++i) {
-            const auto& attr = obj.attributeAt(i);
-            auto attrName = elementName(attr.name);
-            if (attrName.empty()) continue;
+    // Geometry has a compact XTF 2.4 encoding. The public IOM tree remains
+    // canonical (sequence/SEGMENTS/segment and multi-member attributes), so
+    // this writer flattens only the XML representation at the dialect edge.
+    std::function<void(const IomObject&)> writeObjectElement;
+    std::function<void(const IomObject&)> writeContents;
+    std::function<void(const IomAttribute&)> writeAttribute;
 
-            // REF attribute metadata
-            std::vector<std::pair<std::string, std::string>> refAttrs;
-            if (attr.ref) refAttrs.push_back({"REF", *attr.ref});
-            if (attr.bid) refAttrs.push_back({"BID", *attr.bid});
-            if (attr.orderPos) refAttrs.push_back({"ORDER_POS", std::to_string(*attr.orderPos)});
-            addNamespaceBinding(refAttrs, attr.name);
+    writeObjectElement = [this, &writeObjectElement, &writeContents](const IomObject& obj) {
+        auto tag = elementName(obj.tag());
+        if (tag.empty()) tag = "Structure";
+        std::vector<std::pair<std::string, std::string>> attrs;
+        addNamespaceBinding(attrs, obj.tag());
+        xml->writeStartElement(tag, attrs);
+        writeContents(obj);
+        xml->writeEndElement(tag);
+    };
 
-            if (attr.values.empty()) {
-                xml->writeStartElement(attrName, refAttrs, true);
-            } else if (attr.values.size() == 1) {
-                const auto& val = attr.values[0];
-                if (auto* prim = std::get_if<IomValue>(&val)) {
-                    xml->writeStartElement(attrName, refAttrs);
-                    xml->writeText(prim->toTransferString());
-                    xml->writeEndElement(attrName);
-                } else if (auto* sub = std::get_if<IomObject>(&val)) {
-                    // Write the attribute element, then the sub-object
-                    xml->writeStartElement(attrName, refAttrs);
-                    // Use the sub-object's tag as the wrapper element name
-                    auto subTag = elementName(sub->tag());
-                    if (!subTag.empty()) {
-                        std::vector<std::pair<std::string, std::string>> subAttrs;
-                        addNamespaceBinding(subAttrs, sub->tag());
-                        xml->writeStartElement(subTag, subAttrs);
-                        writeIomAsXml(*sub);
-                        xml->writeEndElement(subTag);
-                    } else {
-                        writeIomAsXml(*sub);
-                    }
-                    xml->writeEndElement(attrName);
-                }
-            } else {
-                // Multiple values: write each with the same element name
-                for (const auto& val : attr.values) {
-                    if (auto* prim = std::get_if<IomValue>(&val)) {
-                        xml->writeStartElement(attrName, refAttrs);
-                        xml->writeText(prim->toTransferString());
-                        xml->writeEndElement(attrName);
-                    } else if (auto* sub = std::get_if<IomObject>(&val)) {
-                        xml->writeStartElement(attrName, refAttrs);
-                        auto subTag = elementName(sub->tag());
-                        if (!subTag.empty()) {
-                            std::vector<std::pair<std::string, std::string>> subAttrs;
-                            addNamespaceBinding(subAttrs, sub->tag());
-                            xml->writeStartElement(subTag, subAttrs);
-                            writeIomAsXml(*sub);
-                            xml->writeEndElement(subTag);
-                        } else {
-                            writeIomAsXml(*sub);
-                        }
-                        xml->writeEndElement(attrName);
-                    }
-                }
+    writeAttribute = [this, &writeObjectElement](const IomAttribute& attr) {
+        auto attrName = elementName(attr.name);
+        if (attrName.empty()) return;
+
+        std::vector<std::pair<std::string, std::string>> refAttrs;
+        if (attr.ref) refAttrs.push_back({"REF", *attr.ref});
+        if (attr.bid) refAttrs.push_back({"BID", *attr.bid});
+        if (attr.orderPos) refAttrs.push_back({"ORDER_POS", std::to_string(*attr.orderPos)});
+        addNamespaceBinding(refAttrs, attr.name);
+
+        if (attr.values.empty()) {
+            xml->writeStartElement(attrName, refAttrs, true);
+            return;
+        }
+        for (const auto& val : attr.values) {
+            xml->writeStartElement(attrName, refAttrs);
+            if (const auto* prim = std::get_if<IomValue>(&val)) {
+                xml->writeText(prim->toTransferString());
+            } else if (const auto* sub = std::get_if<IomObject>(&val)) {
+                writeObjectElement(*sub);
             }
+            xml->writeEndElement(attrName);
         }
     };
 
-    writeIomAsXml(e.object);
+    writeContents = [this, &writeObjectElement, &writeAttribute](const IomObject& obj) {
+        for (std::size_t i = 0; i < obj.attributeCount(); ++i) {
+            const auto& attr = obj.attributeAt(i);
+            const auto objectTag = lowerAscii(obj.tag().iliName());
+            const auto attributeName = lowerAscii(attr.name.iliName());
+
+            if (options.version == XtfVersion::Xtf24 &&
+                objectTag == "polyline" && attributeName == "sequence") {
+                for (const auto& sequenceValue : attr.values) {
+                    const auto* sequence = std::get_if<IomObject>(&sequenceValue);
+                    if (!sequence) continue;
+                    const auto* segments = sequence->findAttribute("segment");
+                    if (!segments) continue;
+                    for (const auto& segmentValue : segments->values) {
+                        if (const auto* segment = std::get_if<IomObject>(&segmentValue)) {
+                            writeObjectElement(*segment);
+                        }
+                    }
+                }
+                continue;
+            }
+
+            const bool directMultiMember = options.version == XtfVersion::Xtf24 &&
+                ((objectTag == "multicoord" && attributeName == "coord") ||
+                 (objectTag == "multipolyline" && attributeName == "polyline") ||
+                 (objectTag == "multisurface" && attributeName == "surface") ||
+                 (objectTag == "multiarea" && attributeName == "area"));
+            if (directMultiMember) {
+                for (const auto& memberValue : attr.values) {
+                    if (const auto* member = std::get_if<IomObject>(&memberValue)) {
+                        writeObjectElement(*member);
+                    }
+                }
+                continue;
+            }
+
+            writeAttribute(attr);
+        }
+    };
+
+    writeContents(e.object);
     xml->writeEndElement(tagName);
 }
 
 void XtfWriter::Impl::writeEndBasket(const EndBasketEvent& e) {
     (void)e;
     state = WriterState::AfterBasket;
-    xml->writeEndElement("ili:BASKET");
+    xml->writeEndElement(basketTag.empty() ? (options.version == XtfVersion::Xtf24 ? "ili:basket" : "ili:BASKET") : basketTag);
+    basketTag.clear();
 }
 
 void XtfWriter::Impl::writeEndTransfer(const EndTransferEvent& e) {
     (void)e;
     state = WriterState::AfterTransfer;
+    if (dataSectionOpen) {
+        xml->writeEndElement(options.version == XtfVersion::Xtf24
+                                 ? "ili:datasection" : "ili:DATASECTION");
+        dataSectionOpen = false;
+    }
     xml->writeEndElement(options.version == XtfVersion::Xtf24
                          ? "ili:TRANSFER" : "ili:TRANSFER");
 }

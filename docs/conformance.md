@@ -113,4 +113,14 @@ The reader retains the expanded namespace URI and local XML name on every
 model-qualified class and property it can observe. Prefixes are lexical hints
 only; semantic comparisons use URI plus local name. If a model-free transfer
 does not carry enough information to derive an INTERLIS scoped name, the
-expanded XML name is retained rather than guessed.
+  expanded XML name is retained rather than guessed.
+
+### XTF 2.4 geometry mapping
+
+The reader normalizes direct XTF 2.4 geometry members into the canonical IOM
+shape used by the event stream: `POLYLINE.sequence[]` contains `SEGMENTS`
+objects whose repeated `segment` values retain `COORD`, `ARC`, or custom line
+form objects. `MULTICOORD`, `MULTIPOLYLINE`, `MULTISURFACE`, and `MULTIAREA`
+retain ordered member values. `SURFACE` and `AREA` keep distinct `exterior`
+and `interior` attributes. The writer flattens this tree to the normative
+XTF 2.4 `geom:` element encoding without numeric conversion.

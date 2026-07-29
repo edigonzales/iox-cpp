@@ -7,9 +7,9 @@
 | 2 | completed | aa8f47c | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 20/20) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | N/A | Pinned Expat, DTD/entity rejection, depth/attribute limits, deterministic XML |
 | 3 | completed | b5845b1 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 21/21) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | N/A | XTF 2.3 objects, structures, references, ordered chunk/state tests |
 | 4 | completed | 75e2c33 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 21/21); `./scripts/coverage.sh` (0, 21/21) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | Instrumented gate passed; threshold report deferred to Phase 11 | XTF 2.3 COORD/ARC/POLYLINE/SURFACE/AREA fixtures and recursive geometry assertion |
-| 5 | completed | pending | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | N/A | XTF 2.4 namespace-aware objects, expanded QNames, deterministic prefix bindings |
-| 6 | in-progress | — | — | — | — | XTF 2.4 geometry |
-| 7 | not-started | — | — | — | — | Complete streaming C ABI |
+| 5 | completed | 24b3fff | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | N/A | XTF 2.4 namespace-aware objects, expanded QNames, deterministic prefix bindings |
+| 6 | completed | pending | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 2/2) | `./scripts/coverage.sh` (0, 22/22; instrumentation gate) | XTF 2.4 canonical geometry tree, multi-geometries, custom line preservation, fixture chunk matrix |
+| 7 | in-progress | — | — | — | — | Complete streaming C ABI |
 | 8 | not-started | — | — | — | — | JavaScript/worker API |
 | 9 | not-started | — | — | — | — | Direct ilic-core integration |
 | 10 | not-started | — | — | — | — | Convenience APIs, examples, iox-dump |
@@ -57,6 +57,17 @@ node --test packages/iox-wasm/test/*.test.mjs
   objects, attributes, and nested structures; unknown model namespaces receive
   deterministic writer prefixes with collision handling.
 - Native and WASM gates pass with 22/22 native tests and 2/2 WASM smoke tests.
+
+## Phase 6 — Completed
+
+- Direct XTF 2.4 geometry members are normalized to ordered canonical IOM
+  segments; multi-geometries and exterior/interior rings are preserved.
+- `UnsupportedGeometry.xml` verifies custom line forms remain structured
+  objects rather than being dropped or converted to coordinates.
+- Fixture parsing passes at one-byte, seven-byte, and 64-byte chunk sizes.
+- `./scripts/build-native.sh` (0), `./scripts/test-native.sh` (0, 22/22),
+  `./scripts/build-wasm.sh` (0, Emscripten 3.1.64),
+  `./scripts/test-wasm.sh` (0, 2/2), and `./scripts/coverage.sh` (0, 22/22).
 
 ## Phase 9 — Not Started
 

@@ -116,8 +116,13 @@ struct Xtf24Dialect::Impl {
         std::string name;
         std::string iliName;
         IomObject object;
-        std::string textBuffer;
-        std::string operation;
+    std::string textBuffer;
+    std::string operation;
+    bool hasChildStructure = false;
+    bool attachToPolylineSegments = false;
+    bool attachToMultiMember = false;
+    bool attachToCustomLineMembers = false;
+    std::string attachAttribute;
     };
     std::stack<ElementState> stack;
 
@@ -151,7 +156,9 @@ void Xtf24Dialect::onStartElement(
     state.iliName = local;
 
     // --- BASKET ---
-    if (isIliElement(name, "BASKET") || lowerAscii(local) == "basket") {
+    if (isIliElement(name, "BASKET") || lowerAscii(local) == "basket" ||
+        (impl_->stack.empty() && !findAttr(attrs, "BID").empty() &&
+         findAttr(attrs, "TID").empty())) {
         state.type = ElemType::Basket;
 
         StartBasketEvent sb;
@@ -176,6 +183,8 @@ void Xtf24Dialect::onStartElement(
     if (!tid.empty()) {
         state.type = ElemType::Object;
         state.object = IomObject(iomNameFromXml(name));
+        const auto objectBid = findAttr(attrs, "BID");
+        if (!objectBid.empty()) state.object.setBid(objectBid);
         impl_->currentTid = tid;
         impl_->currentOperation = findAttr(attrs, "OPERATION");
         if (impl_->currentOperation.empty()) impl_->currentOperation = "insert";
@@ -186,6 +195,62 @@ void Xtf24Dialect::onStartElement(
     // --- Inside an object or structure: attribute ---
     if (!impl_->stack.empty()) {
         auto& parent = impl_->stack.top();
+
+        if (parent.type == ElemType::Structure) {
+            const auto parentTag = lowerAscii(parent.object.tag().iliName());
+            const auto childTag = lowerAscii(local);
+            const auto expandedSeparator = name.find('\xFF');
+            const bool geometryElement = expandedSeparator != std::string_view::npos &&
+                name.substr(0, expandedSeparator) == "http://www.interlis.ch/geometry/1.0";
+
+            // XTF 2.4 writes a polyline's COORD/ARC/custom line members
+            // directly below POLYLINE. Normalize that syntax to the stable
+            // IOM sequence -> SEGMENTS -> segment tree.
+            if (parentTag == "polyline" &&
+                (childTag == "coord" || childTag == "arc" || geometryElement)) {
+                auto* sequence = const_cast<IomAttribute*>(
+                    parent.object.findAttribute("sequence"));
+                if (!sequence) sequence = &parent.object.setAttribute(IomName("sequence"));
+                IomObject segments(IomName("SEGMENTS"));
+                sequence->values.push_back(std::move(segments));
+                state.type = ElemType::Structure;
+                state.object = IomObject(iomNameFromXml(name));
+                state.attachToPolylineSegments = true;
+                impl_->stack.push(std::move(state));
+                return;
+            }
+
+            // Preserve supported/unknown XTF 2.4 line forms as structured
+            // segment objects instead of dropping or degrading them.
+            if (parentTag == "orientablecurve" &&
+                (childTag == "coord" || childTag == "arc" || geometryElement)) {
+                auto* members = const_cast<IomAttribute*>(
+                    parent.object.findAttribute("segment"));
+                if (!members) members = &parent.object.setAttribute(IomName("segment"));
+                state.type = ElemType::Structure;
+                state.object = IomObject(iomNameFromXml(name));
+                state.attachToCustomLineMembers = true;
+                impl_->stack.push(std::move(state));
+                return;
+            }
+
+            const char* multiAttribute = nullptr;
+            if (parentTag == "multicoord" && childTag == "coord") multiAttribute = "coord";
+            if (parentTag == "multipolyline" && childTag == "polyline") multiAttribute = "polyline";
+            if (parentTag == "multisurface" && childTag == "surface") multiAttribute = "surface";
+            if (parentTag == "multiarea" && childTag == "area") multiAttribute = "area";
+            if (multiAttribute) {
+                auto* members = const_cast<IomAttribute*>(
+                    parent.object.findAttribute(multiAttribute));
+                if (!members) members = &parent.object.setAttribute(IomName(multiAttribute));
+                state.type = ElemType::Structure;
+                state.object = IomObject(iomNameFromXml(name));
+                state.attachToMultiMember = true;
+                state.attachAttribute = multiAttribute;
+                impl_->stack.push(std::move(state));
+                return;
+            }
+        }
 
         if (parent.type == ElemType::Object || parent.type == ElemType::Structure) {
             // Attribute of the parent object/structure
@@ -215,6 +280,7 @@ void Xtf24Dialect::onStartElement(
 
         if (parent.type == ElemType::Attribute) {
             // Nested structure within an attribute (e.g. COORD inside Location)
+            parent.hasChildStructure = true;
             state.type = ElemType::Structure;
             state.object = IomObject(iomNameFromXml(name));
             // Immediately add this structure as a value of the parent attribute
@@ -261,7 +327,7 @@ void Xtf24Dialect::onEndElement(std::string_view /*name*/) {
             if (parent.type == ElemType::Object || parent.type == ElemType::Structure) {
                 auto* attr = const_cast<IomAttribute*>(
                     parent.object.findAttribute(state.iliName));
-                if (attr && !state.textBuffer.empty()) {
+                if (attr && !state.hasChildStructure && !state.textBuffer.empty()) {
                     attr->values.push_back(IomValue::text(state.textBuffer));
                 }
             }
@@ -271,6 +337,29 @@ void Xtf24Dialect::onEndElement(std::string_view /*name*/) {
     case ElemType::Structure: {
         if (!impl_->stack.empty()) {
             auto& parent = impl_->stack.top();
+            if (state.attachToPolylineSegments && parent.type == ElemType::Structure) {
+                auto* sequence = const_cast<IomAttribute*>(
+                    parent.object.findAttribute("sequence"));
+                if (sequence && !sequence->values.empty()) {
+                    if (auto* segments = std::get_if<IomObject>(&sequence->values.back())) {
+                        auto& members = segments->setAttribute(IomName("segment"));
+                        members.values.push_back(std::move(state.object));
+                    }
+                }
+                break;
+            }
+            if (state.attachToMultiMember && parent.type == ElemType::Structure) {
+                auto* members = const_cast<IomAttribute*>(
+                    parent.object.findAttribute(state.attachAttribute));
+                if (members) members->values.push_back(std::move(state.object));
+                break;
+            }
+            if (state.attachToCustomLineMembers && parent.type == ElemType::Structure) {
+                auto* members = const_cast<IomAttribute*>(
+                    parent.object.findAttribute("segment"));
+                if (members) members->values.push_back(std::move(state.object));
+                break;
+            }
             if (parent.type == ElemType::Attribute) {
                 // Structure inside attribute — pop parent to reach grandparent
                 std::string parentIliName = parent.iliName; // save before move

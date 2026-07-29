@@ -95,6 +95,7 @@ struct Xtf23Dialect::Impl {
         IomObject object;
         std::string textBuffer;
         std::string operation;
+        bool hasChildStructure = false;
     };
     std::stack<ElementState> stack;
 
@@ -128,7 +129,9 @@ void Xtf23Dialect::onStartElement(
     state.iliName = local;
 
     // --- BASKET ---
-    if (isIliElement(name, "BASKET")) {
+    if (isIliElement(name, "BASKET") ||
+        (impl_->stack.empty() && !findAttr(attrs, "BID").empty() &&
+         findAttr(attrs, "TID").empty())) {
         state.type = ElemType::Basket;
 
         StartBasketEvent sb;
@@ -198,6 +201,7 @@ void Xtf23Dialect::onStartElement(
 
         if (parent.type == ElemType::Attribute) {
             // Nested structure within an attribute (e.g. COORD inside Location)
+            parent.hasChildStructure = true;
             state.type = ElemType::Structure;
             state.object = IomObject(IomName(local));
             // Immediately add this structure as a value of the parent attribute
@@ -244,7 +248,7 @@ void Xtf23Dialect::onEndElement(std::string_view /*name*/) {
             if (parent.type == ElemType::Object || parent.type == ElemType::Structure) {
                 auto* attr = const_cast<IomAttribute*>(
                     parent.object.findAttribute(state.iliName));
-                if (attr && !state.textBuffer.empty()) {
+                if (attr && !state.hasChildStructure && !state.textBuffer.empty()) {
                     attr->values.push_back(IomValue::text(state.textBuffer));
                 }
             }

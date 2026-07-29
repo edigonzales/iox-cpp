@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <cmath>
+#include <fstream>
 
 // ============================================================================
 // Helpers
@@ -37,6 +38,47 @@ static std::vector<iox::IoxEvent> readXtf(const std::string& data) {
         if (o.event) events.push_back(std::move(*o.event));
     }
     return events;
+}
+
+static std::vector<iox::IoxEvent> readXtfChunked(const std::string& data,
+                                                 std::size_t chunkSize) {
+    iox::xtf::XtfReader reader;
+    for (std::size_t offset = 0; offset < data.size(); offset += chunkSize) {
+        const auto size = std::min(chunkSize, data.size() - offset);
+        reader.feed(iox::ByteView(data.data() + offset, size));
+    }
+    reader.finish();
+    std::vector<iox::IoxEvent> events;
+    while (true) {
+        auto outcome = reader.next();
+        if (outcome.status == iox::ReadOutcome::Status::End) break;
+        if (outcome.status == iox::ReadOutcome::Status::NeedInput) break;
+        if (outcome.event) events.push_back(std::move(*outcome.event));
+    }
+    return events;
+}
+
+static std::string readFixture(const char* path) {
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file) return {};
+    const auto size = file.tellg();
+    file.seekg(0);
+    std::string data(static_cast<std::size_t>(size), '\0');
+    file.read(data.data(), size);
+    return data;
+}
+
+static std::size_t countTag(const iox::IomObject& object, std::string_view tag) {
+    std::size_t count = object.tag().iliName() == tag ? 1u : 0u;
+    for (std::size_t i = 0; i < object.attributeCount(); ++i) {
+        const auto& attribute = object.attributeAt(i);
+        for (const auto& value : attribute.values) {
+            if (const auto* nested = std::get_if<iox::IomObject>(&value)) {
+                count += countTag(*nested, tag);
+            }
+        }
+    }
+    return count;
 }
 
 static iox::IomObject makeCoord(double c1, double c2, double c3) {
@@ -281,6 +323,85 @@ IOX_TEST(xtf24_geom_incomplete_polyline) {
     seq.values.push_back(std::move(s1));
     seq.values.push_back(std::move(s2));
     roundtripGeometry(std::move(pl), "M.T.INC");
+}
+
+IOX_TEST(xtf24_geometry_fixture_chunk_matrix_preserves_multigeometry) {
+    const auto data = readFixture("test/fixtures/xtf24/dataSection/Area.xml");
+    IOX_CHECK(!data.empty());
+
+    for (const auto chunkSize : {std::size_t(1), std::size_t(7), std::size_t(64)}) {
+        const auto events = readXtfChunked(data, chunkSize);
+        IOX_CHECK_EQ(static_cast<std::size_t>(5), events.size());
+        const auto* objectEvent = std::get_if<iox::ObjectEvent>(&events[2]);
+        IOX_CHECK(objectEvent != nullptr);
+        const auto* form = objectEvent->object.findAttribute("formR");
+        IOX_CHECK(form != nullptr);
+        IOX_CHECK_EQ(static_cast<std::size_t>(1), form->values.size());
+        const auto* surface = std::get_if<iox::IomObject>(&form->values[0]);
+        IOX_CHECK(surface != nullptr);
+        IOX_CHECK_EQ(static_cast<std::size_t>(1), countTag(*surface, "surface"));
+        IOX_CHECK_EQ(static_cast<std::size_t>(8), countTag(*surface, "polyline"));
+        IOX_CHECK_EQ(static_cast<std::size_t>(2), countTag(*surface, "arc"));
+        IOX_CHECK(surface->findAttribute("exterior") != nullptr);
+        IOX_CHECK(surface->findAttribute("interior") != nullptr);
+    }
+}
+
+IOX_TEST(xtf24_geometry_fixture_preserves_custom_line_form) {
+    const auto data = readFixture("test/fixtures/xtf24/dataSection/UnsupportedGeometry.xml");
+    IOX_CHECK(!data.empty());
+    const auto events = readXtfChunked(data, 1);
+    IOX_CHECK_EQ(static_cast<std::size_t>(5), events.size());
+    const auto* objectEvent = std::get_if<iox::ObjectEvent>(&events[2]);
+    IOX_CHECK(objectEvent != nullptr);
+    const auto* attribute = objectEvent->object.findAttribute("attrS");
+    IOX_CHECK(attribute != nullptr);
+    IOX_CHECK_EQ(static_cast<std::size_t>(1), attribute->values.size());
+    const auto* custom = std::get_if<iox::IomObject>(&attribute->values[0]);
+    IOX_CHECK(custom != nullptr);
+    IOX_CHECK_EQ(std::string("orientablecurve"), custom->tag().iliName());
+    IOX_CHECK_EQ(static_cast<std::size_t>(2), countTag(*custom, "coord"));
+}
+
+IOX_TEST(xtf24_writer_emits_canonical_geometry_and_basket_envelope) {
+    std::vector<iox::IoxEvent> events;
+    iox::StartTransferEvent start;
+    start.version = 24;
+    events.push_back(start);
+    iox::StartBasketEvent basket;
+    basket.basketType = iox::IomName("M.Topic");
+    basket.bid = "B1";
+    events.push_back(basket);
+    iox::ObjectEvent object;
+    object.objectId = "T1";
+    object.object = iox::IomObject(iox::IomName("M.Class"));
+    iox::IomObject multi(iox::IomName("MULTICOORD"));
+    auto& coords = multi.setAttribute(iox::IomName("coord"));
+    coords.values.push_back(makeCoord(1, 2, 3));
+    coords.values.push_back(makeCoord(4, 5, 6));
+    object.object.setStructure("Position", std::move(multi));
+    events.push_back(object);
+    events.push_back(iox::EndBasketEvent{"B1"});
+    events.push_back(iox::EndTransferEvent{});
+
+    const auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf24);
+    IOX_CHECK(xml.find("ili:datasection") != std::string::npos);
+    IOX_CHECK(xml.find("ili:bid=\"B1\"") != std::string::npos);
+    IOX_CHECK(xml.find("geom:multicoord") != std::string::npos);
+    IOX_CHECK(xml.find("geom:coord") != std::string::npos);
+
+    const auto parsed = readXtf(xml);
+    IOX_CHECK_EQ(static_cast<std::size_t>(5), parsed.size());
+    const auto* parsedBasket = std::get_if<iox::StartBasketEvent>(&parsed[1]);
+    IOX_CHECK(parsedBasket != nullptr);
+    IOX_CHECK_EQ(std::string("M.Topic"), parsedBasket->basketType.iliName());
+    const auto* parsedObject = std::get_if<iox::ObjectEvent>(&parsed[2]);
+    IOX_CHECK(parsedObject != nullptr);
+    const auto* position = parsedObject->object.findAttribute("Position");
+    IOX_CHECK(position != nullptr);
+    const auto* parsedMulti = std::get_if<iox::IomObject>(&position->values[0]);
+    IOX_CHECK(parsedMulti != nullptr);
+    IOX_CHECK_EQ(static_cast<std::size_t>(2), parsedMulti->findAttribute("coord")->values.size());
 }
 
 #include "iox/test/TestMain.h"

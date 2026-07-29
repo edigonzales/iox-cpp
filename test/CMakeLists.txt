@@ -94,6 +94,8 @@ add_executable(iox-test-xtf24-geometry
 )
 target_link_libraries(iox-test-xtf24-geometry PRIVATE iox-xtf iox-xml iox-core iox-test-support)
 add_test(NAME iox.test.xtf24.geometry COMMAND iox-test-xtf24-geometry)
+set_tests_properties(iox.test.xtf24.geometry PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # --- iox-dump smoke test ----------------------------------------------------
 # Create a minimal XTF fixture and run iox-dump on it
