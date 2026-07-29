@@ -33,6 +33,9 @@ struct Diagnostic final {
 /// Stable error codes for programmatic handling.
 namespace ErrorCode {
     inline constexpr const char* XmlMalformed      = "xml.malformed";
+    inline constexpr const char* XmlDtdForbidden   = "xml.dtd_forbidden";
+    inline constexpr const char* XmlExternalEntityForbidden = "xml.external_entity_forbidden";
+    inline constexpr const char* XmlLimitExceeded  = "xml.limit_exceeded";
     inline constexpr const char* XtfStateViolation  = "xtf.state_violation";
     inline constexpr const char* XtfUnsupportedVersion = "xtf.unsupported_version";
     inline constexpr const char* XtfUnknownElement  = "xtf.unknown_element";

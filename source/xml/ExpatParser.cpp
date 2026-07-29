@@ -37,6 +37,8 @@ struct ParserContext {
     std::vector<Diagnostic> diagnostics;
     XML_Parser parser = nullptr;
     std::uint64_t totalBytes = 0;
+    std::size_t depth = 0;
+    bool finished = false;
     bool fatal = false;
 };
 
@@ -50,6 +52,36 @@ static void XMLCALL onStartElement(void* userData,
     auto* ctx = static_cast<ParserContext*>(userData);
     if (ctx->fatal) return;
     try {
+        const std::size_t attributeCount = atts == nullptr ? 0 :
+            [&]() { std::size_t n = 0; while (atts[n] != nullptr) n += 2; return n / 2; }();
+        if (attributeCount > ctx->limits.maxAttributeCount ||
+            std::strlen(name) > ctx->limits.maxElementNameLength) {
+            ctx->diagnostics.push_back({Diagnostic::Severity::Fatal,
+                ErrorCode::XmlLimitExceeded,
+                "XML element or attribute limit exceeded"});
+            ctx->fatal = true;
+            XML_StopParser(ctx->parser, XML_FALSE);
+            return;
+        }
+        for (std::size_t i = 0; i < attributeCount * 2; i += 2) {
+            if (std::strlen(atts[i + 1]) > ctx->limits.maxAttributeValueLength) {
+                ctx->diagnostics.push_back({Diagnostic::Severity::Fatal,
+                    ErrorCode::XmlLimitExceeded,
+                    "XML attribute value limit exceeded"});
+                ctx->fatal = true;
+                XML_StopParser(ctx->parser, XML_FALSE);
+                return;
+            }
+        }
+        ++ctx->depth;
+        if (ctx->depth > ctx->limits.maxElementDepth) {
+            ctx->diagnostics.push_back({Diagnostic::Severity::Fatal,
+                ErrorCode::XmlLimitExceeded,
+                "XML element depth limit exceeded"});
+            ctx->fatal = true;
+            XML_StopParser(ctx->parser, XML_FALSE);
+            return;
+        }
         if (ctx->callbacks.onStartElement) {
             auto pairs = makeAttrPairs(atts);
             ctx->callbacks.onStartElement(std::string_view(name), pairs);
@@ -77,6 +109,7 @@ static void XMLCALL onEndElement(void* userData,
         if (ctx->callbacks.onEndElement) {
             ctx->callbacks.onEndElement(std::string_view(name));
         }
+        if (ctx->depth > 0) --ctx->depth;
     } catch (...) {
         ctx->fatal = true;
         XML_StopParser(ctx->parser, XML_FALSE);
@@ -154,7 +187,7 @@ static void XMLCALL onStartDoctypeDecl(void* userData,
                                         int /*hasInternalSubset*/) {
     auto* ctx = static_cast<ParserContext*>(userData);
     ctx->diagnostics.push_back({Diagnostic::Severity::Fatal,
-        ErrorCode::XmlMalformed,
+        ErrorCode::XmlDtdForbidden,
         "DTD is not supported"});
     ctx->fatal = true;
     XML_StopParser(ctx->parser, XML_FALSE);
@@ -165,7 +198,8 @@ static int XMLCALL onExternalEntityRef(XML_Parser /*parser*/,
                                         const XML_Char* /*base*/,
                                         const XML_Char* /*systemId*/,
                                         const XML_Char* /*publicId*/) {
-    // Reject all external entities
+    // Reject all external entities. Expat never receives a resolver callback
+    // that can perform I/O; the normal parse error is still reported below.
     return XML_STATUS_ERROR;
 }
 
@@ -218,7 +252,7 @@ ExpatParser::~ExpatParser() {
 }
 
 bool ExpatParser::feed(ByteView data) {
-    if (impl_->ctx.fatal) return false;
+    if (impl_->ctx.fatal || impl_->ctx.finished) return false;
 
     impl_->ctx.totalBytes += data.size();
 
@@ -244,6 +278,7 @@ bool ExpatParser::feed(ByteView data) {
 
 bool ExpatParser::finish() {
     if (impl_->ctx.fatal) return false;
+    if (impl_->ctx.finished) return true;
 
     if (XML_Parse(impl_->parser, "", 0, 1) == XML_STATUS_ERROR) {
         auto err = XML_GetErrorCode(impl_->parser);
@@ -255,6 +290,7 @@ bool ExpatParser::finish() {
         impl_->ctx.fatal = true;
         return false;
     }
+    impl_->ctx.finished = !impl_->ctx.fatal;
     return !impl_->ctx.fatal;
 }
 

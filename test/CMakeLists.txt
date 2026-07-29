@@ -48,6 +48,10 @@ add_executable(iox-test-xml-writer
 target_link_libraries(iox-test-xml-writer PRIVATE iox-xml iox-core iox-test-support)
 add_test(NAME iox.test.xml.writer COMMAND iox-test-xml-writer)
 
+add_executable(iox-test-expat-security xml/ExpatSecurity.test.cpp)
+target_link_libraries(iox-test-expat-security PRIVATE iox-xml iox-core iox-test-support)
+add_test(NAME iox.test.expat.security COMMAND iox-test-expat-security)
+
 # --- XTF 2.3 header tests --------------------------------------------------
 add_executable(iox-test-xtf23-header
     xtf23/Xtf23Header.test.cpp
