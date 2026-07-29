@@ -71,24 +71,6 @@ std::string findAttr(const std::vector<std::pair<std::string_view, std::string_v
     return "";
 }
 
-IomValue parsePrimitive(const std::string& text) {
-    if (text.empty()) return IomValue::text("");
-    // Try integer
-    try {
-        std::size_t pos = 0;
-        auto ival = std::stoll(text, &pos);
-        if (pos == text.size()) return IomValue::integer(ival);
-    } catch (...) {}
-    // Try double
-    try {
-        std::size_t pos = 0;
-        auto dval = std::stod(text, &pos);
-        if (pos == text.size()) return IomValue::decimal(dval);
-    } catch (...) {}
-    // Keep as text (the canonical transfer representation)
-    return IomValue::text(text);
-}
-
 } // anonymous namespace
 
 // ============================================================================

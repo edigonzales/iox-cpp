@@ -161,6 +161,38 @@ add_executable(iox-test-associations
 target_link_libraries(iox-test-associations PRIVATE iox-xtf iox-xml iox-core iox-test-support)
 add_test(NAME iox.test.associations COMMAND iox-test-associations)
 
+# --- Large streaming and public consumer tests ----------------------------
+add_executable(iox-test-large-streaming
+    conformance/LargeStreaming.test.cpp
+)
+target_link_libraries(iox-test-large-streaming PRIVATE iox-xtf iox-xml iox-core iox-test-support)
+add_test(NAME iox.test.large_streaming COMMAND iox-test-large-streaming)
+
+add_executable(iox-test-public-headers
+    public/PublicHeaders.cpp
+)
+target_link_libraries(iox-test-public-headers PRIVATE iox-factory iox-abi iox-json iox-xtf iox-xml iox-core)
+add_test(NAME iox.test.public_headers COMMAND iox-test-public-headers)
+
+add_executable(iox-test-coverage-edges
+    coverage/CoverageEdges.test.cpp
+)
+target_link_libraries(iox-test-coverage-edges PRIVATE iox-abi iox-factory iox-json iox-xtf iox-xml iox-core iox-test-support)
+add_test(NAME iox.test.coverage_edges COMMAND iox-test-coverage-edges)
+
+if(IOX_ENABLE_FUZZING)
+    iox_add_fuzz_target(iox-fuzz-xtf
+        fuzz/XtfReaderFuzz.cpp
+    )
+    if(IOX_FUZZ_LIBFUZZER_AVAILABLE)
+        add_test(NAME iox.fuzz.xtf
+            COMMAND iox-fuzz-xtf -runs=50 "${CMAKE_SOURCE_DIR}/test/fuzz/corpus")
+    else()
+        add_test(NAME iox.fuzz.xtf
+            COMMAND iox-fuzz-xtf --runs 50 "${CMAKE_SOURCE_DIR}/test/fuzz/corpus/empty.xtf")
+    endif()
+endif()
+
 # --- ilic model-based tests --------------------------------------------------
 if(IOX_ENABLE_ILIC)
     add_executable(iox-test-model-based

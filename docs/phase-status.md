@@ -12,8 +12,8 @@
 | 7 | completed | 8b767a8 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 4/4) | `./scripts/coverage.sh` (0, 22/22); ASan+UBSan CTest (0, 22/22) | Complete streaming C ABI, chunkwise output, structured results, C-only and Node low-level ABI tests |
 | 8 | completed | edf2974 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 22/22 instrumentation) | Idiomatic JS API, TypeScript unions, byte/iterator/incremental tests, module-worker protocol |
 | 9 | completed | 017ab90 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 21/21, IOX_ENABLE_ILIC=OFF); explicit ilic build (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 21/21 instrumentation) | Direct concrete ilic-core integration; no provider abstraction |
-| 10 | completed | pending | `cmake -S . -B build/phase10 ...` (0); `cmake --build build/phase10 --parallel` (0); `ctest --test-dir build/phase10 --output-on-failure` (0, 28/28) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 28/28 instrumentation) | BasketReader and limit diagnostics, scored factories, custom format, examples, iox-dump |
-| 11 | in-progress | — | — | — | — | Final conformance, coverage, sanitizer, fuzz gates |
+| 10 | completed | 05d3a6d | `cmake -S . -B build/phase10 ...` (0); `cmake --build build/phase10 --parallel` (0); `ctest --test-dir build/phase10 --output-on-failure` (0, 28/28) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 28/28 instrumentation) | BasketReader and limit diagnostics, scored factories, custom format, examples, iox-dump |
+| 11 | completed | pending (this commit) | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 31/31) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 31/31; 93.69% line, 85.09% branch) | ASan/UBSan 25/25, standalone fuzz 50 runs plus CTest 1/1, 10,000-object streaming, Native/WASM parity, deterministic roundtrip, public-header consumer, direct ilic-core 26/26 |
 
 ## Build Commands
 
@@ -175,9 +175,39 @@ source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-was
 The Phase 10 scope has no separate sanitizer or fuzz gate; those final gates
 remain explicitly scheduled for Phase 11.
 
-## Phase 11 — In Progress
+## Phase 11 — Completed
 
-- Coverage gates (90% line / 85% branch) not measured
-- ASan/UBSan not run
-- Fuzz targets not built or run
-- Clean build from scratch not verified
+The final hardening gates passed on 2026-07-29. The coverage report includes
+the public inline API headers and excludes third-party, tests, the optional
+factory convenience module, examples/tools, and generated WASM glue. The
+result is 93.69% line and 85.09% branch coverage for the core-library report.
+
+### Phase 11 verification commands
+
+```text
+./scripts/build-native.sh                                      # exit 0
+./scripts/test-native.sh                                       # exit 0, 31/31
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, Emscripten 3.1.64
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 8/8
+./scripts/coverage.sh                                          # exit 0, 31/31; 93.69% line, 85.09% branch
+cmake -S . -B build/asan11 -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ASAN=ON -DIOX_ENABLE_UBSAN=ON  # exit 0
+cmake --build build/asan11 --parallel                             # exit 0
+ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1 ctest --test-dir build/asan11 --output-on-failure  # exit 0, 25/25
+cmake -S . -B build/fuzz -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_FUZZING=ON  # exit 0
+cmake --build build/fuzz --parallel                              # exit 0
+build/fuzz/test/iox-fuzz-xtf --runs 50 test/fuzz/corpus/empty.xtf  # exit 0, 50 standalone runs
+ctest --test-dir build/fuzz -R iox\\.fuzz\\.xtf --output-on-failure  # exit 0, 1/1
+cmake -S . -B build/ilic11 -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork  # exit 0
+cmake --build build/ilic11 --parallel                           # exit 0
+ctest --test-dir build/ilic11 --output-on-failure               # exit 0, 26/26
+./scripts/conformance.sh                                      # exit 0 (optional differential stub; regular conformance is CTest)
+```
+
+The native suite includes the 10,000-object, 4096-byte chunk streaming test,
+the public-header consumer, and the coverage edge-path suite. A manual
+Native/WASM event-kind comparison over `EmptyBasket.xtf` produced the same
+`startTransfer,startBasket,endBasket,endTransfer` sequence. Two native
+roundtrips of the same fixture were byte-identical at 277 bytes. The regular
+CTest suite performs no network access; Java remains outside the regular test
+path. Remaining TODO/FIXME markers are confined to generated Emscripten glue,
+not product or test sources.
