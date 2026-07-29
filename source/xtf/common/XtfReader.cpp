@@ -34,6 +34,7 @@ struct XtfReader::Impl {
 
     ParserPhase phase = ParserPhase::BeforeRoot;
     XtfVersion detected = XtfVersion::Unknown;
+    bool rootClosed = false;
 
     // Event queue — filled by header parsing and dialect callbacks
     std::vector<IoxEvent> eventQueue;
@@ -97,6 +98,14 @@ void XtfReader::Impl::onStartElement(
     const std::vector<std::pair<std::string_view, std::string_view>>& attrs)
 {
     std::string sname(name);
+
+    if (rootClosed) {
+        diagnostics.push_back({Diagnostic::Severity::Fatal,
+            ErrorCode::XtfStateViolation,
+            "Element encountered after the TRANSFER root was closed"});
+        phase = ParserPhase::Fatal;
+        return;
+    }
 
     // Extract local name (after namespace separator)
     auto _sep = sname.find('\xFF');
@@ -215,7 +224,10 @@ void XtfReader::Impl::onEndElement(std::string_view name) {
             }
             eventQueue.push_back(EndTransferEvent{});
             if (!elementStack.empty()) elementStack.pop();
-            phase = ParserPhase::Fatal; // Prevent finish() from emitting duplicates
+            rootClosed = true;
+            // The root is successfully closed. Keep a non-fatal phase so
+            // finish() can finalize the parser and enforce its one-shot API.
+            phase = ParserPhase::InContent;
             return;
         }
     }
@@ -318,7 +330,14 @@ ReadOutcome XtfReader::next() {
 }
 
 void XtfReader::feed(ByteView data) {
-    if (impl_->phase == ParserPhase::Fatal || impl_->finished_) return;
+    if (impl_->finished_) {
+        impl_->diagnostics.push_back({Diagnostic::Severity::Fatal,
+            ErrorCode::InvalidState,
+            "XTF reader received input after finish()"});
+        impl_->phase = ParserPhase::Fatal;
+        return;
+    }
+    if (impl_->phase == ParserPhase::Fatal) return;
 
     if (!impl_->xmlParser->feed(data)) {
         impl_->phase = ParserPhase::Fatal;
@@ -329,6 +348,13 @@ void XtfReader::feed(ByteView data) {
 }
 
 void XtfReader::finish() {
+    if (impl_->finished_) {
+        impl_->diagnostics.push_back({Diagnostic::Severity::Fatal,
+            ErrorCode::InvalidState,
+            "XTF reader finish() called more than once"});
+        impl_->phase = ParserPhase::Fatal;
+        return;
+    }
     if (impl_->phase == ParserPhase::Fatal) return;
 
     if (impl_->xmlParser->finish()) {
