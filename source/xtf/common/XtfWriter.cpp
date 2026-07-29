@@ -5,6 +5,7 @@
 #include <vector>
 #include <utility>
 #include <stdexcept>
+#include <map>
 
 namespace iox {
 namespace xtf {
@@ -33,6 +34,44 @@ struct XtfWriter::Impl {
     WriterState state = WriterState::BeforeTransfer;
     bool closed_ = false;
     std::vector<Diagnostic> diagnostics;
+    std::map<std::string, std::string> modelPrefixes;
+    std::size_t nextModelPrefix = 0;
+
+    std::string elementName(const IomName& name) {
+        if (options.version != XtfVersion::Xtf24 || !name.xmlName()) {
+            return name.iliName();
+        }
+        const auto& xmlName = *name.xmlName();
+        if (xmlName.namespaceUri == "http://www.interlis.ch/xtf/2.4/INTERLIS") {
+            return "ili:" + xmlName.localName;
+        }
+        if (xmlName.namespaceUri == "http://www.interlis.ch/geometry/1.0") {
+            return "geom:" + xmlName.localName;
+        }
+        auto found = modelPrefixes.find(xmlName.namespaceUri);
+        if (found == modelPrefixes.end()) {
+            std::string prefix = xmlName.prefixHint;
+            if (prefix.empty() || prefix == "ili" || prefix == "geom") {
+                prefix = "m" + std::to_string(nextModelPrefix++);
+            }
+            found = modelPrefixes.emplace(xmlName.namespaceUri, std::move(prefix)).first;
+        }
+        return found->second + ":" + xmlName.localName;
+    }
+
+    void addNamespaceBinding(std::vector<std::pair<std::string, std::string>>& attrs,
+                             const IomName& name) {
+        if (options.version != XtfVersion::Xtf24 || !name.xmlName()) return;
+        const auto& xmlName = *name.xmlName();
+        if (xmlName.namespaceUri.empty() ||
+            xmlName.namespaceUri == "http://www.interlis.ch/xtf/2.4/INTERLIS" ||
+            xmlName.namespaceUri == "http://www.interlis.ch/geometry/1.0") return;
+        const auto lexical = elementName(name);
+        const auto separator = lexical.find(':');
+        if (separator != std::string::npos) {
+            attrs.push_back({"xmlns:" + lexical.substr(0, separator), xmlName.namespaceUri});
+        }
+    }
 
     void validateEvent(const IoxEvent& event);
     void writeStartTransfer(const StartTransferEvent& e);
@@ -91,8 +130,8 @@ void XtfWriter::Impl::writeStartTransfer(const StartTransferEvent& e) {
     std::vector<std::pair<std::string, std::string>> attrs;
 
     if (options.version == XtfVersion::Xtf24) {
-        attrs.push_back({"xmlns:ili", "http://www.interlis.ch/INTERLIS2.4"});
-        attrs.push_back({"xmlns:geom", "http://www.interlis.ch/GEOMETRY"});
+        attrs.push_back({"xmlns:ili", "http://www.interlis.ch/xtf/2.4/INTERLIS"});
+        attrs.push_back({"xmlns:geom", "http://www.interlis.ch/geometry/1.0"});
         attrs.push_back({"xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance"});
         xml->writeStartElement("ili:TRANSFER", attrs);
     } else {
@@ -160,8 +199,9 @@ void XtfWriter::Impl::writeObject(const ObjectEvent& e) {
         attrs.push_back({"BID", *e.object.bid()});
     }
 
-    auto tagName = e.object.tag().iliName();
+    auto tagName = elementName(e.object.tag());
     if (tagName.empty()) tagName = "DataObject";
+    addNamespaceBinding(attrs, e.object.tag());
 
     xml->writeStartElement(tagName, attrs);
 
@@ -170,7 +210,7 @@ void XtfWriter::Impl::writeObject(const ObjectEvent& e) {
     writeIomAsXml = [this, &writeIomAsXml](const IomObject& obj) {
         for (std::size_t i = 0; i < obj.attributeCount(); ++i) {
             const auto& attr = obj.attributeAt(i);
-            auto attrName = attr.name.iliName();
+            auto attrName = elementName(attr.name);
             if (attrName.empty()) continue;
 
             // REF attribute metadata
@@ -178,6 +218,7 @@ void XtfWriter::Impl::writeObject(const ObjectEvent& e) {
             if (attr.ref) refAttrs.push_back({"REF", *attr.ref});
             if (attr.bid) refAttrs.push_back({"BID", *attr.bid});
             if (attr.orderPos) refAttrs.push_back({"ORDER_POS", std::to_string(*attr.orderPos)});
+            addNamespaceBinding(refAttrs, attr.name);
 
             if (attr.values.empty()) {
                 xml->writeStartElement(attrName, refAttrs, true);
@@ -191,9 +232,11 @@ void XtfWriter::Impl::writeObject(const ObjectEvent& e) {
                     // Write the attribute element, then the sub-object
                     xml->writeStartElement(attrName, refAttrs);
                     // Use the sub-object's tag as the wrapper element name
-                    auto subTag = sub->tag().iliName();
+                    auto subTag = elementName(sub->tag());
                     if (!subTag.empty()) {
-                        xml->writeStartElement(subTag);
+                        std::vector<std::pair<std::string, std::string>> subAttrs;
+                        addNamespaceBinding(subAttrs, sub->tag());
+                        xml->writeStartElement(subTag, subAttrs);
                         writeIomAsXml(*sub);
                         xml->writeEndElement(subTag);
                     } else {
@@ -210,9 +253,11 @@ void XtfWriter::Impl::writeObject(const ObjectEvent& e) {
                         xml->writeEndElement(attrName);
                     } else if (auto* sub = std::get_if<IomObject>(&val)) {
                         xml->writeStartElement(attrName, refAttrs);
-                        auto subTag = sub->tag().iliName();
+                        auto subTag = elementName(sub->tag());
                         if (!subTag.empty()) {
-                            xml->writeStartElement(subTag);
+                            std::vector<std::pair<std::string, std::string>> subAttrs;
+                            addNamespaceBinding(subAttrs, sub->tag());
+                            xml->writeStartElement(subTag, subAttrs);
                             writeIomAsXml(*sub);
                             xml->writeEndElement(subTag);
                         } else {

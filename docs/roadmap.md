@@ -7,13 +7,13 @@
 | 2 | Secure Incremental XML Layer and XTF Detection | completed |
 | 3 | XTF 2.3 Basic Objects and References | completed |
 | 4 | XTF 2.3 Geometry and Production Hardening | completed |
-| 5 | XTF 2.4 Basic Objects, Namespaces, and References | in-progress |
-| 6 | XTF 2.4 Geometry and Production Hardening | completed |
-| 7 | Complete C ABI and Incremental WASM | completed |
-| 8 | Idiomatic @interlis/iox-wasm | completed |
-| 9 | Direct ilic-core Integration | in-progress |
-| 10 | Convenience APIs, Examples, and iox-dump | completed |
-| 11 | Final Conformance, Coverage, and Fuzz Hardening | in-progress |
+| 5 | XTF 2.4 Basic Objects, Namespaces, and References | completed |
+| 6 | XTF 2.4 Geometry and Production Hardening | in-progress |
+| 7 | Complete C ABI and Incremental WASM | not-started |
+| 8 | Idiomatic @interlis/iox-wasm | not-started |
+| 9 | Direct ilic-core Integration | not-started |
+| 10 | Convenience APIs, Examples, and iox-dump | not-started |
+| 11 | Final Conformance, Coverage, and Fuzz Hardening | not-started |
 
 ## Acceptance Criteria per Phase
 

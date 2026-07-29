@@ -106,3 +106,11 @@ The checked-in `Surface.xtf`, `PolylineWithArcs.xtf`, `Area.xtf`, and related
 fixtures exercise the generic IOM geometry tree. `COORD`, `ARC`, `POLYLINE`,
 `SEGMENTS`, `SURFACE`, `BOUNDARY`, and `AREA` remain structured objects; no
 numeric conversion or polygonization is performed by the core.
+
+### XTF 2.4 names
+
+The reader retains the expanded namespace URI and local XML name on every
+model-qualified class and property it can observe. Prefixes are lexical hints
+only; semantic comparisons use URI plus local name. If a model-free transfer
+does not carry enough information to derive an INTERLIS scoped name, the
+expanded XML name is retained rather than guessed.

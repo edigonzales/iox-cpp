@@ -8,9 +8,21 @@
 #include <stack>
 #include <utility>
 #include <cstring>
+#include <cctype>
 
 namespace iox {
 namespace xtf {
+
+namespace {
+std::string lowerAscii(std::string_view value) {
+    std::string result;
+    result.reserve(value.size());
+    for (char c : value) {
+        result.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    return result;
+}
+}
 
 // ============================================================================
 // XtfReader::Impl
@@ -128,7 +140,8 @@ void XtfReader::Impl::onStartElement(
             if (sepPos != std::string::npos) {
                 auto ns = sname.substr(0, sepPos);
                 if (ns.find("INTERLIS2.4") != std::string::npos ||
-                    ns.find("INTERLIS/2.4") != std::string::npos) {
+                    ns.find("INTERLIS/2.4") != std::string::npos ||
+                    ns.find("xtf/2.4/INTERLIS") != std::string::npos) {
                     detected = XtfVersion::Xtf24;
                     versionNum = 24;
                 } else if (ns.find("INTERLIS2.3") != std::string::npos ||
@@ -166,20 +179,21 @@ void XtfReader::Impl::onStartElement(
 
     // --- Header phase ---
     if (phase == ParserPhase::InHeader) {
-        if (local == "Sender" || local == "SENDER") {
+        const auto lowerLocal = lowerAscii(local);
+        if (lowerLocal == "sender") {
             inSender = true; currentText.clear();
-        } else if (local == "Comment" || local == "COMMENT") {
+        } else if (lowerLocal == "comment") {
             inComment = true; currentText.clear();
-        } else if (local == "Version" || local == "VERSION") {
+        } else if (lowerLocal == "version") {
             inIliVersion = true; currentText.clear();
-        } else if (local == "Software" || local == "SOFTWARE") {
+        } else if (lowerLocal == "software") {
             inSoftware = true; currentText.clear();
-        } else if (local == "Date" || local == "DATE") {
+        } else if (lowerLocal == "date") {
             inDate = true; currentText.clear();
         }
 
         // Check for end of header section — first basket
-        if (local == "BASKET" || local == "basket") {
+        if (lowerLocal == "basket") {
             // Emit StartTransfer, then switch to content
             emitStartTransfer();
             phase = ParserPhase::InContent;
@@ -195,7 +209,7 @@ void XtfReader::Impl::onStartElement(
             std::string lk(a.first);
             auto sep = lk.find('\xFF');
             if (sep != std::string::npos) lk = lk.substr(sep + 1);
-            if (lk == "TID") { tid = std::string(a.second); break; }
+            if (lowerAscii(lk) == "tid") { tid = std::string(a.second); break; }
         }
         if (!tid.empty()) {
             emitStartTransfer();

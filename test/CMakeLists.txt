@@ -84,6 +84,10 @@ add_executable(iox-test-xtf24-basic
 target_link_libraries(iox-test-xtf24-basic PRIVATE iox-xtf iox-xml iox-core iox-test-support)
 add_test(NAME iox.test.xtf24.basic COMMAND iox-test-xtf24-basic)
 
+add_executable(iox-test-xtf24-namespace xtf24/Xtf24Namespace.test.cpp)
+target_link_libraries(iox-test-xtf24-namespace PRIVATE iox-xtf iox-xml iox-core iox-test-support)
+add_test(NAME iox.test.xtf24.namespace COMMAND iox-test-xtf24-namespace)
+
 # --- XTF 2.4 geometry tests --------------------------------------------------
 add_executable(iox-test-xtf24-geometry
     xtf24/Xtf24Geometry.test.cpp

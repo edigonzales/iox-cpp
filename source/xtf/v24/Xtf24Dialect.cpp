@@ -6,6 +6,7 @@
 #include <utility>
 #include <cstring>
 #include <stdexcept>
+#include <cctype>
 
 namespace iox {
 namespace xtf {
@@ -16,12 +17,24 @@ namespace xtf {
 
 namespace {
 
-constexpr const char* ILI_NS = "http://www.interlis.ch/INTERLIS2.4";
+std::string lowerAscii(std::string_view value) {
+    std::string result;
+    result.reserve(value.size());
+    for (char c : value) {
+        result.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    return result;
+}
+
+constexpr const char* ILI_NS = "http://www.interlis.ch/xtf/2.4/INTERLIS";
+constexpr const char* LEGACY_ILI_NS = "http://www.interlis.ch/INTERLIS2.4";
 
 bool isIliElement(std::string_view name, std::string_view local) {
     std::string expected = std::string(ILI_NS) + "\xFF" + std::string(local);
     if (name == expected) return true;
-    if (name == local) return true;
+    expected = std::string(LEGACY_ILI_NS) + "\xFF" + std::string(local);
+    if (name == expected) return true;
+    if (lowerAscii(name) == lowerAscii(local)) return true;
     std::string prefixed = std::string("ili:") + std::string(local);
     if (name == prefixed) return true;
     return false;
@@ -39,11 +52,21 @@ std::string localName(std::string_view name) {
     return s;
 }
 
+IomName iomNameFromXml(std::string_view name) {
+    const auto separator = name.find('\xFF');
+    if (separator == std::string_view::npos) {
+        return IomName(localName(name));
+    }
+    const auto uri = std::string(name.substr(0, separator));
+    const auto local = std::string(name.substr(separator + 1));
+    return IomName(local, XmlQualifiedName(uri, local));
+}
+
 std::string findAttr(const std::vector<std::pair<std::string_view, std::string_view>>& attrs,
                      std::string_view key) {
     for (const auto& a : attrs) {
         std::string lk = localName(a.first);
-        if (lk == key) return std::string(a.second);
+        if (lowerAscii(lk) == lowerAscii(key)) return std::string(a.second);
     }
     return "";
 }
@@ -128,7 +151,7 @@ void Xtf24Dialect::onStartElement(
     state.iliName = local;
 
     // --- BASKET ---
-    if (isIliElement(name, "BASKET")) {
+    if (isIliElement(name, "BASKET") || lowerAscii(local) == "basket") {
         state.type = ElemType::Basket;
 
         StartBasketEvent sb;
@@ -141,7 +164,7 @@ void Xtf24Dialect::onStartElement(
         if (!oidStr.empty()) {
             try { sb.oidDomain = std::stoi(oidStr); } catch (...) {}
         }
-        sb.basketType = IomName(local);
+        sb.basketType = iomNameFromXml(name);
         impl_->currentBasket = sb;
         impl_->cb.emitEvent(sb);
         impl_->stack.push(std::move(state));
@@ -152,7 +175,7 @@ void Xtf24Dialect::onStartElement(
     std::string tid = findAttr(attrs, "TID");
     if (!tid.empty()) {
         state.type = ElemType::Object;
-        state.object = IomObject(IomName(local));
+        state.object = IomObject(iomNameFromXml(name));
         impl_->currentTid = tid;
         impl_->currentOperation = findAttr(attrs, "OPERATION");
         if (impl_->currentOperation.empty()) impl_->currentOperation = "insert";
@@ -177,7 +200,7 @@ void Xtf24Dialect::onStartElement(
                 return;
             }
             // Pre-create the attribute entry (will be filled on end)
-            auto& attr = parent.object.setAttribute(IomName(local));
+            auto& attr = parent.object.setAttribute(iomNameFromXml(name));
             std::string ref = findAttr(attrs, "REF");
             if (!ref.empty()) attr.ref = ref;
             std::string bid = findAttr(attrs, "BID");
@@ -193,7 +216,7 @@ void Xtf24Dialect::onStartElement(
         if (parent.type == ElemType::Attribute) {
             // Nested structure within an attribute (e.g. COORD inside Location)
             state.type = ElemType::Structure;
-            state.object = IomObject(IomName(local));
+            state.object = IomObject(iomNameFromXml(name));
             // Immediately add this structure as a value of the parent attribute
             // The parent attribute is on the grandparent's object
             // We need to find and update the attribute on the grandparent
