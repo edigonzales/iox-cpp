@@ -1,0 +1,157 @@
+cmake_minimum_required(VERSION 3.20)
+project(iox-cpp VERSION 0.1.0 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+include(CTest)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+include(IoxWarnings)
+include(IoxOptions)
+include(IoxDependencies)
+include(IoxSanitizers)
+include(IoxCoverage)
+include(IoxFuzzing)
+
+# --- iox-core -----------------------------------------------------------
+add_library(iox-core STATIC
+    source/core/Version.cpp
+    source/core/IomObject.cpp
+    source/core/IomValue.cpp
+    source/core/FormatRegistry.cpp
+)
+
+target_include_directories(iox-core
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+
+iox_set_warnings(iox-core)
+
+# --- iox-json ------------------------------------------------------------
+add_library(iox-json STATIC
+    source/json/JsonEventReader.cpp
+    source/json/JsonEventWriter.cpp
+)
+
+target_include_directories(iox-json
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(iox-json PUBLIC iox-core)
+iox_set_warnings(iox-json)
+
+# --- iox-xml (private Expat dependency) ---------------------------------
+iox_fetch_expat()
+
+add_library(iox-xml STATIC
+    source/xml/ExpatParser.cpp
+    source/xml/XmlWriter.cpp
+)
+
+target_include_directories(iox-xml
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(iox-xml PUBLIC iox-core expat)
+iox_set_warnings(iox-xml)
+
+# --- iox-xtf ------------------------------------------------------------
+add_library(iox-xtf STATIC
+    source/xtf/common/XtfReader.cpp
+    source/xtf/common/XtfWriter.cpp
+    source/xtf/v23/Xtf23Dialect.cpp
+    source/xtf/v24/Xtf24Dialect.cpp
+)
+
+target_include_directories(iox-xtf
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(iox-xtf PUBLIC iox-xml iox-core)
+iox_set_warnings(iox-xtf)
+
+# --- iox-ilic (model-aware XTF processing, always built) ----------------
+add_library(iox-ilic STATIC
+    source/ilic/IlicModelIndex.cpp
+    source/ilic/IlicXtf.cpp
+)
+
+target_include_directories(iox-ilic
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(iox-ilic PUBLIC iox-xtf iox-core)
+iox_set_warnings(iox-ilic)
+
+# --- iox-dump tool -------------------------------------------------------
+if(IOX_BUILD_TOOLS)
+    add_executable(iox-dump tools/iox-dump.cpp)
+    target_link_libraries(iox-dump PRIVATE iox-xtf iox-json iox-core)
+    iox_set_warnings(iox-dump)
+endif()
+
+# --- Examples ------------------------------------------------------------
+if(IOX_BUILD_EXAMPLES)
+    add_executable(cpp-read-events examples/cpp-read-events.cpp)
+    target_link_libraries(cpp-read-events PRIVATE iox-xtf iox-core)
+    iox_set_warnings(cpp-read-events)
+
+    add_executable(cpp-roundtrip examples/cpp-roundtrip.cpp)
+    target_link_libraries(cpp-roundtrip PRIVATE iox-xtf iox-core)
+    iox_set_warnings(cpp-roundtrip)
+endif()
+
+# --- iox-abi -------------------------------------------------------------
+add_library(iox-abi STATIC
+    source/abi/iox.cpp
+)
+
+target_include_directories(iox-abi
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(iox-abi PUBLIC iox-core iox-xtf iox-json)
+iox_set_warnings(iox-abi)
+
+if(IOX_BUILD_WASM)
+    if(NOT EMSCRIPTEN)
+        message(FATAL_ERROR "IOX_BUILD_WASM requires the Emscripten toolchain")
+    endif()
+    add_executable(iox-wasm source/abi/iox.cpp)
+    target_include_directories(iox-wasm PRIVATE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+    target_link_libraries(iox-wasm PRIVATE iox-core iox-xtf iox-json)
+    target_compile_options(iox-wasm PRIVATE "-fexceptions")
+    target_link_options(iox-wasm PRIVATE
+        "--no-entry"
+        "-sMODULARIZE=1"
+        "-sEXPORT_ES6=1"
+        "-sENVIRONMENT=web,worker,node"
+        "-sALLOW_MEMORY_GROWTH=1"
+        "-sWASM_BIGINT=1"
+        "-sASSERTIONS=1"
+        "-fexceptions"
+        "SHELL:-sEXPORTED_RUNTIME_METHODS=['UTF8ToString']"
+        "SHELL:-sEXPORTED_FUNCTIONS=['_iox_abi_version','_iox_version','_iox_alloc','_iox_free','_iox_reader_create','_iox_reader_destroy','_iox_reader_feed','_iox_reader_finish','_iox_reader_next','_iox_writer_create','_iox_writer_destroy','_iox_writer_write_event_json','_iox_writer_finish','_iox_result_json','_iox_result_bytes','_iox_result_size','_iox_result_status','_iox_result_destroy']")
+    set_target_properties(iox-wasm PROPERTIES OUTPUT_NAME "iox-wasm" SUFFIX ".mjs")
+endif()
+
+# --- Tests ---------------------------------------------------------------
+if(BUILD_TESTING)
+    add_subdirectory(test)
+endif()

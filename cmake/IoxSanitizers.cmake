@@ -1,0 +1,27 @@
+# IoxSanitizers.cmake — sanitizer support for iox-cpp
+
+if(IOX_ENABLE_ASAN)
+    if(MSVC)
+        add_compile_options(/fsanitize=address)
+        add_link_options(/fsanitize=address)
+    else()
+        add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=address)
+    endif()
+    message(STATUS "AddressSanitizer enabled")
+endif()
+
+if(IOX_ENABLE_UBSAN)
+    if(NOT MSVC)
+        add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=undefined)
+    endif()
+    message(STATUS "UndefinedBehaviorSanitizer enabled")
+endif()
+
+if(IOX_ENABLE_LSAN)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT MSVC)
+        add_compile_options(-fsanitize=leak)
+        add_link_options(-fsanitize=leak)
+    endif()
+endif()
