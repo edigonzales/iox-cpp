@@ -9,9 +9,9 @@
 | 4 | completed | 75e2c33 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 21/21); `./scripts/coverage.sh` (0, 21/21) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | Instrumented gate passed; threshold report deferred to Phase 11 | XTF 2.3 COORD/ARC/POLYLINE/SURFACE/AREA fixtures and recursive geometry assertion |
 | 5 | completed | 24b3fff | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | N/A | XTF 2.4 namespace-aware objects, expanded QNames, deterministic prefix bindings |
 | 6 | completed | 2e219e7 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 2/2) | `./scripts/coverage.sh` (0, 22/22; instrumentation gate) | XTF 2.4 canonical geometry tree, multi-geometries, custom line preservation, fixture chunk matrix |
-| 7 | completed | pending | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 4/4) | `./scripts/coverage.sh` (0, 22/22); ASan+UBSan CTest (0, 22/22) | Complete streaming C ABI, chunkwise output, structured results, C-only and Node low-level ABI tests |
-| 8 | in-progress | — | — | — | — | JavaScript/worker API |
-| 9 | not-started | — | — | — | — | Direct ilic-core integration |
+| 7 | completed | 8b767a8 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 4/4) | `./scripts/coverage.sh` (0, 22/22); ASan+UBSan CTest (0, 22/22) | Complete streaming C ABI, chunkwise output, structured results, C-only and Node low-level ABI tests |
+| 8 | completed | pending | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 22/22 instrumentation) | Idiomatic JS API, TypeScript unions, byte/iterator/incremental tests, module-worker protocol |
+| 9 | in-progress | — | — | — | — | Direct ilic-core integration |
 | 10 | not-started | — | — | — | — | Convenience APIs, examples, iox-dump |
 | 11 | not-started | — | — | — | — | Final conformance, coverage, sanitizer, fuzz gates |
 
@@ -86,10 +86,32 @@ platform runtime; the sanitizer pass was therefore run without that option.
   `./scripts/build-wasm.sh` (0, Emscripten 3.1.64),
   `./scripts/test-wasm.sh` (0, 2/2), and `./scripts/coverage.sh` (0, 22/22).
 
-## Phase 8 — In Progress
+## Phase 8 — Completed
 
-The low-level ABI is complete. The idiomatic JavaScript wrapper and worker
-protocol are the current implementation scope.
+- `createIoxModule` exposes the pinned Emscripten module and ABI/version.
+- `XtfReader` accepts UTF-8 strings, `Uint8Array`, and `ArrayBuffer`, supports
+  iterator early-return cleanup, and returns canonical `event`-discriminated
+  events.
+- `IncrementalXtfReader` feeds arbitrary chunks and drains NeedInput/Event/End
+  through the same native C ABI.
+- `XtfWriter`, `readAll`, and `writeAll` preserve ordered attributes,
+  repeated values, nested structures, and drain writer output incrementally.
+- `worker.js` implements request-ID based `init`, `readAll`, `writeAll`, and
+  `close`; `handleWorkerMessage` is a Node/browser-independent harness.
+- `index.d.ts` contains the complete public discriminated-union declarations;
+  no local TypeScript compiler was installed, so the declaration smoke checks
+  exported symbols and rejects public `any` types.
+
+### Phase 8 verification commands
+
+```text
+./scripts/build-native.sh                         # exit 0
+./scripts/test-native.sh                          # exit 0, 22/22
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, 3.1.64
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 8/8
+./scripts/coverage.sh                             # exit 0, 22/22 instrumented
+node --input-type=module <<'NODE' ... NODE           # exit 0, TypeScript declaration smoke
+```
 
 ## Phase 9 — Not Started
 

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstddef>
+#include <cctype>
 #include <cstring>
 #include <iterator>
 #include <memory>
@@ -245,6 +246,52 @@ iox_status_t invalidArgument(iox_result_t** output, const char* message) {
     return IOX_STATUS_INVALID_ARGUMENT;
 }
 
+std::optional<std::string> jsonStringOption(const char* json,
+                                            std::string_view key) {
+    if (json == nullptr) return std::nullopt;
+    const std::string input(json);
+    const std::string needle = "\"" + std::string(key) + "\"";
+    const auto keyPos = input.find(needle);
+    if (keyPos == std::string::npos) return std::nullopt;
+    auto pos = input.find(':', keyPos + needle.size());
+    if (pos == std::string::npos) return std::nullopt;
+    do { ++pos; } while (pos < input.size() &&
+                         std::isspace(static_cast<unsigned char>(input[pos])));
+    if (pos >= input.size() || input[pos] != '"') return std::nullopt;
+    ++pos;
+    std::string value;
+    bool escaped = false;
+    for (; pos < input.size(); ++pos) {
+        const char character = input[pos];
+        if (escaped) {
+            value.push_back(character);
+            escaped = false;
+        } else if (character == '\\') {
+            escaped = true;
+        } else if (character == '"') {
+            return value;
+        } else {
+            value.push_back(character);
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<bool> jsonBoolOption(const char* json, std::string_view key) {
+    if (json == nullptr) return std::nullopt;
+    const std::string input(json);
+    const std::string needle = "\"" + std::string(key) + "\"";
+    const auto keyPos = input.find(needle);
+    if (keyPos == std::string::npos) return std::nullopt;
+    auto pos = input.find(':', keyPos + needle.size());
+    if (pos == std::string::npos) return std::nullopt;
+    do { ++pos; } while (pos < input.size() &&
+                         std::isspace(static_cast<unsigned char>(input[pos])));
+    if (input.compare(pos, 4, "true") == 0) return true;
+    if (input.compare(pos, 5, "false") == 0) return false;
+    return std::nullopt;
+}
+
 } // namespace
 
 extern "C" {
@@ -255,14 +302,30 @@ const char* iox_version(void) { return iox::version(); }
 void* iox_alloc(size_t size) { return std::malloc(size); }
 void iox_free(void* ptr) { std::free(ptr); }
 
-iox_reader_t* iox_reader_create(const char* format, const char* /*options_json*/) {
+iox_reader_t* iox_reader_create(const char* format, const char* options_json) {
     if (format == nullptr) return nullptr;
     try {
         auto reader = new (std::nothrow) iox_reader;
         if (reader == nullptr) return nullptr;
         const std::string value(format);
         if (value == "xtf" || value == "xtf23" || value == "xtf24") {
-            reader->impl = std::make_unique<iox::xtf::XtfReader>();
+            iox::xtf::XtfReaderOptions options;
+            if (const auto strict = jsonBoolOption(options_json, "strict")) options.strict = *strict;
+            if (const auto sourceName = jsonStringOption(options_json, "sourceName")) {
+                options.sourceName = *sourceName;
+            }
+            if (const auto preserve = jsonBoolOption(options_json, "preserveUnknownExtensions")) {
+                options.preserveUnknownExtensions = *preserve;
+            }
+            if (const auto expected = jsonStringOption(options_json, "expectedVersion")) {
+                if (*expected == "2.3" || *expected == "23") options.expectedVersion = iox::xtf::XtfVersion::Xtf23;
+                if (*expected == "2.4" || *expected == "24") options.expectedVersion = iox::xtf::XtfVersion::Xtf24;
+            } else if (value == "xtf23") {
+                options.expectedVersion = iox::xtf::XtfVersion::Xtf23;
+            } else if (value == "xtf24") {
+                options.expectedVersion = iox::xtf::XtfVersion::Xtf24;
+            }
+            reader->impl = std::make_unique<iox::xtf::XtfReader>(std::move(options));
         } else if (value == "json-events") {
             reader->impl = std::make_unique<iox::json::JsonEventReader>();
         } else {
@@ -345,7 +408,7 @@ iox_status_t iox_reader_next(iox_reader_t* handle, iox_result_t** output) {
     }
 }
 
-iox_writer_t* iox_writer_create(const char* format, const char* /*options_json*/) {
+iox_writer_t* iox_writer_create(const char* format, const char* options_json) {
     if (format == nullptr) return nullptr;
     try {
         auto writer = new (std::nothrow) iox_writer;
@@ -355,10 +418,20 @@ iox_writer_t* iox_writer_create(const char* format, const char* /*options_json*/
         if (value == "xtf" || value == "xtf23") {
             iox::xtf::XtfWriterOptions options;
             options.version = iox::xtf::XtfVersion::Xtf23;
+            if (const auto strict = jsonBoolOption(options_json, "strict")) options.strict = *strict;
+            if (const auto pretty = jsonBoolOption(options_json, "pretty")) options.pretty = *pretty;
+            if (const auto sender = jsonStringOption(options_json, "sender")) options.sender = *sender;
+            if (const auto comment = jsonStringOption(options_json, "comment")) options.comment = *comment;
+            if (const auto software = jsonStringOption(options_json, "software")) options.software = *software;
             writer->impl = std::make_unique<iox::xtf::XtfWriter>(writer->sink, options);
         } else if (value == "xtf24") {
             iox::xtf::XtfWriterOptions options;
             options.version = iox::xtf::XtfVersion::Xtf24;
+            if (const auto strict = jsonBoolOption(options_json, "strict")) options.strict = *strict;
+            if (const auto pretty = jsonBoolOption(options_json, "pretty")) options.pretty = *pretty;
+            if (const auto sender = jsonStringOption(options_json, "sender")) options.sender = *sender;
+            if (const auto comment = jsonStringOption(options_json, "comment")) options.comment = *comment;
+            if (const auto software = jsonStringOption(options_json, "software")) options.software = *software;
             writer->impl = std::make_unique<iox::xtf::XtfWriter>(writer->sink, options);
         } else if (value == "json-events") {
             writer->impl = std::make_unique<iox::json::JsonEventWriter>(writer->sink);

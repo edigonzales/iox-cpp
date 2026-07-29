@@ -20,6 +20,8 @@ struct XmlWriter::Impl {
     bool hasWritten_ = false;
     bool elementOpen = false;    // true if a start tag has been written but no content/end yet
     std::string openElementName; // name of the currently open element
+    std::vector<bool> elementHasText;
+    std::vector<bool> elementHasChild;
 
     void write(const void* data, std::size_t size) {
         if (writeFunc) writeFunc(data, size);
@@ -87,6 +89,7 @@ void XmlWriter::writeStartElement(std::string_view name,
                                    const std::vector<std::pair<std::string, std::string>>& attributes,
                                    bool selfClosing) {
     impl_->closeOpenElement();
+    if (!impl_->elementHasChild.empty()) impl_->elementHasChild.back() = true;
     impl_->writeIndent();
     impl_->writeStr("<");
     impl_->writeStr(std::string(name));
@@ -104,6 +107,8 @@ void XmlWriter::writeStartElement(std::string_view name,
     } else {
         impl_->elementOpen = true;
         impl_->openElementName = std::string(name);
+        impl_->elementHasText.push_back(false);
+        impl_->elementHasChild.push_back(false);
         ++impl_->currentDepth;
     }
 }
@@ -111,23 +116,30 @@ void XmlWriter::writeStartElement(std::string_view name,
 void XmlWriter::writeEndElement(std::string_view name) {
     --impl_->currentDepth;
 
+    const bool hasText = !impl_->elementHasText.empty() && impl_->elementHasText.back();
+
     if (impl_->elementOpen &&
         impl_->openElementName == std::string(name)) {
         // No content was written between start and end — use self-closing
         impl_->elementOpen = false;
         impl_->writeStr("/>");
+        if (!impl_->elementHasText.empty()) impl_->elementHasText.pop_back();
+        if (!impl_->elementHasChild.empty()) impl_->elementHasChild.pop_back();
         return;
     }
 
     impl_->closeOpenElement();
-    impl_->writeIndent();
+    if (!hasText) impl_->writeIndent();
     impl_->writeStr("</");
     impl_->writeStr(std::string(name));
     impl_->writeStr(">");
+    if (!impl_->elementHasText.empty()) impl_->elementHasText.pop_back();
+    if (!impl_->elementHasChild.empty()) impl_->elementHasChild.pop_back();
 }
 
 void XmlWriter::writeText(std::string_view text) {
     impl_->closeOpenElement();
+    if (!impl_->elementHasText.empty()) impl_->elementHasText.back() = true;
     impl_->writeEscaped(text);
 }
 

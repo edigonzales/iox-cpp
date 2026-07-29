@@ -94,14 +94,14 @@ import { XtfWriter } from '@interlis/iox-wasm';
 
 const writer = new XtfWriter(mod, { version: '2.3', sender: 'MyApp' });
 
-writer.write({ type: 'StartTransfer', sender: 'MyApp', version: 23 });
-writer.write({ type: 'StartBasket', bid: 'B1', basketType: 'Model.Topic.Basket' });
-writer.write({ type: 'Object', operation: 'insert', objectId: 'T1', object: {
+writer.write({ event: 'startTransfer', sender: 'MyApp', version: 23 });
+writer.write({ event: 'startBasket', bid: 'B1', basketType: 'Model.Topic.Basket' });
+writer.write({ event: 'object', operation: 'insert', objectId: 'T1', object: {
     tag: 'Model.Topic.MyClass',
     attrs: [{ name: 'Name', value: 'test' }]
 }});
-writer.write({ type: 'EndBasket', bid: 'B1' });
-writer.write({ type: 'EndTransfer' });
+writer.write({ event: 'endBasket', bid: 'B1' });
+writer.write({ event: 'endTransfer' });
 
 const output = writer.finish(); // Uint8Array
 ```
@@ -109,16 +109,15 @@ const output = writer.finish(); // Uint8Array
 ### Web Worker
 
 ```js
-// main.js
-const worker = new Worker('worker.js');
+// main.js — use a module worker
+const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 worker.postMessage({ type: 'init', requestId: 1 });
 worker.onmessage = (e) => {
-    const { requestId, ok, result } = e.data;
+    const { requestId, ok, events, bytes, error } = e.data;
     // handle response
 };
 
-// worker.js — uses the worker protocol from @interlis/iox-wasm
-importScripts('iox-wasm-worker.js');
+// The same request-ID protocol supports readAll, writeAll, and close.
 ```
 
 ## Supported Environments
