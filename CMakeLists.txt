@@ -18,6 +18,7 @@ include(IoxFuzzing)
 
 # --- iox-core -----------------------------------------------------------
 add_library(iox-core STATIC
+    source/core/Basket.cpp
     source/core/Version.cpp
     source/core/IomObject.cpp
     source/core/IomValue.cpp
@@ -81,6 +82,26 @@ target_include_directories(iox-xtf
 target_link_libraries(iox-xtf PUBLIC iox-xml iox-core)
 iox_set_warnings(iox-xtf)
 
+# --- built-in factories ---------------------------------------------------
+add_library(iox-factory STATIC
+    source/factory/Factory.cpp
+)
+
+target_include_directories(iox-factory
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(iox-factory PUBLIC iox-xtf iox-core)
+if(IOX_ENABLE_JSON_FORMAT)
+    target_compile_definitions(iox-factory PRIVATE IOX_FACTORY_ENABLE_JSON=1)
+    target_link_libraries(iox-factory PUBLIC iox-json)
+else()
+    target_compile_definitions(iox-factory PRIVATE IOX_FACTORY_ENABLE_JSON=0)
+endif()
+iox_set_warnings(iox-factory)
+
 # --- optional ilic-core integration --------------------------------------
 if(IOX_ENABLE_ILIC)
     set(_iox_parent_build_testing "${BUILD_TESTING}")
@@ -141,6 +162,10 @@ if(IOX_BUILD_EXAMPLES)
     add_executable(cpp-roundtrip examples/cpp-roundtrip.cpp)
     target_link_libraries(cpp-roundtrip PRIVATE iox-xtf iox-core)
     iox_set_warnings(cpp-roundtrip)
+
+    add_executable(cpp-custom-format examples/cpp-custom-format.cpp)
+    target_link_libraries(cpp-custom-format PRIVATE iox-json iox-core)
+    iox_set_warnings(cpp-custom-format)
 endif()
 
 # --- iox-abi -------------------------------------------------------------
@@ -178,6 +203,16 @@ if(IOX_BUILD_WASM)
         "SHELL:-sEXPORTED_RUNTIME_METHODS=['UTF8ToString']"
         "SHELL:-sEXPORTED_FUNCTIONS=['_iox_abi_version','_iox_version','_iox_alloc','_iox_free','_iox_reader_create','_iox_reader_destroy','_iox_reader_feed','_iox_reader_finish','_iox_reader_next','_iox_writer_create','_iox_writer_destroy','_iox_writer_write_event_json','_iox_writer_take_output','_iox_writer_finish','_iox_result_json','_iox_result_bytes','_iox_result_size','_iox_result_status','_iox_result_destroy']")
     set_target_properties(iox-wasm PROPERTIES OUTPUT_NAME "iox-wasm" SUFFIX ".mjs")
+endif()
+
+# Stable target aliases for consumers of the native SDK.
+add_library(iox::core ALIAS iox-core)
+add_library(iox::json ALIAS iox-json)
+add_library(iox::xtf ALIAS iox-xtf)
+add_library(iox::abi ALIAS iox-abi)
+add_library(iox::factory ALIAS iox-factory)
+if(IOX_ENABLE_ILIC)
+    add_library(iox::ilic ALIAS iox-ilic)
 endif()
 
 # --- Tests ---------------------------------------------------------------

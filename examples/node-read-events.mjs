@@ -3,11 +3,10 @@
  *
  * Usage: node node-read-events.mjs <input.xtf>
  *
- * Note: Requires the WASM module to be built first (Phase 8+).
- * This example uses the stub API for demonstration.
- */
+ * Note: Requires the WASM module to be built first.
+*/
 
-import { createIoxModule, XtfReader } from '@interlis/iox-wasm';
+import { createIoxModule, XtfReader } from '../packages/iox-wasm/index.js';
 import { readFileSync } from 'node:fs';
 
 async function main() {
@@ -28,7 +27,7 @@ async function main() {
     let count = 0;
     for (const event of reader) {
         ++count;
-        console.log(`[${count}] ${event.type}`);
+        console.log(`[${count}] ${event.event}`);
     }
 
     console.error(`\nTotal: ${count} events`);

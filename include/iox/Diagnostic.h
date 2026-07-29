@@ -44,6 +44,9 @@ namespace ErrorCode {
     inline constexpr const char* InvalidArgument    = "invalid_argument";
     inline constexpr const char* InvalidState       = "invalid_state";
     inline constexpr const char* JsonParseError     = "json.parse_error";
+    inline constexpr const char* BasketLimitExceeded = "basket.limit_exceeded";
+    inline constexpr const char* BasketStateViolation = "basket.state_violation";
+    inline constexpr const char* FormatUnknown      = "format.unknown";
     inline constexpr const char* InternalError      = "internal_error";
 }
 

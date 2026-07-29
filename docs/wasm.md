@@ -63,7 +63,7 @@ const data = new Uint8Array(await readFile('data.xtf'));
 // Batch read
 const reader = new XtfReader(mod, data);
 for (const event of reader) {
-    console.log(event.type, event);
+    console.log(event.event, event);
 }
 reader.close();
 ```

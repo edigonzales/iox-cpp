@@ -11,9 +11,9 @@
 | 6 | completed | 2e219e7 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 2/2) | `./scripts/coverage.sh` (0, 22/22; instrumentation gate) | XTF 2.4 canonical geometry tree, multi-geometries, custom line preservation, fixture chunk matrix |
 | 7 | completed | 8b767a8 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 4/4) | `./scripts/coverage.sh` (0, 22/22); ASan+UBSan CTest (0, 22/22) | Complete streaming C ABI, chunkwise output, structured results, C-only and Node low-level ABI tests |
 | 8 | completed | edf2974 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 22/22 instrumentation) | Idiomatic JS API, TypeScript unions, byte/iterator/incremental tests, module-worker protocol |
-| 9 | completed | pending | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 21/21, IOX_ENABLE_ILIC=OFF); explicit ilic build (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 21/21 instrumentation) | Direct concrete ilic-core integration; no provider abstraction |
-| 10 | in-progress | — | — | — | — | Convenience APIs, examples, iox-dump |
-| 11 | not-started | — | — | — | — | Final conformance, coverage, sanitizer, fuzz gates |
+| 9 | completed | 017ab90 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 21/21, IOX_ENABLE_ILIC=OFF); explicit ilic build (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 21/21 instrumentation) | Direct concrete ilic-core integration; no provider abstraction |
+| 10 | completed | pending | `cmake -S . -B build/phase10 ...` (0); `cmake --build build/phase10 --parallel` (0); `ctest --test-dir build/phase10 --output-on-failure` (0, 28/28) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 28/28 instrumentation) | BasketReader and limit diagnostics, scored factories, custom format, examples, iox-dump |
+| 11 | in-progress | — | — | — | — | Final conformance, coverage, sanitizer, fuzz gates |
 
 ## Build Commands
 
@@ -148,12 +148,34 @@ The optional integration is native-only in this phase; the required
 model-free WASM package remains unchanged and passes its complete Node test
 suite.
 
-## Phase 10 — In Progress
+## Phase 10 — Completed
 
-- Convenience APIs, examples, and `iox-dump` are the next implementation
-  scope.
+- `BasketReader` owns a generic reader, exposes the transfer header, consumes
+  complete baskets, and enforces an optional object-count memory limit with
+  stable fatal diagnostics.
+- `ReaderFactory`/`WriterFactory` and `defaultFormatRegistry()` provide
+  deterministic built-in XTF and JSON-event selection. Content sniff scores
+  outrank conflicting extensions.
+- `iox-dump` has print, NDJSON, and roundtrip smoke coverage. C++ reader,
+  roundtrip, and custom-format examples are compiled and executed; the Node
+  example runs against the generated WASM package.
 
-## Phase 11 — Not Started
+### Phase 10 verification commands
+
+```text
+cmake -S . -B build/phase10 -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=ON -DIOX_BUILD_TOOLS=ON  # exit 0
+cmake --build build/phase10 --parallel                    # exit 0
+ctest --test-dir build/phase10 --output-on-failure         # exit 0, 28/28
+node examples/node-read-events.mjs test/fixtures/xtf23/dataSection/EmptyBasket.xtf  # exit 0, 4 events
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, Emscripten 3.1.64
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 8/8
+./scripts/coverage.sh                                      # exit 0, 28/28 instrumented
+```
+
+The Phase 10 scope has no separate sanitizer or fuzz gate; those final gates
+remain explicitly scheduled for Phase 11.
+
+## Phase 11 — In Progress
 
 - Coverage gates (90% line / 85% branch) not measured
 - ASan/UBSan not run

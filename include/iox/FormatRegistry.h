@@ -14,11 +14,14 @@ namespace iox {
 /// Tries to detect the format of byte content by inspecting its prefix.
 using FormatSniffer = std::function<std::string(ByteView firstChunk)>;
 
+/// Optional score-based sniffer. Scores are in [0, 100].
+using ScoredFormatSniffer = std::function<int(ByteView firstChunk)>;
+
 /// Factory for creating a Reader. Takes no arguments.
-using ReaderFactory = std::function<std::unique_ptr<Reader>()>;
+using ReaderCreator = std::function<std::unique_ptr<Reader>()>;
 
 /// Factory for creating a Writer. Takes an OutputSink.
-using WriterFactory = std::function<std::unique_ptr<Writer>(
+using WriterCreator = std::function<std::unique_ptr<Writer>(
     std::shared_ptr<OutputSink>)>;
 
 /// Registration entry for a format.
@@ -26,9 +29,13 @@ struct FormatEntry final {
     std::string name;
     std::string description;
     std::vector<std::string> extensions;
+    std::vector<std::string> mimeTypes;
+    bool canRead = true;
+    bool canWrite = true;
     FormatSniffer sniffer;
-    ReaderFactory readerFactory;
-    WriterFactory writerFactory;
+    ScoredFormatSniffer scoreSniffer;
+    ReaderCreator readerFactory;
+    WriterCreator writerFactory;
 };
 
 /// Explicit, testable format registry.

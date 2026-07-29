@@ -12,8 +12,8 @@
 | 7 | Complete C ABI and Incremental WASM | completed |
 | 8 | Idiomatic @interlis/iox-wasm | completed |
 | 9 | Direct ilic-core Integration | completed |
-| 10 | Convenience APIs, Examples, and iox-dump | in-progress |
-| 11 | Final Conformance, Coverage, and Fuzz Hardening | not-started |
+| 10 | Convenience APIs, Examples, and iox-dump | completed |
+| 11 | Final Conformance, Coverage, and Fuzz Hardening | in-progress |
 
 ## Acceptance Criteria per Phase
 

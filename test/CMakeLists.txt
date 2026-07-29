@@ -21,6 +21,14 @@ foreach(test_file ${CORE_TEST_FILES})
     add_test(NAME iox.test.${test_name} COMMAND iox-test-${test_name})
 endforeach()
 
+add_executable(iox-test-Basket core/Basket.test.cpp)
+target_link_libraries(iox-test-Basket PRIVATE iox-json iox-core iox-test-support)
+add_test(NAME iox.test.Basket COMMAND iox-test-Basket)
+
+add_executable(iox-test-Factory core/Factory.test.cpp)
+target_link_libraries(iox-test-Factory PRIVATE iox-factory iox-json iox-xtf iox-core iox-test-support)
+add_test(NAME iox.test.Factory COMMAND iox-test-Factory)
+
 # --- JSON tests -----------------------------------------------------------
 add_executable(iox-test-json-roundtrip
     json/JsonEventRoundtrip.test.cpp
@@ -113,6 +121,27 @@ if(IOX_BUILD_TOOLS)
              COMMAND iox-dump "${IOX_DUMP_FIXTURE}")
     set_tests_properties(iox.test.tools.iox_dump PROPERTIES
                          DEPENDS iox-dump)
+
+    set(IOX_DATA_FIXTURE "${CMAKE_SOURCE_DIR}/test/fixtures/xtf23/dataSection/EmptyBasket.xtf")
+    add_test(NAME iox.test.tools.iox_dump.events
+             COMMAND iox-dump --events "${IOX_DATA_FIXTURE}")
+    add_test(NAME iox.test.tools.iox_dump.roundtrip
+             COMMAND iox-dump --roundtrip "${IOX_DATA_FIXTURE}"
+                     "${CMAKE_CURRENT_BINARY_DIR}/dump-roundtrip.xtf")
+    set_tests_properties(iox.test.tools.iox_dump.events
+                         iox.test.tools.iox_dump.roundtrip
+                         PROPERTIES DEPENDS iox-dump)
+endif()
+
+if(IOX_BUILD_EXAMPLES)
+    set(IOX_EXAMPLE_FIXTURE "${CMAKE_SOURCE_DIR}/test/fixtures/xtf23/dataSection/EmptyBasket.xtf")
+    add_test(NAME iox.test.example.cpp_read_events
+             COMMAND cpp-read-events "${IOX_EXAMPLE_FIXTURE}")
+    add_test(NAME iox.test.example.cpp_roundtrip
+             COMMAND cpp-roundtrip "${IOX_EXAMPLE_FIXTURE}"
+                     "${CMAKE_CURRENT_BINARY_DIR}/example-roundtrip.xtf")
+    add_test(NAME iox.test.example.cpp_custom_format
+             COMMAND cpp-custom-format)
 endif()
 
 # --- Conformance tests (iox-ili fixtures) ------------------------------------

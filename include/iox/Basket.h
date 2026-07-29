@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <memory>
+#include <optional>
 
 namespace iox {
 
@@ -62,5 +63,58 @@ inline std::vector<IoxEvent> readBasket(Reader& reader) {
     }
     return basket;
 }
+
+/// Metadata and objects from one basket.
+///
+/// The event stream remains the lossless API. This value intentionally offers
+/// the common object-only view for applications that process one basket at a
+/// time; object identity and operation metadata remain available through the
+/// event stream or `BasketReader::readEvents()`.
+struct BasketMetadata final {
+    IomName basketType;
+    std::string bid;
+    std::optional<int> oidDomain;
+    std::string consistency;
+    std::string operation;
+    std::vector<std::string> domains;
+    std::optional<std::string> startState;
+    std::optional<std::string> endState;
+    std::optional<std::string> kind;
+};
+
+struct Basket final {
+    BasketMetadata metadata;
+    std::vector<IomObject> objects;
+};
+
+/// Owns a reader and exposes one complete basket at a time.
+///
+/// `maxObjectsPerBasket == 0` disables the convenience-layer limit. The
+/// reader itself remains the source of truth and is not modified by this
+/// facade beyond consuming events.
+class BasketReader final {
+public:
+    explicit BasketReader(std::unique_ptr<Reader> reader,
+                          std::size_t maxObjectsPerBasket = 0);
+    ~BasketReader();
+
+    BasketReader(const BasketReader&) = delete;
+    BasketReader& operator=(const BasketReader&) = delete;
+
+    /// Consume events through StartTransferEvent if necessary.
+    /// Returns an empty optional until a transfer header is available or when
+    /// the input ended before a valid header was found.
+    const std::optional<StartTransferEvent>& header();
+
+    /// Consume exactly one complete basket, or nullopt at transfer end/error.
+    std::optional<Basket> readBasket();
+
+    /// Return diagnostics accumulated by the facade and its owned reader.
+    std::vector<Diagnostic> takeDiagnostics();
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 
 } // namespace iox

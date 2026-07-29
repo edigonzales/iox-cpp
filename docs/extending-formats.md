@@ -75,14 +75,14 @@ void registerMyFormat(iox::FormatRegistry& registry) {
     entry.description = "My custom transfer format";
     entry.extensions = {".myf", ".mft"};
 
-    // Optional: content sniffer
-    entry.sniffer = [](iox::ByteView firstChunk) -> std::string {
+    // Optional: a score from 0 (no match) to 100 (certain match).
+    entry.scoreSniffer = [](iox::ByteView firstChunk) -> int {
         if (firstChunk.size() >= 4 &&
             firstChunk[0] == 'M' && firstChunk[1] == 'Y' &&
             firstChunk[2] == 'F' && firstChunk[3] == 'M') {
-            return "my-format";
+            return 100;
         }
-        return "";
+        return 0;
     };
 
     // Factory functions
@@ -151,6 +151,11 @@ IOX_TEST(my_format_roundtrip) {
    codes.
 6. **No silent data loss.** Unknown or unexpected content must be preserved
    or explicitly diagnosed.
+
+Content sniffing has priority over a conflicting extension. If two sniffers
+return the same score, registration order is used as the deterministic
+tie-breaker. The compatibility `sniffer` field is still accepted for small
+adapters; new formats should use `scoreSniffer`.
 
 ## Reference: JsonEventReader/JsonEventWriter
 

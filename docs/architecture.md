@@ -12,6 +12,7 @@ iox-core        model-independent objects, events, and interfaces
 iox-xtf         generic XTF 2.3/2.4 reader/writer
 iox-json        test/example event format
 iox-abi         stable C ABI
+iox-factory     built-in format registry and reader/writer facades
 iox-ilic        direct ilic-core integration (optional)
 ```
 
@@ -22,12 +23,15 @@ iox-core  ←  iox-json
 iox-core  ←  iox-xtf
 iox-core  ←  iox-abi
 iox-xtf   ←  iox-ilic  (links ilic-core directly)
+iox-factory → iox-xtf + iox-json
 ```
 
 - `iox-core` has NO XML, Expat, XTF, JSON, or ilic dependency.
 - `iox-xtf` has NO ilic-core dependency.
 - `iox-ilic` links directly to concrete `ilic-core` types.
 - There is no abstract model-provider framework.
+- `iox-factory` is the convenience layer that may depend on both built-in
+  formats; `iox-core` remains format-independent.
 
 When enabled, `iox-ilic` consumes the concrete pinned-fork API in namespace
 `metamodel`: `Model`, `SubModel`, `Class`, and `AttrOrParam`. The adapter is
@@ -46,6 +50,10 @@ StartTransferEvent → (StartBasketEvent → ObjectEvent* → EndBasketEvent)* �
 
 Readers produce this stream; writers consume it. All convenience APIs
 delegate to this core.
+
+`BasketReader` is the only intentionally basket-buffering facade. It applies
+an optional object-count limit and reports a stable fatal diagnostic when the
+limit is exceeded.
 
 ## IomObject — Copy-on-Write
 
@@ -69,7 +77,18 @@ identical.
 ## Format Registry
 
 Additional formats register via explicit C++ interfaces and a testable
-registry. No dynamic plugin loading, no global static constructors.
+registry. Content sniffers return bounded confidence scores; content beats an
+extension hint and registration order is the deterministic tie-breaker. The
+default registry is initialized by a thread-safe function-local static and
+contains XTF plus JSON events when `IOX_ENABLE_JSON_FORMAT` is enabled. No
+dynamic plugin loading or global static registrar constructors are used.
+
+## Error Model
+
+Readers and writers keep structured diagnostics with stable codes. The
+convenience facades never throw for malformed transfer state; a fatal
+diagnostic terminates the facade, while the underlying event API remains
+available for applications that need finer-grained recovery.
 
 ## C ABI
 

@@ -1,5 +1,24 @@
 #include "iox/FormatRegistry.h"
 #include <algorithm>
+#include <cctype>
+
+namespace {
+
+std::string lowerAscii(std::string_view value) {
+    std::string result;
+    result.reserve(value.size());
+    for (const auto character : value) {
+        result.push_back(static_cast<char>(
+            std::tolower(static_cast<unsigned char>(character))));
+    }
+    return result;
+}
+
+bool extensionMatches(const std::string& left, std::string_view right) {
+    return lowerAscii(left) == lowerAscii(right);
+}
+
+} // namespace
 
 namespace iox {
 
@@ -42,7 +61,7 @@ std::unique_ptr<Reader> FormatRegistry::createReader(
     std::string_view formatName) const
 {
     auto* entry = findByName(formatName);
-    if (!entry || !entry->readerFactory) return nullptr;
+    if (!entry || !entry->canRead || !entry->readerFactory) return nullptr;
     return entry->readerFactory();
 }
 
@@ -50,34 +69,34 @@ std::unique_ptr<Reader> FormatRegistry::createReaderBySniffing(
     ByteView firstChunk,
     std::string_view extensionHint) const
 {
-    // Try sniffers first
+    // Content scores always outrank extension hints. Registration order is the
+    // deterministic tie-breaker for equal scores.
     const FormatEntry* sniffed = nullptr;
+    int bestScore = 0;
     for (const auto& f : formats_) {
-        if (f.sniffer) {
+        int score = 0;
+        if (f.scoreSniffer) {
+            score = std::max(0, std::min(100, f.scoreSniffer(firstChunk)));
+        } else if (f.sniffer) {
             auto name = f.sniffer(firstChunk);
-            if (!name.empty()) {
-                sniffed = &f;
-                break;
-            }
+            score = name == f.name ? 100 : (name.empty() ? 0 : 50);
+        }
+        if (score > bestScore) {
+            sniffed = &f;
+            bestScore = score;
         }
     }
 
-    if (sniffed) {
-        if (!extensionHint.empty()) {
-            for (const auto& ext : sniffed->extensions) {
-                if (ext == extensionHint) {
-                    return sniffed->readerFactory();
-                }
-            }
-        }
+    if (sniffed && sniffed->canRead && sniffed->readerFactory) {
         return sniffed->readerFactory();
     }
 
     // Try extension match
     if (!extensionHint.empty()) {
         for (const auto& f : formats_) {
-            for (const auto& ext : f.extensions) {
-                if (ext == extensionHint) {
+        for (const auto& ext : f.extensions) {
+                if (f.canRead && f.readerFactory &&
+                    extensionMatches(ext, extensionHint)) {
                     return f.readerFactory();
                 }
             }
@@ -92,7 +111,7 @@ std::unique_ptr<Writer> FormatRegistry::createWriter(
     std::shared_ptr<OutputSink> output) const
 {
     auto* entry = findByName(formatName);
-    if (!entry || !entry->writerFactory) return nullptr;
+    if (!entry || !entry->canWrite || !entry->writerFactory) return nullptr;
     return entry->writerFactory(std::move(output));
 }
 

@@ -1,80 +1,122 @@
 # iox-cpp
 
-INTERLIS XTF 2.3/2.4 Reader/Writer Framework — Native C++17 + WebAssembly
+`iox-cpp` is a model-free INTERLIS XTF 2.3/2.4 reader and writer for native
+C++17 and WebAssembly. Its source of truth is an ordered `std::variant`
+event stream containing transfers, baskets, objects, and end events.
 
 ## Scope
 
-- **XTF 2.3** — full read/write (objects, references, geometry)
-- **XTF 2.4** — full read/write (namespaces, multi-geometry)
-- **Native** — macOS ARM64, Linux x86_64, Windows x86_64
-- **WebAssembly** — browser, web worker, Node.js ≥ 18
-- **Model-free** — works without compiled INTERLIS models
-- **Model-aware** — optional direct `ilic-core` integration
+- XTF 2.3 objects, references, structures, and geometry;
+- XTF 2.4 namespaces, references, structures, and multi-geometry;
+- ordered, repeated IOM attributes with copy-on-write objects;
+- secure incremental XML parsing with private Expat 2.6.4;
+- deterministic XML writing;
+- C99 ABI and the `@interlis/iox-wasm` Node/browser/worker package;
+- optional direct `ilic-core` integration through `iox-ilic`.
 
-## Non-Goals
-
-- ITF, INTERLIS 1, CSV, eCH-0118/GML
-- Full data validation (ilivalidator style)
-- GEOS/JTS/GDAL geometry conversion
-- Dynamic plugins (dlopen/DLL)
-- GUI, CI/CD pipelines
+ITF, INTERLIS 1, GML/CSV conversion, full constraint validation, GEOS/JTS
+conversion, dynamic plugins, GUI code, and CI/CD are intentionally out of
+scope.
 
 ## Status
 
-See [docs/roadmap.md](docs/roadmap.md) and [docs/phase-status.md](docs/phase-status.md).
+Phases 0 through 10 are implemented. Phase 11 contains the final coverage,
+sanitizer, fuzz, and clean-build gates. See
+[`docs/phase-status.md`](docs/phase-status.md) and
+[`docs/roadmap.md`](docs/roadmap.md) for exact results.
 
-| Phase | Status |
-|-------|--------|
-| 0 — Baseline | ✅ completed |
-| 1 — IOM + Events + JSON | ✅ completed |
-| 2 — XML + XTF headers | ✅ completed |
-| 3 — XTF 2.3 Objects | ✅ completed |
-| 4 — XTF 2.3 Geometry | ✅ completed |
-| 5 — XTF 2.4 Objects | ✅ completed |
-| 6 — XTF 2.4 Geometry | ✅ completed |
-| 7 — C-ABI | ✅ completed |
-| 8 — JS/WASM API | ✅ completed |
-| 9 — ilic-core | infrastructure ready |
-| 10 — Convenience + Tools | ✅ completed |
-| 11 — Hardening | partial |
-
-## Quick Start
-
-### Native Build
+## Build and test
 
 ```sh
 ./scripts/build-native.sh
 ./scripts/test-native.sh
-```
 
-### WebAssembly
-
-```sh
+source /path/to/emsdk/emsdk_env.sh
 ./scripts/build-wasm.sh
 ./scripts/test-wasm.sh
 ```
 
-### Minimal C++ Reader (future)
+The regular build is offline after its pinned Expat source is available. It
+does not require Java. To build the optional model-aware module against an
+existing pinned checkout:
 
-```cpp
-#include <iox/xtf/XtfReader.h>
-auto reader = iox::xtf::XtfReader::create("data.xtf");
-while (auto event = reader->next()) {
-    std::visit([](auto& e) { /* handle */ }, *event);
-}
+```sh
+cmake -S . -B build/ilic \
+  -DBUILD_TESTING=ON -DIOX_ENABLE_ILIC=ON \
+  -DIOX_ILIC_SOURCE_DIR=/path/to/ilic-fork
+cmake --build build/ilic --parallel
+ctest --test-dir build/ilic --output-on-failure
 ```
 
-### Minimal JavaScript (future)
+## Minimal C++ reader and writer
+
+```cpp
+#include "iox/Factory.h"
+#include "iox/Basket.h"
+#include <memory>
+#include <string>
+
+std::string input; // bytes read from data.xtf
+auto reader = iox::ReaderFactory::create("data.xtf", iox::ByteView(input));
+reader->feed(iox::ByteView(input));
+reader->finish();
+for (auto event : iox::readAll(*reader)) {
+    std::visit([](const auto& value) {
+        // Handle the canonical event variant.
+    }, event);
+}
+
+auto sink = std::make_shared<iox::StringOutputSink>();
+auto writer = iox::WriterFactory::create("xtf", sink);
+writer->write(iox::StartTransferEvent{});
+writer->write(iox::EndTransferEvent{});
+writer->close();
+```
+
+`iox::BasketReader` is the deliberately buffering convenience facade for
+applications that process one basket at a time. The reader/event API remains
+lossless and should be used when object operation or identity metadata is
+needed.
+
+## Command-line tool
+
+```text
+build/native/iox-dump input.xtf
+build/native/iox-dump --events input.xtf
+build/native/iox-dump --roundtrip input.xtf output.xtf
+```
+
+`iox-dump` is a diagnostic and integration example, not a full product CLI.
+
+## WebAssembly and JavaScript
 
 ```js
 import { createIoxModule, XtfReader } from '@interlis/iox-wasm';
-const mod = await createIoxModule();
-const reader = new XtfReader(mod, inputData);
-for (const event of reader) {
-  console.log(event);
-}
+
+const module = await createIoxModule();
+const reader = new XtfReader(module, inputBytes);
+for (const event of reader) console.log(event.event);
+reader.close();
 ```
+
+The package exposes `readAll`, `writeAll`, incremental readers, writers, and a
+module-worker protocol. See [`docs/wasm.md`](docs/wasm.md) and the package
+[`README`](packages/iox-wasm/README.md).
+
+## Extending formats
+
+Formats register explicit reader and writer creators in a
+`FormatRegistry`; there are no global plugin constructors or dynamic loading.
+The complete custom-format example is
+[`examples/cpp-custom-format.cpp`](examples/cpp-custom-format.cpp), with API
+guidance in [`docs/extending-formats.md`](docs/extending-formats.md).
+
+## Architecture and conformance
+
+See [`docs/architecture.md`](docs/architecture.md) for module boundaries and
+[`docs/conformance.md`](docs/conformance.md) for immutable dependency and
+normative document references.
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT. See [`LICENSE`](LICENSE).
