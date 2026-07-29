@@ -133,8 +133,10 @@ target_link_libraries(iox-test-associations PRIVATE iox-xtf iox-xml iox-core iox
 add_test(NAME iox.test.associations COMMAND iox-test-associations)
 
 # --- ilic model-based tests --------------------------------------------------
-add_executable(iox-test-model-based
-    ilic/ModelBased.test.cpp
-)
-target_link_libraries(iox-test-model-based PRIVATE iox-ilic iox-xtf iox-xml iox-core iox-test-support)
-add_test(NAME iox.test.ilic.model_based COMMAND iox-test-model-based)
+if(IOX_ENABLE_ILIC)
+    add_executable(iox-test-model-based
+        ilic/ModelBased.test.cpp
+    )
+    target_link_libraries(iox-test-model-based PRIVATE iox-ilic iox-xtf iox-xml iox-core iox-test-support)
+    add_test(NAME iox.test.ilic.model_based COMMAND iox-test-model-based)
+endif()

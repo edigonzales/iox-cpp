@@ -1,8 +1,6 @@
-/// Model-based (modellbasiert) XTF tests using IlicModelIndex,
-/// IlicXtfReader, and IlicXtfWriter.
+/// Model-aware tests against the concrete ilic-fork metamodel API.
 
 #include "iox/ilic/IlicModelIndex.h"
-#include "iox/ilic/ModelDef.h"
 #include "iox/xtf/XtfReaderOptions.h"
 #include "iox/xtf/XtfWriter.h"
 #include "iox/Events.h"
@@ -13,15 +11,49 @@
 #include <string>
 #include <vector>
 
-using namespace iox::ilic;
+struct TestModel final {
+    metamodel::Model model;
+    metamodel::SubModel topic;
+    metamodel::Class classA;
+    metamodel::Class classB;
+    metamodel::AttrOrParam name;
+    metamodel::AttrOrParam count;
+    metamodel::AttrOrParam refToA;
+    metamodel::TextType text;
+    metamodel::NumType number;
+    metamodel::ReferenceType reference;
 
-// ============================================================================
-// Helpers
-// ============================================================================
+    TestModel() {
+        model.Name = "TestModel";
+        model.xmlns = "urn:example:model";
+        topic.Name = "TopicA";
+        topic.ElementInPackage = &model;
+        model.Element.push_back(&topic);
 
-static ModelDef makeTestModel() {
-    return ModelDef::createTestModel();
-}
+        classA.Name = "ClassA";
+        classA.ElementInPackage = &topic;
+        classA.ClassAttribute.push_back(&name);
+        classA.ClassAttribute.push_back(&count);
+        topic.Element.push_back(&classA);
+
+        classB.Name = "ClassB";
+        classB.ElementInPackage = &topic;
+        classB.ClassAttribute.push_back(&refToA);
+        topic.Element.push_back(&classB);
+
+        name.Name = "Name";
+        name.AttrParent = &classA;
+        name.Type = &text;
+        count.Name = "Count";
+        count.AttrParent = &classA;
+        count.Type = &number;
+
+        refToA.Name = "RefToA";
+        refToA.AttrParent = &classB;
+        refToA.Type = &reference;
+        reference._baseclass = &classA;
+    }
+};
 
 static std::string writeXtf23(const std::vector<iox::IoxEvent>& events) {
     auto sink = std::make_shared<iox::StringOutputSink>();
@@ -31,239 +63,237 @@ static std::string writeXtf23(const std::vector<iox::IoxEvent>& events) {
     opts.sender = "Test";
     opts.software = "iox-test";
     iox::xtf::XtfWriter writer(sink, opts);
-    for (const auto& e : events) writer.write(e);
+    for (const auto& event : events) writer.write(event);
     writer.close();
     return sink->str();
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
+static std::vector<iox::IoxEvent> knownEvents(const std::string& className) {
+    std::vector<iox::IoxEvent> events;
+    iox::StartTransferEvent start;
+    start.version = 23;
+    events.push_back(start);
+    iox::StartBasketEvent basket;
+    basket.basketType = iox::IomName("TestModel.TopicA");
+    basket.bid = "B1";
+    events.push_back(basket);
+    iox::ObjectEvent object;
+    object.operation = "insert";
+    object.objectId = "T1";
+    object.object = iox::IomObject(iox::IomName(className));
+    events.push_back(object);
+    iox::EndBasketEvent endBasket;
+    endBasket.bid = "B1";
+    events.push_back(endBasket);
+    events.push_back(iox::EndTransferEvent{});
+    return events;
+}
 
 IOX_TEST(model_based_index_find_topic) {
-    auto model = makeTestModel();
-    IlicModelIndex index(model);
-
-    auto* topic = index.findTopic("TestModel.TopicA");
+    TestModel fixture;
+    iox::ilic::IlicModelIndex index(fixture.model);
+    const auto* topic = index.findTopic("TestModel.TopicA");
     IOX_CHECK(topic != nullptr);
-    IOX_CHECK_EQ(std::string("TestModel.TopicA"), topic->name);
-
-    auto* missing = index.findTopic("Nonexistent.Topic");
-    IOX_CHECK(missing == nullptr);
+    IOX_CHECK_EQ(std::string("TopicA"), topic->Name);
+    IOX_CHECK(index.findTopic("Nonexistent.Topic") == nullptr);
 }
 
-IOX_TEST(model_based_index_find_class) {
-    auto model = makeTestModel();
-    IlicModelIndex index(model);
+IOX_TEST(model_based_index_find_class_and_properties) {
+    TestModel fixture;
+    iox::ilic::IlicModelIndex index(fixture.model);
+    const auto* klass = index.findClass("TestModel.TopicA.ClassA");
+    IOX_CHECK(klass != nullptr);
+    IOX_CHECK_EQ(std::string("ClassA"), klass->Name);
 
-    auto* cls = index.findClass("TestModel.TopicA.ClassA");
-    IOX_CHECK(cls != nullptr);
-    IOX_CHECK_EQ(std::string("TestModel.TopicA.ClassA"), cls->name);
+    const auto* property = index.findProperty(*klass, "Name");
+    IOX_CHECK(property != nullptr);
+    IOX_CHECK_EQ(std::string("Name"), property->Name);
+    IOX_CHECK(dynamic_cast<const metamodel::TextType*>(property->Type) != nullptr);
 
-    auto* missing = index.findClass("TestModel.TopicA.NoSuchClass");
-    IOX_CHECK(missing == nullptr);
+    const auto properties = index.transferProperties(*klass);
+    IOX_CHECK_EQ(static_cast<std::size_t>(2), properties.size());
+    IOX_CHECK_EQ(std::string("Name"), properties[0]->Name);
+    IOX_CHECK_EQ(std::string("Count"), properties[1]->Name);
 }
 
-IOX_TEST(model_based_index_find_property) {
-    auto model = makeTestModel();
-    IlicModelIndex index(model);
-
-    auto* cls = index.findClass("TestModel.TopicA.ClassA");
-    IOX_CHECK(cls != nullptr);
-
-    auto* prop = index.findProperty(*cls, "Name");
-    IOX_CHECK(prop != nullptr);
-    IOX_CHECK_EQ(std::string("Name"), prop->name);
-    IOX_CHECK_EQ(PropertyType::Text, prop->type);
-
-    auto* missing = index.findProperty(*cls, "NoSuchProperty");
-    IOX_CHECK(missing == nullptr);
-}
-
-IOX_TEST(model_based_transfer_properties) {
-    auto model = makeTestModel();
-    IlicModelIndex index(model);
-
-    auto* cls = index.findClass("TestModel.TopicA.ClassA");
-    IOX_CHECK(cls != nullptr);
-
-    auto props = index.transferProperties(*cls);
-    // Should have 4 properties in transfer order
-    IOX_CHECK_EQ(static_cast<std::size_t>(4), props.size());
-    IOX_CHECK_EQ(std::string("Name"), props[0]->name);
-    IOX_CHECK_EQ(std::string("Count"), props[1]->name);
-    IOX_CHECK_EQ(std::string("IsActive"), props[2]->name);
-    IOX_CHECK_EQ(std::string("Value"), props[3]->name);
+IOX_TEST(model_based_index_reference_type) {
+    TestModel fixture;
+    iox::ilic::IlicModelIndex index(fixture.model);
+    const auto* klass = index.findClass("TestModel.TopicA.ClassB");
+    IOX_CHECK(klass != nullptr);
+    const auto* property = index.findProperty(*klass, "RefToA");
+    IOX_CHECK(property != nullptr);
+    const auto* reference = dynamic_cast<const metamodel::ReferenceType*>(property->Type);
+    IOX_CHECK(reference != nullptr);
+    IOX_CHECK(reference->_baseclass == index.findClass("TestModel.TopicA.ClassA"));
 }
 
 IOX_TEST(model_based_reader_known_class_ok) {
-    auto model = makeTestModel();
-    IlicXtfReaderOptions opts;
-    opts.rejectUnknownClasses = true;
+    TestModel fixture;
+    iox::ilic::IlicXtfReaderOptions options;
+    options.rejectUnknownClasses = true;
+    iox::ilic::IlicXtfReader reader(fixture.model, options);
 
-    IlicXtfReader reader(model, opts);
-
-    // Build XTF with a known class
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("TestModel.TopicA"); sb.bid = "B1"; events.push_back(sb);
-    iox::ObjectEvent obj;
-    obj.operation = "insert"; obj.objectId = "T1";
-    obj.object = iox::IomObject(iox::IomName("TestModel.TopicA.ClassA"));
-    obj.object.setPrimitive("Name", iox::IomValue::text("test"));
-    events.push_back(obj);
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
+    auto events = knownEvents("TestModel.TopicA.ClassA");
     auto xml = writeXtf23(events);
     reader.feed(iox::ByteView(xml.data(), xml.size()));
     reader.finish();
 
     int count = 0;
-    bool hasDiag = false;
     while (true) {
-        auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
+        const auto outcome = reader.next();
         if (outcome.event) ++count;
-        if (!outcome.diagnostics.empty()) hasDiag = true;
+        if (outcome.status == iox::ReadOutcome::Status::End) break;
     }
-    IOX_CHECK(count > 0);
-    // No errors for known class
-    auto diags = reader.takeDiagnostics();
-    for (auto& d : diags) {
-        if (d.severity == iox::Diagnostic::Severity::Error) hasDiag = true;
+    IOX_CHECK_EQ(5, count);
+    for (const auto& diagnostic : reader.takeDiagnostics()) {
+        IOX_CHECK(diagnostic.severity != iox::Diagnostic::Severity::Error);
     }
-    IOX_CHECK(!hasDiag);
 }
 
 IOX_TEST(model_based_reader_unknown_class_rejected) {
-    auto model = makeTestModel();
-    IlicXtfReaderOptions opts;
-    opts.rejectUnknownClasses = true;
-
-    IlicXtfReader reader(model, opts);
-
-    // Build XTF with an unknown class
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("TestModel.TopicA"); sb.bid = "B1"; events.push_back(sb);
-    iox::ObjectEvent obj;
-    obj.operation = "insert"; obj.objectId = "T1";
-    obj.object = iox::IomObject(iox::IomName("TestModel.TopicA.UnknownClass"));
-    events.push_back(obj);
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf23(events);
+    TestModel fixture;
+    iox::ilic::IlicXtfReaderOptions options;
+    options.rejectUnknownClasses = true;
+    iox::ilic::IlicXtfReader reader(fixture.model, options);
+    auto xml = writeXtf23(knownEvents("TestModel.TopicA.UnknownClass"));
     reader.feed(iox::ByteView(xml.data(), xml.size()));
     reader.finish();
 
-    // Should produce diagnostic for unknown class
     bool hasError = false;
     while (true) {
-        auto outcome = reader.next();
-        // Check inline diagnostics too
-        for (auto& d : outcome.diagnostics) {
-            if (d.severity == iox::Diagnostic::Severity::Error &&
-                d.code == "ilic.unknown_class") {
-                hasError = true;
-            }
+        const auto outcome = reader.next();
+        for (const auto& diagnostic : outcome.diagnostics) {
+            if (diagnostic.code == "ilic.unknown_class") hasError = true;
         }
         if (outcome.status == iox::ReadOutcome::Status::End) break;
     }
-    auto diags = reader.takeDiagnostics();
-    for (auto& d : diags) {
-        if (d.severity == iox::Diagnostic::Severity::Error &&
-            d.code == "ilic.unknown_class") {
-            hasError = true;
-        }
+    for (const auto& diagnostic : reader.takeDiagnostics()) {
+        if (diagnostic.code == "ilic.unknown_class") hasError = true;
     }
     IOX_CHECK(hasError);
 }
 
 IOX_TEST(model_based_reader_unknown_property_rejected) {
-    auto model = makeTestModel();
-    IlicXtfReaderOptions opts;
-    opts.rejectUnknownProperties = true;
+    TestModel fixture;
+    iox::ilic::IlicXtfReaderOptions options;
+    options.rejectUnknownProperties = true;
+    iox::ilic::IlicXtfReader reader(fixture.model, options);
 
-    IlicXtfReader reader(model, opts);
-
-    // Build XTF with known class but unknown property
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("TestModel.TopicA"); sb.bid = "B1"; events.push_back(sb);
-    iox::ObjectEvent obj;
-    obj.operation = "insert"; obj.objectId = "T1";
-    obj.object = iox::IomObject(iox::IomName("TestModel.TopicA.ClassA"));
-    obj.object.setPrimitive("Name", iox::IomValue::text("ok"));
-    obj.object.setPrimitive("UnknownProp", iox::IomValue::integer(42)); // unknown!
-    events.push_back(obj);
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
+    auto events = knownEvents("TestModel.TopicA.ClassA");
+    auto& object = std::get<iox::ObjectEvent>(events[2]);
+    object.object.setPrimitive("UnknownProp", iox::IomValue::integer(42));
     auto xml = writeXtf23(events);
     reader.feed(iox::ByteView(xml.data(), xml.size()));
     reader.finish();
+    while (reader.next().status != iox::ReadOutcome::Status::End) {}
 
-    // Drain events
-    while (true) {
-        auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-    }
-
-    auto diags = reader.takeDiagnostics();
     bool hasError = false;
-    for (auto& d : diags) {
-        if (d.severity == iox::Diagnostic::Severity::Error &&
-            d.code == "ilic.unknown_property") {
-            hasError = true;
-        }
+    for (const auto& diagnostic : reader.takeDiagnostics()) {
+        if (diagnostic.code == "ilic.unknown_property") hasError = true;
     }
     IOX_CHECK(hasError);
 }
 
 IOX_TEST(model_based_writer_unknown_class_rejected) {
-    auto model = makeTestModel();
+    TestModel fixture;
     auto sink = std::make_shared<iox::StringOutputSink>();
-    IlicXtfWriterOptions opts;
-    opts.rejectUnknownClasses = true;
+    iox::ilic::IlicXtfWriterOptions options;
+    options.xtf.version = iox::xtf::XtfVersion::Xtf23;
+    options.rejectUnknownClasses = true;
+    iox::ilic::IlicXtfWriter writer(fixture.model, sink, options);
+    writer.write(iox::StartTransferEvent{});
+    writer.write(iox::StartBasketEvent{{}, "B1"});
+    iox::ObjectEvent object;
+    object.operation = "insert";
+    object.objectId = "T1";
+    object.object = iox::IomObject(iox::IomName("TestModel.TopicA.NoSuchClass"));
+    writer.write(object);
 
-    IlicXtfWriter writer(model, sink, opts);
-
-    iox::StartTransferEvent st; st.version = 23;
-    writer.write(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("TestModel.TopicA"); sb.bid = "B1";
-    writer.write(sb);
-
-    // Write object with unknown class
-    iox::ObjectEvent obj;
-    obj.operation = "insert"; obj.objectId = "T1";
-    obj.object = iox::IomObject(iox::IomName("TestModel.TopicA.NoSuchClass"));
-    writer.write(obj);
-
-    auto diags = writer.takeDiagnostics();
     bool hasError = false;
-    for (auto& d : diags) {
-        if (d.code == "ilic.unknown_class") hasError = true;
+    for (const auto& diagnostic : writer.takeDiagnostics()) {
+        if (diagnostic.code == "ilic.unknown_class") hasError = true;
     }
     IOX_CHECK(hasError);
 }
 
-IOX_TEST(model_based_reader_reference_type) {
-    auto model = makeTestModel();
-    IlicModelIndex index(model);
+IOX_TEST(model_based_writer_uses_model_attribute_order) {
+    TestModel fixture;
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::ilic::IlicXtfWriterOptions options;
+    options.xtf.version = iox::xtf::XtfVersion::Xtf23;
+    iox::ilic::IlicXtfWriter writer(fixture.model, sink, options);
+    writer.write(iox::StartTransferEvent{});
+    iox::StartBasketEvent basket;
+    basket.basketType = iox::IomName("TestModel.TopicA");
+    basket.bid = "B1";
+    writer.write(basket);
+    iox::ObjectEvent object;
+    object.operation = "insert";
+    object.objectId = "T1";
+    object.object = iox::IomObject(iox::IomName("TestModel.TopicA.ClassA"));
+    object.object.setPrimitive("Count", iox::IomValue::integer(2));
+    object.object.setPrimitive("Name", iox::IomValue::text("first"));
+    writer.write(object);
+    writer.write(iox::EndBasketEvent{"B1"});
+    writer.write(iox::EndTransferEvent{});
+    writer.close();
 
-    auto* clsB = index.findClass("TestModel.TopicA.ClassB");
-    IOX_CHECK(clsB != nullptr);
+    const auto xml = sink->str();
+    IOX_CHECK(xml.find("<Name>first</Name>") < xml.find("<Count>2</Count>"));
+}
 
-    auto* refProp = index.findProperty(*clsB, "RefToA");
-    IOX_CHECK(refProp != nullptr);
-    IOX_CHECK_EQ(PropertyType::Reference, refProp->type);
-    IOX_CHECK_EQ(std::string("TestModel.TopicA.ClassA"), refProp->targetClass);
+IOX_TEST(model_based_xtf24_namespace_mapping) {
+    TestModel fixture;
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::ilic::IlicXtfWriterOptions writerOptions;
+    writerOptions.xtf.version = iox::xtf::XtfVersion::Xtf24;
+    writerOptions.xtf.pretty = false;
+    iox::ilic::IlicXtfWriter writer(fixture.model, sink, writerOptions);
+
+    writer.write(iox::StartTransferEvent{});
+    writer.write(iox::StartBasketEvent{
+        iox::IomName("TestModel.TopicA",
+                     iox::XmlQualifiedName("urn:example:model", "TopicA", "model")),
+        "B1"});
+    iox::ObjectEvent object;
+    object.objectId = "T1";
+    object.object = iox::IomObject(
+        iox::IomName("TestModel.TopicA.ClassA",
+                     iox::XmlQualifiedName("urn:example:model", "ClassA", "model")));
+    auto& name = object.object.setAttribute(
+        iox::IomName("Name",
+                     iox::XmlQualifiedName("urn:example:model", "Name", "model")));
+    name.values.push_back(iox::IomValue::text("first"));
+    writer.write(object);
+    writer.write(iox::EndBasketEvent{"B1"});
+    writer.write(iox::EndTransferEvent{});
+    writer.close();
+
+    const auto xml = sink->str();
+    IOX_CHECK(xml.find("xmlns:model=\"urn:example:model\"") != std::string::npos);
+    IOX_CHECK(xml.find("<model:ClassA") != std::string::npos);
+    IOX_CHECK(xml.find("<model:Name") != std::string::npos);
+    IOX_CHECK(xml.find(">first</model:Name>") != std::string::npos);
+
+    iox::ilic::IlicXtfReaderOptions readerOptions;
+    readerOptions.xtf.expectedVersion = iox::xtf::XtfVersion::Xtf24;
+    readerOptions.rejectUnknownClasses = true;
+    readerOptions.rejectUnknownProperties = true;
+    iox::ilic::IlicXtfReader reader(fixture.model, readerOptions);
+    reader.feed(iox::ByteView(xml.data(), xml.size()));
+    reader.finish();
+
+    int count = 0;
+    while (true) {
+        const auto outcome = reader.next();
+        if (outcome.event) ++count;
+        if (outcome.status == iox::ReadOutcome::Status::End) break;
+    }
+    IOX_CHECK_EQ(5, count);
+    for (const auto& diagnostic : reader.takeDiagnostics()) {
+        IOX_CHECK(diagnostic.severity != iox::Diagnostic::Severity::Error);
+    }
 }
 
 #include "iox/test/TestMain.h"

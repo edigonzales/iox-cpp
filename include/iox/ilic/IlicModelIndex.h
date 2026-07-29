@@ -1,65 +1,52 @@
 #pragma once
 
-// ============================================================================
-// iox-ilic — Direct model-aware XTF processing
-// ============================================================================
-//
-// Uses concrete ModelDef types. No abstract provider framework.
+// Direct integration with the concrete metamodel types supplied by
+// ilic-core. This header is only available when IOX_ENABLE_ILIC is enabled.
 
-#include "iox/ilic/ModelDef.h"
+#include "metamodel/MetaModel.h"
 #include "iox/Reader.h"
 #include "iox/Writer.h"
 #include "iox/Events.h"
+#include "iox/xtf/XtfReaderOptions.h"
 
-#include <string>
+#include <memory>
 #include <string_view>
 #include <vector>
-#include <optional>
-#include <memory>
 
 namespace iox {
 namespace ilic {
 
-// ============================================================================
-// IlicModelIndex
-// ============================================================================
-
 class IlicModelIndex final {
 public:
-    explicit IlicModelIndex(const ModelDef& model);
+    explicit IlicModelIndex(const metamodel::Model& model);
     ~IlicModelIndex();
 
     IlicModelIndex(const IlicModelIndex&) = delete;
     IlicModelIndex& operator=(const IlicModelIndex&) = delete;
 
-    const TopicDef* findTopic(std::string_view scopedName) const;
-    const ClassDef* findClass(std::string_view scopedName) const;
-    const PropertyDef* findProperty(const ClassDef& owner,
-                                    std::string_view propertyName) const;
-    std::vector<const PropertyDef*> transferProperties(
-        const ClassDef& owner) const;
+    const metamodel::SubModel* findTopic(std::string_view scopedName) const;
+    const metamodel::Class* findClass(std::string_view scopedName) const;
+    const metamodel::AttrOrParam* findProperty(
+        const metamodel::Class& owner, std::string_view propertyName) const;
+    std::vector<const metamodel::AttrOrParam*> transferProperties(
+        const metamodel::Class& owner) const;
 
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
 
-// ============================================================================
-// IlicXtfReader
-// ============================================================================
-
 struct IlicXtfReaderOptions final {
-    bool strict = false;
+    xtf::XtfReaderOptions xtf;
     bool rejectUnknownTopics = false;
     bool rejectUnknownClasses = false;
     bool rejectUnknownProperties = false;
 };
 
-/// Model-aware XTF reader. Wraps a generic XtfReader and enriches
-/// events with model information (validated names, transfer order).
+/// Model-aware XTF reader composed around the generic model-free reader.
 class IlicXtfReader final : public Reader {
 public:
-    IlicXtfReader(const ModelDef& model,
+    IlicXtfReader(const metamodel::Model& model,
                   IlicXtfReaderOptions options = {});
     ~IlicXtfReader() override;
 
@@ -74,22 +61,17 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-// ============================================================================
-// IlicXtfWriter
-// ============================================================================
-
 struct IlicXtfWriterOptions final {
-    bool strict = false;
+    xtf::XtfWriterOptions xtf;
     bool enforceTransferOrder = true;
     bool rejectUnknownClasses = true;
     bool rejectUnknownProperties = true;
 };
 
-/// Model-aware XTF writer. Validates events against the model and
-/// enforces transfer order.
+/// Model-aware XTF writer composed around the generic model-free writer.
 class IlicXtfWriter final : public Writer {
 public:
-    IlicXtfWriter(const ModelDef& model,
+    IlicXtfWriter(const metamodel::Model& model,
                   std::shared_ptr<OutputSink> output,
                   IlicXtfWriterOptions options = {});
     ~IlicXtfWriter() override;

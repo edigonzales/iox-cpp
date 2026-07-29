@@ -56,6 +56,12 @@ All dependencies are pinned to immutable revisions. No floating branches.
 - **Purpose:** Compiler/metamodel reference for ilic-core integration
 - **Commit:** `8582fff47549f8e0ac4d1cd6ec39c66c2bb708b0` (HEAD on 2026-07-29)
 
+Phase 9 verifies this exact checkout through `IOX_ILIC_SOURCE_DIR`. The fork's
+public C++ model types are `metamodel::Model`, `SubModel`, `Class`, and
+`AttrOrParam`; `iox-ilic` adapts directly to those names. The regular build
+does not fetch or configure the optional module, while `IOX_FETCH_ILIC` uses
+the same immutable commit when explicitly enabled.
+
 ### Pin verification
 
 The repository revisions above were obtained with `git ls-remote` and are

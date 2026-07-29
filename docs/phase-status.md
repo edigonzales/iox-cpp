@@ -10,9 +10,9 @@
 | 5 | completed | 24b3fff | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | N/A | XTF 2.4 namespace-aware objects, expanded QNames, deterministic prefix bindings |
 | 6 | completed | 2e219e7 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 2/2) | `./scripts/coverage.sh` (0, 22/22; instrumentation gate) | XTF 2.4 canonical geometry tree, multi-geometries, custom line preservation, fixture chunk matrix |
 | 7 | completed | 8b767a8 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 4/4) | `./scripts/coverage.sh` (0, 22/22); ASan+UBSan CTest (0, 22/22) | Complete streaming C ABI, chunkwise output, structured results, C-only and Node low-level ABI tests |
-| 8 | completed | pending | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 22/22 instrumentation) | Idiomatic JS API, TypeScript unions, byte/iterator/incremental tests, module-worker protocol |
-| 9 | in-progress | — | — | — | — | Direct ilic-core integration |
-| 10 | not-started | — | — | — | — | Convenience APIs, examples, iox-dump |
+| 8 | completed | edf2974 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 22/22 instrumentation) | Idiomatic JS API, TypeScript unions, byte/iterator/incremental tests, module-worker protocol |
+| 9 | completed | pending | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 21/21, IOX_ENABLE_ILIC=OFF); explicit ilic build (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 21/21 instrumentation) | Direct concrete ilic-core integration; no provider abstraction |
+| 10 | in-progress | — | — | — | — | Convenience APIs, examples, iox-dump |
 | 11 | not-started | — | — | — | — | Final conformance, coverage, sanitizer, fuzz gates |
 
 ## Build Commands
@@ -113,15 +113,45 @@ source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-was
 node --input-type=module <<'NODE' ... NODE           # exit 0, TypeScript declaration smoke
 ```
 
-## Phase 9 — Not Started
+## Phase 9 — Completed
 
-`iox-ilic` requires fetching `edigonzales/ilic-fork` to inspect the actual
-`ilic-core` API types. The CMake infrastructure is prepared
-(`IOX_ENABLE_ILIC`, `IOX_FETCH_ILIC`, `IOX_ILIC_SOURCE_DIR`).
+`iox-ilic` is optional and links directly to the pinned `ilic-core` target.
+The actual fork API was inspected before implementation: it exposes
+`metamodel::Model`, `SubModel`, `Class`, and `AttrOrParam`, rather than the
+template names `TransferDescription`, `Topic`, `Viewable`, and `Element`.
+The adapter uses those concrete types and adds the fork's `source` directory
+to the target include path because the metamodel header is not installed as a
+public include. No model-provider interface or invented type aliases were
+introduced.
 
-## Phase 10 — Not Started
+The default build does not configure or build `iox-ilic`. The explicit local
+integration build uses the immutable adjacent checkout at
+`8582fff47549f8e0ac4d1cd6ec39c66c2bb708b0`, disables the fork's tests and
+native repository, and runs the model-index, strict validation, reference
+type, and transfer-order tests. `IOX_FETCH_ILIC` is also available with the
+same immutable Git tag for an explicitly requested dependency-fetch build.
 
-- Final acceptance is deferred until the phase is executed in order.
+### Phase 9 verification commands
+
+```text
+./scripts/build-native.sh                              # exit 0
+./scripts/test-native.sh                               # exit 0, 21/21 (default, ilic OFF)
+cmake -S . -B build/ilic -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork  # exit 0
+cmake --build build/ilic --parallel                    # exit 0
+ctest --test-dir build/ilic --output-on-failure         # exit 0, 22/22
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, Emscripten 3.1.64
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 8/8
+./scripts/coverage.sh                                   # exit 0, 21/21 instrumented
+```
+
+The optional integration is native-only in this phase; the required
+model-free WASM package remains unchanged and passes its complete Node test
+suite.
+
+## Phase 10 — In Progress
+
+- Convenience APIs, examples, and `iox-dump` are the next implementation
+  scope.
 
 ## Phase 11 — Not Started
 

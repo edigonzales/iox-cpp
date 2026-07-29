@@ -29,6 +29,13 @@ iox-xtf   ←  iox-ilic  (links ilic-core directly)
 - `iox-ilic` links directly to concrete `ilic-core` types.
 - There is no abstract model-provider framework.
 
+When enabled, `iox-ilic` consumes the concrete pinned-fork API in namespace
+`metamodel`: `Model`, `SubModel`, `Class`, and `AttrOrParam`. The adapter is
+composed around the generic `XtfReader`/`XtfWriter`, owns no model memory, and
+does not make the generic XTF targets depend on `ilic-core`. The CMake options
+`IOX_ILIC_SOURCE_DIR` and `IOX_FETCH_ILIC` select the immutable fork source;
+the default build keeps the module disabled.
+
 ## Normative Event Stream
 
 The core API is an ordered `std::variant` event stream:

@@ -11,8 +11,8 @@
 | 6 | XTF 2.4 Geometry and Production Hardening | completed |
 | 7 | Complete C ABI and Incremental WASM | completed |
 | 8 | Idiomatic @interlis/iox-wasm | completed |
-| 9 | Direct ilic-core Integration | in-progress |
-| 10 | Convenience APIs, Examples, and iox-dump | not-started |
+| 9 | Direct ilic-core Integration | completed |
+| 10 | Convenience APIs, Examples, and iox-dump | in-progress |
 | 11 | Final Conformance, Coverage, and Fuzz Hardening | not-started |
 
 ## Acceptance Criteria per Phase
