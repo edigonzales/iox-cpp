@@ -15,6 +15,7 @@
 #include <fstream>
 #include <sstream>
 #include <functional>
+#include <cstring>
 
 // ============================================================================
 // Helpers
@@ -97,7 +98,8 @@ IOX_TEST(conformance_xtf23_empty_transfer) {
 IOX_TEST(conformance_xtf23_malformed_xml) {
     // Malformed XML should be rejected
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView("<ili:TRANSFER><ili:HEADERSECTION>", 38));
+    const char* malformed = "<ili:TRANSFER><ili:HEADERSECTION>";
+    reader.feed(iox::ByteView(malformed, std::strlen(malformed)));
     reader.finish();
 
     auto diags = reader.takeDiagnostics();

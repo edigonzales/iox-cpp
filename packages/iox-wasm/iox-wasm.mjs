@@ -28,7 +28,7 @@ var readyPromise = new Promise((resolve, reject) => {
   readyPromiseResolve = resolve;
   readyPromiseReject = reject;
 });
-["_iox_abi_version","_iox_version","_iox_alloc","_iox_free","_iox_reader_create","_iox_reader_destroy","_iox_reader_feed","_iox_reader_finish","_iox_reader_next","_iox_writer_create","_iox_writer_destroy","_iox_writer_write_event_json","_iox_writer_finish","_iox_result_json","_iox_result_bytes","_iox_result_size","_iox_result_status","_iox_result_destroy","getExceptionMessage","incrementExceptionRefcount","decrementExceptionRefcount","_memory","___indirect_function_table","onRuntimeInitialized"].forEach((prop) => {
+["_iox_abi_version","_iox_version","_iox_alloc","_iox_free","_iox_reader_create","_iox_reader_destroy","_iox_reader_feed","_iox_reader_finish","_iox_reader_next","_iox_writer_create","_iox_writer_destroy","_iox_writer_write_event_json","_iox_writer_take_output","_iox_writer_finish","_iox_result_json","_iox_result_bytes","_iox_result_size","_iox_result_status","_iox_result_destroy","getExceptionMessage","incrementExceptionRefcount","decrementExceptionRefcount","_memory","___indirect_function_table","onRuntimeInitialized"].forEach((prop) => {
   if (!Object.getOwnPropertyDescriptor(readyPromise, prop)) {
     Object.defineProperty(readyPromise, prop, {
       get: () => abort('You are getting ' + prop + ' on the Promise object, instead of the instance. Use .then() to get called back with the instance, see the MODULARIZE docs in src/settings.js'),
@@ -4246,6 +4246,8 @@ var wasmImports = {
   /** @export */
   fd_write: _fd_write,
   /** @export */
+  invoke_diii,
+  /** @export */
   invoke_i,
   /** @export */
   invoke_ii,
@@ -4268,7 +4270,9 @@ var wasmImports = {
   /** @export */
   invoke_viii,
   /** @export */
-  invoke_viiii
+  invoke_viiii,
+  /** @export */
+  invoke_vij
 };
 var wasmExports = createWasm();
 var ___wasm_call_ctors = createExportWrapper('__wasm_call_ctors', 0);
@@ -4285,6 +4289,7 @@ var _iox_reader_next = Module['_iox_reader_next'] = createExportWrapper('iox_rea
 var _iox_writer_create = Module['_iox_writer_create'] = createExportWrapper('iox_writer_create', 2);
 var _iox_writer_destroy = Module['_iox_writer_destroy'] = createExportWrapper('iox_writer_destroy', 1);
 var _iox_writer_write_event_json = Module['_iox_writer_write_event_json'] = createExportWrapper('iox_writer_write_event_json', 4);
+var _iox_writer_take_output = Module['_iox_writer_take_output'] = createExportWrapper('iox_writer_take_output', 2);
 var _iox_writer_finish = Module['_iox_writer_finish'] = createExportWrapper('iox_writer_finish', 2);
 var _iox_result_json = Module['_iox_result_json'] = createExportWrapper('iox_result_json', 1);
 var _iox_result_bytes = Module['_iox_result_bytes'] = createExportWrapper('iox_result_bytes', 1);
@@ -4320,17 +4325,6 @@ function invoke_iii(index,a1,a2) {
   }
 }
 
-function invoke_ii(index,a1) {
-  var sp = stackSave();
-  try {
-    return getWasmTableEntry(index)(a1);
-  } catch(e) {
-    stackRestore(sp);
-    if (!(e instanceof EmscriptenEH)) throw e;
-    _setThrew(1, 0);
-  }
-}
-
 function invoke_i(index) {
   var sp = stackSave();
   try {
@@ -4346,6 +4340,17 @@ function invoke_iiiiii(index,a1,a2,a3,a4,a5) {
   var sp = stackSave();
   try {
     return getWasmTableEntry(index)(a1,a2,a3,a4,a5);
+  } catch(e) {
+    stackRestore(sp);
+    if (!(e instanceof EmscriptenEH)) throw e;
+    _setThrew(1, 0);
+  }
+}
+
+function invoke_ii(index,a1) {
+  var sp = stackSave();
+  try {
+    return getWasmTableEntry(index)(a1);
   } catch(e) {
     stackRestore(sp);
     if (!(e instanceof EmscriptenEH)) throw e;
@@ -4386,6 +4391,28 @@ function invoke_iiii(index,a1,a2,a3) {
   }
 }
 
+function invoke_iiiii(index,a1,a2,a3,a4) {
+  var sp = stackSave();
+  try {
+    return getWasmTableEntry(index)(a1,a2,a3,a4);
+  } catch(e) {
+    stackRestore(sp);
+    if (!(e instanceof EmscriptenEH)) throw e;
+    _setThrew(1, 0);
+  }
+}
+
+function invoke_viiii(index,a1,a2,a3,a4) {
+  var sp = stackSave();
+  try {
+    getWasmTableEntry(index)(a1,a2,a3,a4);
+  } catch(e) {
+    stackRestore(sp);
+    if (!(e instanceof EmscriptenEH)) throw e;
+    _setThrew(1, 0);
+  }
+}
+
 function invoke_viii(index,a1,a2,a3) {
   var sp = stackSave();
   try {
@@ -4397,10 +4424,10 @@ function invoke_viii(index,a1,a2,a3) {
   }
 }
 
-function invoke_iiiii(index,a1,a2,a3,a4) {
+function invoke_vij(index,a1,a2) {
   var sp = stackSave();
   try {
-    return getWasmTableEntry(index)(a1,a2,a3,a4);
+    getWasmTableEntry(index)(a1,a2);
   } catch(e) {
     stackRestore(sp);
     if (!(e instanceof EmscriptenEH)) throw e;
@@ -4431,10 +4458,10 @@ function invoke_jiiii(index,a1,a2,a3,a4) {
   }
 }
 
-function invoke_viiii(index,a1,a2,a3,a4) {
+function invoke_diii(index,a1,a2,a3) {
   var sp = stackSave();
   try {
-    getWasmTableEntry(index)(a1,a2,a3,a4);
+    return getWasmTableEntry(index)(a1,a2,a3);
   } catch(e) {
     stackRestore(sp);
     if (!(e instanceof EmscriptenEH)) throw e;

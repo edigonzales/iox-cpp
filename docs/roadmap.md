@@ -9,8 +9,8 @@
 | 4 | XTF 2.3 Geometry and Production Hardening | completed |
 | 5 | XTF 2.4 Basic Objects, Namespaces, and References | completed |
 | 6 | XTF 2.4 Geometry and Production Hardening | completed |
-| 7 | Complete C ABI and Incremental WASM | in-progress |
-| 8 | Idiomatic @interlis/iox-wasm | not-started |
+| 7 | Complete C ABI and Incremental WASM | completed |
+| 8 | Idiomatic @interlis/iox-wasm | in-progress |
 | 9 | Direct ilic-core Integration | not-started |
 | 10 | Convenience APIs, Examples, and iox-dump | not-started |
 | 11 | Final Conformance, Coverage, and Fuzz Hardening | not-started |

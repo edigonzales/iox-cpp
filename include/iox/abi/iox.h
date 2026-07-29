@@ -55,6 +55,10 @@ iox_status_t iox_writer_write_event_json(
     size_t event_json_size,
     iox_result_t** result);
 
+/* Take bytes emitted since the previous take/finish call. */
+iox_status_t iox_writer_take_output(iox_writer_t* writer,
+                                    iox_result_t** result);
+
 iox_status_t iox_writer_finish(iox_writer_t* writer,
                                iox_result_t** result);
 

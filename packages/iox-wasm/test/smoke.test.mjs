@@ -1,11 +1,11 @@
 /**
- * Smoke test for @interlis/iox-wasm Phase 0 stub.
+ * Smoke tests for @interlis/iox-wasm module initialization.
  */
 import { createIoxModule } from '../index.js';
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 
-test('createIoxModule returns stub module', async () => {
+test('createIoxModule returns the ABI module', async () => {
   const mod = await createIoxModule();
   assert.ok(mod);
   assert.equal(mod.abiVersion(), 1);

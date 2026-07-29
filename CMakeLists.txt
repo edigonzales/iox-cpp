@@ -147,7 +147,7 @@ if(IOX_BUILD_WASM)
         "-sASSERTIONS=1"
         "-fexceptions"
         "SHELL:-sEXPORTED_RUNTIME_METHODS=['UTF8ToString']"
-        "SHELL:-sEXPORTED_FUNCTIONS=['_iox_abi_version','_iox_version','_iox_alloc','_iox_free','_iox_reader_create','_iox_reader_destroy','_iox_reader_feed','_iox_reader_finish','_iox_reader_next','_iox_writer_create','_iox_writer_destroy','_iox_writer_write_event_json','_iox_writer_finish','_iox_result_json','_iox_result_bytes','_iox_result_size','_iox_result_status','_iox_result_destroy']")
+        "SHELL:-sEXPORTED_FUNCTIONS=['_iox_abi_version','_iox_version','_iox_alloc','_iox_free','_iox_reader_create','_iox_reader_destroy','_iox_reader_feed','_iox_reader_finish','_iox_reader_next','_iox_writer_create','_iox_writer_destroy','_iox_writer_write_event_json','_iox_writer_take_output','_iox_writer_finish','_iox_result_json','_iox_result_bytes','_iox_result_size','_iox_result_status','_iox_result_destroy']")
     set_target_properties(iox-wasm PROPERTIES OUTPUT_NAME "iox-wasm" SUFFIX ".mjs")
 endif()
 

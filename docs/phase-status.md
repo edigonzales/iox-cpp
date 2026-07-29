@@ -8,9 +8,9 @@
 | 3 | completed | b5845b1 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 21/21) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | N/A | XTF 2.3 objects, structures, references, ordered chunk/state tests |
 | 4 | completed | 75e2c33 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 21/21); `./scripts/coverage.sh` (0, 21/21) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | Instrumented gate passed; threshold report deferred to Phase 11 | XTF 2.3 COORD/ARC/POLYLINE/SURFACE/AREA fixtures and recursive geometry assertion |
 | 5 | completed | 24b3fff | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | N/A | XTF 2.4 namespace-aware objects, expanded QNames, deterministic prefix bindings |
-| 6 | completed | pending | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 2/2) | `./scripts/coverage.sh` (0, 22/22; instrumentation gate) | XTF 2.4 canonical geometry tree, multi-geometries, custom line preservation, fixture chunk matrix |
-| 7 | in-progress | — | — | — | — | Complete streaming C ABI |
-| 8 | not-started | — | — | — | — | JavaScript/worker API |
+| 6 | completed | 2e219e7 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 2/2) | `./scripts/coverage.sh` (0, 22/22; instrumentation gate) | XTF 2.4 canonical geometry tree, multi-geometries, custom line preservation, fixture chunk matrix |
+| 7 | completed | pending | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 4/4) | `./scripts/coverage.sh` (0, 22/22); ASan+UBSan CTest (0, 22/22) | Complete streaming C ABI, chunkwise output, structured results, C-only and Node low-level ABI tests |
+| 8 | in-progress | — | — | — | — | JavaScript/worker API |
 | 9 | not-started | — | — | — | — | Direct ilic-core integration |
 | 10 | not-started | — | — | — | — | Convenience APIs, examples, iox-dump |
 | 11 | not-started | — | — | — | — | Final conformance, coverage, sanitizer, fuzz gates |
@@ -28,15 +28,32 @@ node --test packages/iox-wasm/test/*.test.mjs
 
 ## Phase 7 — C-ABI Results
 
-- Full C99 header with opaque handles (iox_reader_t, iox_writer_t, iox_result_t)
-- Status codes: OK, EVENT, NEED_INPUT, END, ERROR, INVALID_ARGUMENT, INVALID_STATE
-- Reader: create, feed, finish, next, destroy
-- Writer: create, write_event_json, finish (with byte output), destroy
-- Result: json, bytes, size, status, destroy
-- C smoke test passes all assertions
-- Null-pointer safety tested
-- Exceptions caught at ABI boundary
-- Native/WASM parity maintained
+- Full C99 header with opaque handles (iox_reader_t, iox_writer_t, iox_result_t).
+- Status codes: OK, EVENT, NEED_INPUT, END, ERROR, INVALID_ARGUMENT, INVALID_STATE.
+- Reader: create, feed, finish, next, destroy; event results preserve the full
+  ordered IOM payload and use the normalized lower-camel `event` discriminator.
+- Writer: create, write_event_json, incremental `take_output`, finish, destroy.
+- Result: structured JSON, bytes, size, status, destroy; all exported entry
+  points contain C++ exceptions.
+- Native C-only ABI test covers small chunks, NeedInput/Event/End, output
+  chunks, malformed JSON, invalid state, null arguments, and XTF output.
+- Node.js/WASM low-level ABI test covers the same state and result contract.
+
+### Phase 7 verification commands
+
+```text
+./scripts/build-native.sh                         # exit 0
+./scripts/test-native.sh                          # exit 0, 22/22
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, 3.1.64
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 4/4
+./scripts/coverage.sh                             # exit 0, 22/22 instrumented
+cmake -S . -B build/asan -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_ENABLE_ASAN=ON -DIOX_ENABLE_UBSAN=ON
+cmake --build build/asan --parallel                    # exit 0
+ctest --test-dir build/asan --output-on-failure         # exit 0, 22/22
+```
+
+On this macOS runner `ASAN_OPTIONS=detect_leaks=1` is unsupported by the
+platform runtime; the sanitizer pass was therefore run without that option.
 
 ## Phase 0 — Results
 
@@ -68,6 +85,11 @@ node --test packages/iox-wasm/test/*.test.mjs
 - `./scripts/build-native.sh` (0), `./scripts/test-native.sh` (0, 22/22),
   `./scripts/build-wasm.sh` (0, Emscripten 3.1.64),
   `./scripts/test-wasm.sh` (0, 2/2), and `./scripts/coverage.sh` (0, 22/22).
+
+## Phase 8 — In Progress
+
+The low-level ABI is complete. The idiomatic JavaScript wrapper and worker
+protocol are the current implementation scope.
 
 ## Phase 9 — Not Started
 
