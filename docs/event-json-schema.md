@@ -4,6 +4,10 @@ This document describes the canonical JSON representation of `IoxEvent`
 objects produced by `JsonEventReader`/`JsonEventWriter`.
 
 Each event is serialized as a single JSON object on its own line (NDJSON).
+The native JSON implementation uses the historical `type` field for
+compatibility. The ABI and JavaScript layers normalize it to the stable
+lower-camel `event` discriminator when they expose schema version 1. Attribute
+and repeated-value order is always represented by arrays.
 
 ## Common Fields
 

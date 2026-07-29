@@ -23,6 +23,7 @@ public:
     IomValue() noexcept : data_(NullTag{}) {}
 
     static IomValue text(std::string value) { return IomValue(std::move(value)); }
+    static IomValue primitive(std::string value) { return text(std::move(value)); }
     static IomValue integer(std::int64_t value) { return IomValue(value); }
     static IomValue decimal(double value) { return IomValue(value); }
     static IomValue boolean(bool value) { return IomValue(value); }
@@ -33,10 +34,13 @@ public:
     }
 
     bool isNull() const noexcept { return kind() == Kind::Null; }
+    bool isPrimitive() const noexcept { return kind() != Kind::Null; }
 
     const std::string& asText() const {
         return std::get<std::string>(data_);
     }
+
+    const std::string& primitive() const { return asText(); }
 
     std::int64_t asInteger() const {
         return std::get<std::int64_t>(data_);

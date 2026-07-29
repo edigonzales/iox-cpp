@@ -11,6 +11,7 @@ set(CORE_TEST_FILES
     core/IomValue.test.cpp
     core/IomObject.test.cpp
     core/FormatRegistry.test.cpp
+    core/EventKind.test.cpp
 )
 
 foreach(test_file ${CORE_TEST_FILES})

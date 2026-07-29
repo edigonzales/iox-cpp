@@ -11,10 +11,13 @@ namespace iox {
 struct XmlQualifiedName final {
     std::string namespaceUri;  // empty for unqualified
     std::string localName;
+    std::string prefixHint;    // lexical prefix, never used for identity
 
     XmlQualifiedName() = default;
-    XmlQualifiedName(std::string ns, std::string local)
-        : namespaceUri(std::move(ns)), localName(std::move(local)) {}
+    XmlQualifiedName(std::string ns, std::string local,
+                     std::string prefix = {})
+        : namespaceUri(std::move(ns)), localName(std::move(local)),
+          prefixHint(std::move(prefix)) {}
 
     bool operator==(const XmlQualifiedName& o) const noexcept {
         return namespaceUri == o.namespaceUri && localName == o.localName;
@@ -42,15 +45,24 @@ public:
 
     /// The INTERLIS scoped name (e.g. "MODEL.TOPIC.Class").
     const std::string& iliName() const noexcept { return iliName_; }
+    const std::string& interlisName() const noexcept { return iliName_; }
+    bool hasInterlisName() const noexcept { return !iliName_.empty(); }
 
     /// The original XML qualified name, if captured.
     const std::optional<XmlQualifiedName>& xmlName() const noexcept {
         return xmlName_;
     }
+    bool hasXmlName() const noexcept { return xmlName_.has_value(); }
 
     /// Set the XML qualified name (useful when adding metadata after construction).
     void setXmlName(XmlQualifiedName name) {
         xmlName_ = std::move(name);
+    }
+
+    static IomName fromExpandedXmlName(XmlQualifiedName name) {
+        IomName result;
+        result.xmlName_ = std::move(name);
+        return result;
     }
 
     bool operator==(const IomName& o) const noexcept {

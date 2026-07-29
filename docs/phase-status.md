@@ -2,9 +2,9 @@
 
 | Phase | Status | Commit | Native Tests | WASM Tests | Coverage | Notes |
 |-------|--------|--------|-------------|------------|----------|-------|
-| 0 | completed | pending | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 18/18) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 2/2) | N/A | Baseline, pinned references, agent controls, native/WASM ABI smoke |
-| 1 | in-progress | — | — | — | — | IOM/events/JSON API verification and ABI wrapper work |
-| 2 | not-started | — | — | — | — | Secure XML and XTF header gate |
+| 0 | completed | 4347ba1 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 18/18) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 2/2) | N/A | Baseline, pinned references, agent controls, native/WASM ABI smoke |
+| 1 | completed | pending | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 19/19) | `./scripts/build-wasm.sh` (0); `./scripts/test-wasm.sh` (0, 2/2) | N/A | Ordered event helpers, QName metadata aliases, lexical primitive compatibility |
+| 2 | in-progress | — | — | — | — | Secure XML and XTF header gate |
 | 3 | not-started | — | — | — | — | XTF 2.3 objects/references |
 | 4 | not-started | — | — | — | — | XTF 2.3 geometry |
 | 5 | not-started | — | — | — | — | XTF 2.4 objects/namespaces |

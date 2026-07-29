@@ -8,6 +8,7 @@
 #include <vector>
 #include <variant>
 #include <optional>
+#include <type_traits>
 
 namespace iox {
 
@@ -72,6 +73,36 @@ using IoxEvent = std::variant<
     EndBasketEvent,
     EndTransferEvent
 >;
+
+enum class EventKind {
+    StartTransfer,
+    StartBasket,
+    Object,
+    EndBasket,
+    EndTransfer
+};
+
+inline EventKind eventKind(const IoxEvent& event) noexcept {
+    return std::visit([](const auto& value) {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, StartTransferEvent>) return EventKind::StartTransfer;
+        if constexpr (std::is_same_v<T, StartBasketEvent>) return EventKind::StartBasket;
+        if constexpr (std::is_same_v<T, ObjectEvent>) return EventKind::Object;
+        if constexpr (std::is_same_v<T, EndBasketEvent>) return EventKind::EndBasket;
+        return EventKind::EndTransfer;
+    }, event);
+}
+
+inline const char* eventKindName(EventKind kind) noexcept {
+    switch (kind) {
+    case EventKind::StartTransfer: return "startTransfer";
+    case EventKind::StartBasket: return "startBasket";
+    case EventKind::Object: return "object";
+    case EventKind::EndBasket: return "endBasket";
+    case EventKind::EndTransfer: return "endTransfer";
+    }
+    return "unknown";
+}
 
 // ============================================================================
 // Event type helpers

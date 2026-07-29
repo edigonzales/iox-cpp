@@ -4,7 +4,7 @@
 |-------|-------------|--------|
 | 0 | Repository Baseline, Build, and Agent Control | completed |
 | 1 | IOM Core, Events, and JSON Event Format | completed |
-| 2 | Secure Incremental XML Layer and XTF Detection | completed |
+| 2 | Secure Incremental XML Layer and XTF Detection | in-progress |
 | 3 | XTF 2.3 Basic Objects and References | completed |
 | 4 | XTF 2.3 Geometry and Production Hardening | completed |
 | 5 | XTF 2.4 Basic Objects, Namespaces, and References | completed |
