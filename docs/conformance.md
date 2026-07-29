@@ -99,3 +99,10 @@ Selected fixtures from `claeis/iox-ili/src/test/data/` are included under
 `test/fixtures/xtf23/` for conformance testing. These are MIT-licensed.
 The full iox-ili test suite also covers model-dependent features
 (associations, views, translations) that require `ilic-core` integration.
+
+### XTF 2.3 geometry mapping
+
+The checked-in `Surface.xtf`, `PolylineWithArcs.xtf`, `Area.xtf`, and related
+fixtures exercise the generic IOM geometry tree. `COORD`, `ARC`, `POLYLINE`,
+`SEGMENTS`, `SURFACE`, `BOUNDARY`, and `AREA` remain structured objects; no
+numeric conversion or polygonization is performed by the core.

@@ -14,6 +14,7 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
+#include <functional>
 
 // ============================================================================
 // Helpers
@@ -236,6 +237,34 @@ IOX_TEST(conformance_xtf23_coord) {
         }
     }
     IOX_CHECK(hasCoord);
+}
+
+IOX_TEST(conformance_xtf23_surface_preserves_arc_segments) {
+    auto data = readFixture(FIXTURE_DIR "/xtf23/dataSection/Surface.xtf");
+    IOX_CHECK(!data.empty());
+    auto events = parseXtf(data);
+    bool hasArc = false;
+    bool hasSurface = false;
+    std::function<void(const iox::IomObject&)> inspect =
+        [&](const iox::IomObject& value) {
+            if (value.tag().iliName() == "SURFACE") hasSurface = true;
+            if (value.tag().iliName() == "ARC") hasArc = true;
+            for (std::size_t i = 0; i < value.attributeCount(); ++i) {
+                if (value.attributeAt(i).name.iliName() == "ARC") hasArc = true;
+                for (const auto& nestedValue : value.attributeAt(i).values) {
+                    if (const auto* nested = std::get_if<iox::IomObject>(&nestedValue)) {
+                        inspect(*nested);
+                    }
+                }
+            }
+        };
+    for (const auto& event : events) {
+        if (const auto* object = std::get_if<iox::ObjectEvent>(&event)) {
+            inspect(object->object);
+        }
+    }
+    IOX_CHECK(hasSurface);
+    IOX_CHECK(hasArc);
 }
 
 IOX_TEST(conformance_xtf23_polyline) {

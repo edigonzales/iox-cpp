@@ -6,8 +6,8 @@
 | 1 | IOM Core, Events, and JSON Event Format | completed |
 | 2 | Secure Incremental XML Layer and XTF Detection | completed |
 | 3 | XTF 2.3 Basic Objects and References | completed |
-| 4 | XTF 2.3 Geometry and Production Hardening | in-progress |
-| 5 | XTF 2.4 Basic Objects, Namespaces, and References | completed |
+| 4 | XTF 2.3 Geometry and Production Hardening | completed |
+| 5 | XTF 2.4 Basic Objects, Namespaces, and References | in-progress |
 | 6 | XTF 2.4 Geometry and Production Hardening | completed |
 | 7 | Complete C ABI and Incremental WASM | completed |
 | 8 | Idiomatic @interlis/iox-wasm | completed |
