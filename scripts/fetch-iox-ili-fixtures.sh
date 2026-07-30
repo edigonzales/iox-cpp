@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # fetch-iox-ili-fixtures.sh
-# Downloads all XTF test fixtures from claeis/iox-ili (MIT License)
-# Excludes files > 12 KB to keep the repo lean.
+# Downloads the selected XTF test fixtures from an immutable iox-ili revision.
+# The checked-in complete transfer corpus is documented by the fixture manifest.
 set -euo pipefail
 
-BASE_URL="https://raw.githubusercontent.com/claeis/iox-ili/master/src/test/data"
+IOX_ILI_COMMIT="1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f"
+BASE_URL="https://raw.githubusercontent.com/claeis/iox-ili/${IOX_ILI_COMMIT}/src/test/data"
 FIXTURE_DIR="test/fixtures"
 
 echo "=== Fetching iox-ili test fixtures ==="

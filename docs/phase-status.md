@@ -13,7 +13,8 @@
 | 8 | completed | edf2974 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 22/22 instrumentation) | Idiomatic JS API, TypeScript unions, byte/iterator/incremental tests, module-worker protocol |
 | 9 | completed | 017ab90 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 21/21, IOX_ENABLE_ILIC=OFF); explicit ilic build (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 21/21 instrumentation) | Direct concrete ilic-core integration; no provider abstraction |
 | 10 | completed | 05d3a6d | `cmake -S . -B build/phase10 ...` (0); `cmake --build build/phase10 --parallel` (0); `ctest --test-dir build/phase10 --output-on-failure` (0, 28/28) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 28/28 instrumentation) | BasketReader and limit diagnostics, scored factories, custom format, examples, iox-dump |
-| 11 | completed | pending (this commit) | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 31/31) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 31/31; 93.69% line, 85.09% branch) | ASan/UBSan 25/25, standalone fuzz 50 runs plus CTest 1/1, 10,000-object streaming, Native/WASM parity, deterministic roundtrip, public-header consumer, direct ilic-core 26/26 |
+| 11 | completed | 7e98bef | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 31/31) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 31/31; 93.69% line, 85.09% branch) | ASan/UBSan 25/25, standalone fuzz 50 runs plus CTest 1/1, 10,000-object streaming, Native/WASM parity, deterministic roundtrip, public-header consumer, direct ilic-core 26/26 |
+| post-11 | completed | this commit | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 33/33); `iox.test.iox_ili.porting` (4/4); fixture manifest (0) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 33/33; 93.78% line, 85.71% branch) | Pinned iox-ili method matrix, 211 XTF fixtures plus 9 model files, fixture manifest, chunk/event/diagnostic parity, semantic writer roundtrip, explicit model/API gaps |
 
 ## Build Commands
 
@@ -211,3 +212,39 @@ roundtrips of the same fixture were byte-identical at 277 bytes. The regular
 CTest suite performs no network access; Java remains outside the regular test
 path. Remaining TODO/FIXME markers are confined to generated Emscripten glue,
 not product or test sources.
+
+## Post-11 — iox-ili XTF test-porting matrix
+
+The matrix uses the immutable `iox-ili` revision
+`1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f` and maps 207 XTF Java test methods
+plus 7 XTF factory/utility methods. The checked-in corpus contains 211 XTF
+transfer fixtures and 9 model-support `.ili` files. The regular C++ test path
+uses no Java and no network access.
+
+### Post-11 verification commands
+
+```text
+./scripts/verify-iox-ili-fixtures.sh                         # exit 0, 211 transfers, 9 model files
+./scripts/build-native.sh                                    # exit 0
+./scripts/test-native.sh                                     # exit 0, 33/33
+cmake -S . -B build/ilic-matrix -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork  # exit 0
+cmake --build build/ilic-matrix --parallel                     # exit 0
+ctest --test-dir build/ilic-matrix --output-on-failure         # exit 0, 28/28
+./scripts/coverage.sh                                        # exit 0, 33/33; 93.78% line, 85.71% branch
+cmake -S . -B build/asan-matrix -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ASAN=ON -DIOX_ENABLE_UBSAN=ON  # exit 0
+cmake --build build/asan-matrix --parallel                    # exit 0
+ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1 ctest --test-dir build/asan-matrix --output-on-failure  # exit 0, 27/27
+cmake -S . -B build/fuzz-matrix -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_FUZZING=ON  # exit 0
+cmake --build build/fuzz-matrix --parallel                    # exit 0
+build/fuzz-matrix/test/iox-fuzz-xtf --runs 50 test/fuzz/corpus/empty.xtf  # exit 0, 50 standalone runs
+ctest --test-dir build/fuzz-matrix -R iox\\.fuzz\\.xtf --output-on-failure  # exit 0, 1/1
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, Emscripten 3.1.64
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 8/8
+```
+
+The generic C++ assertions compare the complete ordered event stream,
+copy-on-write IOM contents, ordered/repeated values, references and
+diagnostics. Writer checks compare deterministic bytes separately from the
+semantic Reader → Writer → Reader roundtrip. Model-dependent Java behavior
+is documented as `api-gap` until a concrete direct `ilic-core` capability and
+test exist; the optional `iox-ilic` build remains green with 28/28 tests.

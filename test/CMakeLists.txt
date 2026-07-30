@@ -154,6 +154,19 @@ add_test(NAME iox.test.conformance COMMAND iox-test-conformance)
 set_tests_properties(iox.test.conformance PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+add_executable(iox-test-iox-ili-porting
+    conformance/IoxIliPorted.test.cpp
+)
+target_include_directories(iox-test-iox-ili-porting PRIVATE "${CMAKE_SOURCE_DIR}")
+target_link_libraries(iox-test-iox-ili-porting PRIVATE iox-xtf iox-xml iox-core iox-test-support)
+add_test(NAME iox.test.iox_ili.porting COMMAND iox-test-iox-ili-porting)
+set_tests_properties(iox.test.iox_ili.porting PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME iox.test.iox_ili.fixture_manifest
+         COMMAND "${CMAKE_SOURCE_DIR}/scripts/verify-iox-ili-fixtures.sh")
+set_tests_properties(iox.test.iox_ili.fixture_manifest PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 # --- Association tests -------------------------------------------------------
 add_executable(iox-test-associations
     conformance/Associations.test.cpp

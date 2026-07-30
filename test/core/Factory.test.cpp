@@ -20,6 +20,15 @@ IOX_TEST(factory_content_sniff_outranks_wrong_extension) {
     IOX_CHECK(dynamic_cast<iox::json::JsonEventReader*>(reader.get()) != nullptr);
 }
 
+IOX_TEST(factory_xtf_extensions_select_xtf_reader) {
+    const std::string prefix =
+        "<?xml version=\"1.0\"?><ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">";
+    auto xtf = iox::ReaderFactory::create("transfer.xtf", iox::ByteView(prefix));
+    auto xml = iox::ReaderFactory::create("transfer.xml", iox::ByteView(prefix));
+    IOX_CHECK(dynamic_cast<iox::xtf::XtfReader*>(xtf.get()) != nullptr);
+    IOX_CHECK(dynamic_cast<iox::xtf::XtfReader*>(xml.get()) != nullptr);
+}
+
 IOX_TEST(factory_explicit_names_and_unknown_format) {
     auto reader = iox::ReaderFactory::createByName("xtf");
     IOX_CHECK(dynamic_cast<iox::xtf::XtfReader*>(reader.get()) != nullptr);

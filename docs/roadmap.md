@@ -14,6 +14,7 @@
 | 9 | Direct ilic-core Integration | completed |
 | 10 | Convenience APIs, Examples, and iox-dump | completed |
 | 11 | Final Conformance, Coverage, and Fuzz Hardening | completed |
+| post-11 | iox-ili XTF Test Porting Matrix | completed |
 
 ## Acceptance Criteria per Phase
 
@@ -87,3 +88,10 @@ See `docs/phase-status.md` for detailed per-phase criteria and test results.
 - Fuzz targets buildable
 - Clean build from scratch
 - Final report
+
+### Post-11 quality follow-up
+- Pinned `iox-ili` XTF method inventory and status matrix
+- Complete pinned XTF fixture manifest
+- One-shot/chunked event and diagnostic parity over the XTF corpus
+- Semantic XTF 2.4 writer roundtrips and ordered-value regression coverage
+- Explicit `ilic-required`, `api-gap`, and out-of-scope model/test boundaries

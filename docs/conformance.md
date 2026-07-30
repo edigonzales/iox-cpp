@@ -101,10 +101,19 @@ in extraction method.
 
 ### iox-ili Test Fixtures
 
-Selected fixtures from `claeis/iox-ili/src/test/data/` are included under
-`test/fixtures/xtf23/` for conformance testing. These are MIT-licensed.
-The full iox-ili test suite also covers model-dependent features
-(associations, views, translations) that require `ilic-core` integration.
+The pinned XTF corpus from `claeis/iox-ili/src/test/data/` is included under
+`test/fixtures/xtf23/`, `test/fixtures/xtf24/`, and
+`test/fixtures/xtf24writer/`. It contains 211 XTF transfer files and 9 `.ili`
+model-support files from revision
+`1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f`. These fixtures are MIT/X-licensed.
+The source-to-local mapping, fixture category, and expected behavior area are
+recorded in `test/fixtures/iox-ili-fixtures.tsv`.
+
+The method-level test mapping is recorded in
+`docs/iox-ili-test-porting-matrix.md`. Model-dependent features such as
+association roles, views, translations, and model declaration validation are
+explicitly separated from the model-free event-stream tests; unresolved
+capabilities are marked as `api-gap` rather than silently treated as passed.
 
 ### XTF 2.3 geometry mapping
 
