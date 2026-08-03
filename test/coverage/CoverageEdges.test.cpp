@@ -11,7 +11,6 @@
 #include "iox/test/Test.h"
 #include "xml/ExpatParser.h"
 #include "xml/XmlWriter.h"
-#include "iox/xtf/Xtf23Dialect.h"
 #include "iox/xtf/Xtf24Dialect.h"
 #include "iox/xtf/XtfReader.h"
 #include "iox/xtf/XtfWriter.h"
@@ -442,26 +441,6 @@ IOX_TEST(coverage_xtf_and_abi_state_paths) {
 }
 
 IOX_TEST(coverage_direct_xtf_dialect_paths) {
-    std::vector<iox::IoxEvent> events23;
-    iox::xtf::Xtf23Dialect dialect23({
-        [&](iox::IoxEvent value) { events23.push_back(std::move(value)); },
-        [](iox::Diagnostic) {}});
-    dialect23.onStartElement(
-        "M.T.B", {{"BID", "B"}, {"CONSISTENCY", "incomplete"},
-                    {"OPERATION", "update"}});
-    dialect23.onStartElement(
-        "M.T.C", {{"TID", "T"}, {"OPERATION", "delete"}});
-    dialect23.onStartElement(
-        "ref", {{"REF", "R"}, {"BID", "B"}, {"ORDER_POS", "2"}});
-    dialect23.onEndElement("ref");
-    dialect23.onStartElement("name", {});
-    dialect23.onCharacterData("value");
-    dialect23.onEndElement("name");
-    dialect23.onEndElement("M.T.C");
-    dialect23.onEndElement("M.T.B");
-    IOX_CHECK_EQ(static_cast<std::size_t>(3), events23.size());
-    IOX_CHECK(!dialect23.isFatal());
-
     const auto expanded = [](std::string_view uri, std::string_view local) {
         return std::string(uri) + "\xFF" + std::string(local);
     };

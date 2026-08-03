@@ -34,8 +34,11 @@ static std::string readFixture(const std::string& path) {
     return data;
 }
 
-static std::vector<iox::IoxEvent> parseXtf(const std::string& data) {
-    iox::xtf::XtfReader reader;
+static std::vector<iox::IoxEvent> parseXtf(const std::string& data,
+                                           bool requireModels = true) {
+    iox::xtf::XtfReaderOptions options;
+    options.requireAtLeastOneModel = requireModels;
+    iox::xtf::XtfReader reader(options);
     reader.feed(iox::ByteView(data));
     reader.finish();
 
@@ -47,6 +50,17 @@ static std::vector<iox::IoxEvent> parseXtf(const std::string& data) {
         if (outcome.event) events.push_back(std::move(*outcome.event));
     }
     return events;
+}
+
+static std::string transfer23(std::string_view dataContent,
+                              std::string_view sender = "T") {
+    return "<?xml version=\"1.0\"?>"
+           "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
+           "<ili:HEADERSECTION SENDER=\"" + std::string(sender) +
+           "\" VERSION=\"2.3\"><ili:MODELS>"
+           "<ili:MODEL NAME=\"M\"/></ili:MODELS></ili:HEADERSECTION>"
+           "<ili:DATASECTION>" + std::string(dataContent) +
+           "</ili:DATASECTION></ili:TRANSFER>";
 }
 
 static std::optional<iox::DiagnosticCode> parseFailure(
@@ -108,11 +122,9 @@ IOX_TEST(conformance_xtf23_empty_transfer) {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
         "</ili:TRANSFER>";
-    auto events = parseXtf(xtf);
-    // Should get StartTransfer + EndTransfer
-    IOX_CHECK_EQ(2, static_cast<int>(events.size()));
-    IOX_CHECK(std::holds_alternative<iox::StartTransferEvent>(events[0]));
-    IOX_CHECK(std::holds_alternative<iox::EndTransferEvent>(events[1]));
+    const auto code = parseFailure(xtf);
+    IOX_CHECK(code.has_value());
+    IOX_CHECK_EQ(iox::DiagnosticCode::InvalidEventOrder, *code);
 }
 
 IOX_TEST(conformance_xtf23_malformed_xml) {
@@ -136,7 +148,9 @@ IOX_TEST(conformance_xtf23_wrong_namespace) {
     std::string xml =
         "<?xml version=\"1.0\"?>"
         "<xxx:TRANSFER xmlns:xxx=\"http://www.interlis.ch/INTERLIS2.3\">"
-        "<xxx:HEADERSECTION><xxx:SENDER>T</xxx:SENDER><xxx:SOFTWARE>X</xxx:SOFTWARE></xxx:HEADERSECTION>"
+        "<xxx:HEADERSECTION SENDER=\"T\" VERSION=\"2.3\">"
+        "<xxx:MODELS><xxx:MODEL NAME=\"M\"/></xxx:MODELS>"
+        "</xxx:HEADERSECTION><xxx:DATASECTION/>"
         "</xxx:TRANSFER>";
     auto events = parseXtf(xml);
     // Should still parse (namespace URI matters, not prefix)
@@ -149,8 +163,9 @@ IOX_TEST(conformance_xtf23_no_header_section) {
         "<?xml version=\"1.0\"?>"
         "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
         "</ili:TRANSFER>";
-    auto events = parseXtf(xml);
-    IOX_CHECK_EQ(2, static_cast<int>(events.size()));
+    const auto code = parseFailure(xml);
+    IOX_CHECK(code.has_value());
+    IOX_CHECK_EQ(iox::DiagnosticCode::InvalidEventOrder, *code);
 }
 
 // ============================================================================
@@ -298,12 +313,7 @@ IOX_TEST(conformance_xtf23_empty_basket) {
     // Note: iox-ili uses default-namespace XTF 2.3 format.
     // Our reader uses the ili:-prefixed canonical format.
     // Test with our format.
-    std::string xml =
-        "<?xml version=\"1.0\"?>"
-        "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
-        "<ili:HEADERSECTION><ili:SENDER>T</ili:SENDER><ili:SOFTWARE>X</ili:SOFTWARE></ili:HEADERSECTION>"
-        "<ili:BASKET BID=\"B1\"></ili:BASKET>"
-        "</ili:TRANSFER>";
+    const auto xml = transfer23("<M.T BID=\"B1\"/>");
     auto events = parseXtf(xml);
     int startBaskets = countEventType(events, "StartBasket");
     int endBaskets = countEventType(events, "EndBasket");
@@ -313,13 +323,8 @@ IOX_TEST(conformance_xtf23_empty_basket) {
 
 IOX_TEST(conformance_xtf23_multiple_baskets) {
     // Construct a transfer with multiple baskets
-    std::string xml =
-        "<?xml version=\"1.0\"?>"
-        "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
-        "<ili:HEADERSECTION><ili:SENDER>T</ili:SENDER><ili:SOFTWARE>X</ili:SOFTWARE></ili:HEADERSECTION>"
-        "<ili:BASKET BID=\"B1\"></ili:BASKET>"
-        "<ili:BASKET BID=\"B2\"></ili:BASKET>"
-        "</ili:TRANSFER>";
+    const auto xml = transfer23(
+        "<M.T BID=\"B1\"/><M.T BID=\"B2\"/>");
     auto events = parseXtf(xml);
 
     int startBaskets = countEventType(events, "StartBasket");
@@ -346,7 +351,9 @@ IOX_TEST(conformance_xtf23_wrong_spelled_end_transfer) {
     std::string xml =
         "<?xml version=\"1.0\"?>"
         "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
-        "<ili:HEADERSECTION><ili:SENDER>T</ili:SENDER><ili:SOFTWARE>X</ili:SOFTWARE></ili:HEADERSECTION>"
+        "<ili:HEADERSECTION SENDER=\"T\" VERSION=\"2.3\">"
+        "<ili:MODELS><ili:MODEL NAME=\"M\"/></ili:MODELS>"
+        "</ili:HEADERSECTION><ili:DATASECTION/>"
         "</ili:TRASNFER>";
     const auto code = parseFailure(xml);
     IOX_CHECK(code.has_value());
@@ -354,17 +361,14 @@ IOX_TEST(conformance_xtf23_wrong_spelled_end_transfer) {
 }
 
 IOX_TEST(conformance_xtf23_wrong_case_transfer) {
-    // Lowercase <ili:transfer> is actually accepted by our reader
-    // (we explicitly check for both "TRANSFER" and "transfer")
     std::string xml =
         "<?xml version=\"1.0\"?>"
         "<ili:transfer xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
         "<ili:HEADERSECTION><ili:SENDER>T</ili:SENDER><ili:SOFTWARE>X</ili:SOFTWARE></ili:HEADERSECTION>"
         "</ili:transfer>";
-    auto events = parseXtf(xml);
-    // Lowercase root is accepted — should parse successfully
-    IOX_CHECK(!events.empty());
-    IOX_CHECK(std::holds_alternative<iox::StartTransferEvent>(events[0]));
+    const auto code = parseFailure(xml);
+    IOX_CHECK(code.has_value());
+    IOX_CHECK_EQ(iox::DiagnosticCode::InvalidXtfNamespace, *code);
 }
 
 IOX_TEST(conformance_xtf23_truncated) {
@@ -384,14 +388,9 @@ IOX_TEST(conformance_xtf23_text_between_elements) {
         "unexpected text"
         "<ili:HEADERSECTION><ili:SENDER>T</ili:SENDER><ili:SOFTWARE>X</ili:SOFTWARE></ili:HEADERSECTION>"
         "</ili:TRANSFER>";
-    iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(xml));
-    reader.finish();
-
-    auto diags = reader.takeDiagnostics();
-    // Expat reports character data outside elements — may be warning or fatal
-    // At minimum, the parser should not crash
-    (void)diags;
+    const auto code = parseFailure(xml);
+    IOX_CHECK(code.has_value());
+    IOX_CHECK_EQ(iox::DiagnosticCode::UnexpectedElement, *code);
 }
 
 IOX_TEST(conformance_xtf23_nested_transfer) {
@@ -402,13 +401,9 @@ IOX_TEST(conformance_xtf23_nested_transfer) {
         "<ili:TRANSFER>"
         "</ili:TRANSFER>"
         "</ili:TRANSFER>";
-    iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(xml));
-    reader.finish();
-
-    auto diags = reader.takeDiagnostics();
-    // Nested TRANSFER should produce diagnostic
-    (void)diags;
+    const auto code = parseFailure(xml);
+    IOX_CHECK(code.has_value());
+    IOX_CHECK_EQ(iox::DiagnosticCode::InvalidEventOrder, *code);
 }
 
 // ============================================================================
@@ -416,12 +411,8 @@ IOX_TEST(conformance_xtf23_nested_transfer) {
 // ============================================================================
 
 IOX_TEST(conformance_xtf23_basket_consistency) {
-    std::string xml =
-        "<?xml version=\"1.0\"?>"
-        "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
-        "<ili:HEADERSECTION><ili:SENDER>T</ili:SENDER><ili:SOFTWARE>X</ili:SOFTWARE></ili:HEADERSECTION>"
-        "<ili:BASKET BID=\"B1\" CONSISTENCY=\"incomplete\"></ili:BASKET>"
-        "</ili:TRANSFER>";
+    const auto xml = transfer23(
+        "<M.T BID=\"B1\" CONSISTENCY=\"incomplete\"/>");
     auto events = parseXtf(xml);
 
     for (auto& e : events) {
@@ -433,14 +424,10 @@ IOX_TEST(conformance_xtf23_basket_consistency) {
 }
 
 IOX_TEST(conformance_xtf23_basket_operation) {
-    std::string xml =
-        "<?xml version=\"1.0\"?>"
-        "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
-        "<ili:HEADERSECTION><ili:SENDER>T</ili:SENDER><ili:SOFTWARE>X</ili:SOFTWARE></ili:HEADERSECTION>"
-        "<ili:BASKET BID=\"B1\" OPERATION=\"update\">"
-        "<TestClass TID=\"T1\" OPERATION=\"delete\"><Name>val</Name></TestClass>"
-        "</ili:BASKET>"
-        "</ili:TRANSFER>";
+    const auto xml = transfer23(
+        "<M.T BID=\"B1\" KIND=\"UPDATE\">"
+        "<M.T.C TID=\"T1\" OPERATION=\"DELETE\"><Name>val</Name>"
+        "</M.T.C></M.T>");
     auto events = parseXtf(xml);
 
     for (auto& e : events) {
@@ -459,18 +446,10 @@ IOX_TEST(conformance_xtf23_basket_operation) {
 // ============================================================================
 
 IOX_TEST(conformance_xtf23_unicode_umlauts) {
-    std::string xml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-        "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
-        "<ili:HEADERSECTION>"
-        "<ili:SENDER>Prüfstelle</ili:SENDER>"
-        "<ili:COMMENT>Überprüfung délà</ili:COMMENT>"
-        "<ili:SOFTWARE>Möschen</ili:SOFTWARE>"
-        "</ili:HEADERSECTION>"
-        "<ili:BASKET BID=\"B1\">"
-        "<TestClass TID=\"1\"><Name>Straße école</Name></TestClass>"
-        "</ili:BASKET>"
-        "</ili:TRANSFER>";
+    const auto xml = transfer23(
+        "<M.T BID=\"B1\"><M.T.C TID=\"1\">"
+        "<Name>Straße école</Name></M.T.C></M.T>",
+        "Prüfstelle");
     auto events = parseXtf(xml);
     IOX_CHECK(!events.empty());
     IOX_CHECK(std::holds_alternative<iox::StartTransferEvent>(events[0]));
@@ -498,7 +477,7 @@ IOX_TEST(conformance_xtf23_roundtrip_header) {
     for (const auto& e : events) writer.write(e);
     writer.close();
 
-    auto rtEvents = parseXtf(sink->str());
+    auto rtEvents = parseXtf(sink->str(), false);
     IOX_CHECK(!rtEvents.empty());
     // Event counts should match
     IOX_CHECK_EQ(static_cast<int>(events.size()),
@@ -520,7 +499,7 @@ IOX_TEST(conformance_xtf23_roundtrip_data) {
     for (const auto& e : events) writer.write(e);
     writer.close();
 
-    auto rtEvents = parseXtf(sink->str());
+    auto rtEvents = parseXtf(sink->str(), false);
     IOX_CHECK(!rtEvents.empty());
 }
 

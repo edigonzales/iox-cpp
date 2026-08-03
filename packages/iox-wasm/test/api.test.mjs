@@ -13,7 +13,9 @@ import { handleWorkerMessage } from '../worker.js';
 
 const fixture =
   '<?xml version="1.0"?><ili:TRANSFER xmlns:ili="http://www.interlis.ch/INTERLIS2.3">' +
-  '<ili:HEADERSECTION><ili:SENDER>Phase8</ili:SENDER></ili:HEADERSECTION>' +
+  '<ili:HEADERSECTION VERSION="2.3" SENDER="Phase8">' +
+  '<ili:MODELS><ili:MODEL NAME="M" VERSION="1" URI="urn:m"/></ili:MODELS>' +
+  '</ili:HEADERSECTION><ili:DATASECTION/>' +
   '</ili:TRANSFER>';
 
 const location = { sourceName: '', byteOffset: 0, line: 0, column: 0 };
@@ -22,7 +24,14 @@ const name = (interlisName) => ({ interlisName, xml: null });
 const events = [
   {
     schema: 'iox-event/2', event: 'startTransfer',
-    header: { version: '2.3', sender: 'Phase8', models: [], oidSpaces: [], extensions: [] },
+    header: {
+      version: '2.3', sender: 'Phase8',
+      models: [{
+        name: 'M', version: '1', uri: 'urn:m',
+        xmlNamespace: { namespaceUri: '', localName: '', prefixHint: '' },
+      }],
+      oidSpaces: [], extensions: [],
+    },
   },
   {
     schema: 'iox-event/2', event: 'startBasket',

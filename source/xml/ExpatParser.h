@@ -57,6 +57,11 @@ public:
 
     void feed(ByteView bytes);
     void finish();
+    /// Request a resumable stop from inside a parser callback.
+    void suspend();
+    /// Continue parsing the input buffer retained by Expat.
+    void resume();
+    bool suspended() const noexcept;
     bool finished() const noexcept;
     SourceLocation location() const;
 

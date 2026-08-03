@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <exception>
 #include <limits>
+#include <cstring>
 #include <stdexcept>
 #include <utility>
 
@@ -50,6 +51,8 @@ struct ExpatParser::Impl final {
     std::size_t depth = 0;
     bool finished_ = false;
     bool failed = false;
+    bool suspended_ = false;
+    bool inParse = false;
 
     explicit Impl(XmlLimits value, std::string source)
         : limits(value), sourceName(std::move(source)) {}
@@ -161,8 +164,13 @@ struct ExpatParser::Impl final {
         self.invokeFromCallback([&] {
             if (length <= 0) return;
             if (self.textBytes.empty()) {
+                const auto onlyWhitespace = std::all_of(
+                    data, data + length, [](unsigned char character) {
+                        return std::isspace(character) != 0;
+                    });
+                if (onlyWhitespace) return;
                 self.fail(DiagnosticCode::XmlMalformed,
-                          "XML character data occurred outside the root element");
+                          "Non-whitespace XML data occurred outside the root element");
             }
             const auto size = static_cast<std::size_t>(length);
             if (size > self.limits.maxTextBytesPerNode -
@@ -217,14 +225,38 @@ struct ExpatParser::Impl final {
         return XML_STATUS_ERROR;
     }
 
-    void parse(const char* data, int size, bool final) {
-        const auto status = XML_Parse(parser, data, size, final ? XML_TRUE : XML_FALSE);
+    void handleStatus(XML_Status status) {
         raiseCallbackError();
+        if (status == XML_STATUS_SUSPENDED) {
+            suspended_ = true;
+            return;
+        }
         if (status == XML_STATUS_ERROR) {
             const auto code = XML_GetErrorCode(parser);
             fail(DiagnosticCode::XmlMalformed,
                  std::string("XML parse error: ") + XML_ErrorString(code));
         }
+        suspended_ = false;
+    }
+
+    void parse(const char* data, int size, bool final) {
+        XML_Status status = XML_STATUS_ERROR;
+        inParse = true;
+        if (size == 0) {
+            status = XML_Parse(parser, "", 0, final ? XML_TRUE : XML_FALSE);
+        } else {
+            void* buffer = XML_GetBuffer(parser, size);
+            if (buffer == nullptr) {
+                inParse = false;
+                fail(DiagnosticCode::XmlLimitExceeded,
+                     "Unable to allocate the Expat input buffer");
+            }
+            std::memcpy(buffer, data, static_cast<std::size_t>(size));
+            status = XML_ParseBuffer(parser, size,
+                                     final ? XML_TRUE : XML_FALSE);
+        }
+        inParse = false;
+        handleStatus(status);
     }
 };
 
@@ -302,6 +334,7 @@ void ExpatParser::feed(ByteView bytes) {
         impl_->parse(reinterpret_cast<const char*>(bytes.data() + offset),
                      static_cast<int>(count), false);
         offset += count;
+        if (impl_->suspended_) break;
     }
 }
 
@@ -312,6 +345,33 @@ void ExpatParser::finish() {
     }
     impl_->parse("", 0, true);
     impl_->finished_ = true;
+}
+
+void ExpatParser::suspend() {
+    if (impl_->finished_ || impl_->failed || !impl_->inParse) {
+        throw IoxError(DiagnosticCode::InvalidState,
+                       "XML parser suspension is only valid in a callback");
+    }
+    if (impl_->suspended_) return;
+    if (XML_StopParser(impl_->parser, XML_TRUE) == XML_STATUS_ERROR) {
+        impl_->fail(DiagnosticCode::InternalError,
+                    "Expat rejected a resumable parser stop");
+    }
+}
+
+void ExpatParser::resume() {
+    if (impl_->finished_ || impl_->failed || !impl_->suspended_) {
+        throw IoxError(DiagnosticCode::InvalidState,
+                       "Cannot resume an XML parser that is not suspended");
+    }
+    impl_->inParse = true;
+    const auto status = XML_ResumeParser(impl_->parser);
+    impl_->inParse = false;
+    impl_->handleStatus(status);
+}
+
+bool ExpatParser::suspended() const noexcept {
+    return impl_->suspended_;
 }
 
 bool ExpatParser::finished() const noexcept {

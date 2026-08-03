@@ -210,8 +210,34 @@ struct XtfWriter::Impl final {
             if (event.header.comment) writeTextElement("ili:comment", *event.header.comment);
             xml->endElement();
         } else {
-            startElement("ili:HEADERSECTION");
-            writeTextElement("ili:SENDER", sender);
+            startElement("ili:HEADERSECTION",
+                         {{"VERSION", "2.3"}, {"SENDER", sender}});
+            if (!event.header.models.empty()) {
+                startElement("ili:MODELS");
+                for (const auto& model : event.header.models) {
+                    std::vector<std::pair<std::string, std::string>> modelAttributes{
+                        {"NAME", model.name}};
+                    if (model.version) {
+                        modelAttributes.push_back({"VERSION", *model.version});
+                    }
+                    if (model.uri) {
+                        modelAttributes.push_back({"URI", *model.uri});
+                    }
+                    startElement("ili:MODEL", modelAttributes);
+                    xml->endElement();
+                }
+                xml->endElement();
+            }
+            if (!event.header.oidSpaces.empty()) {
+                startElement("ili:OIDSPACES");
+                for (const auto& space : event.header.oidSpaces) {
+                    startElement("ili:OIDSPACE",
+                                 {{"NAME", space.name},
+                                  {"OIDDOMAIN", space.domain}});
+                    xml->endElement();
+                }
+                xml->endElement();
+            }
             if (event.header.comment) writeTextElement("ili:COMMENT", *event.header.comment);
             xml->endElement();
         }
@@ -377,10 +403,13 @@ struct XtfWriter::Impl final {
     }
 
     void writeEndTransfer() {
-        if (dataSectionOpen) {
-            xml->endElement();
-            dataSectionOpen = false;
+        if (!dataSectionOpen) {
+            startElement(options.version == XtfVersion::V24
+                             ? "ili:datasection" : "ili:DATASECTION");
+            dataSectionOpen = true;
         }
+        xml->endElement();
+        dataSectionOpen = false;
         xml->endElement();
         state = WriterState::AfterTransfer;
     }

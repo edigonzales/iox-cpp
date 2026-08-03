@@ -154,9 +154,19 @@ inline std::vector<std::string> eventFingerprints(
 }
 
 inline std::string semanticEventFingerprint(const IoxEvent& event) {
+    const auto normalizeName = [](const IomName& name) {
+        if (name.hasXmlName() &&
+            (name.xmlName().namespaceUri.empty() ||
+             name.xmlName().namespaceUri ==
+                 "http://www.interlis.ch/INTERLIS2.3")) {
+            return IomName(name.interlisName());
+        }
+        return name;
+    };
     const auto normalizeObject = [](const IomObject& source,
-                                    const auto& self) -> IomObject {
-        IomObject result(source.tag(), source.oid());
+                                    const auto& self,
+                                    const auto& normalize) -> IomObject {
+        IomObject result(normalize(source.tag()), source.oid());
         result.setOperation(source.operation());
         result.setConsistency(
             source.consistency() == Consistency::Unspecified
@@ -173,11 +183,11 @@ inline std::string semanticEventFingerprint(const IoxEvent& event) {
                 const auto& value =
                     source.value(name.interlisName(), valueIndex);
                 if (value.isPrimitive()) {
-                    result.appendPrimitive(name, value.primitive());
+                    result.appendPrimitive(normalize(name), value.primitive());
                 } else {
-                    auto nested = self(value.object(), self);
-                    if (nested.isReference()) nested.setTag(name);
-                    result.appendObject(name, std::move(nested));
+                    auto nested = self(value.object(), self, normalize);
+                    if (nested.isReference()) nested.setTag(normalize(name));
+                    result.appendObject(normalize(name), std::move(nested));
                 }
             }
         }
@@ -185,8 +195,9 @@ inline std::string semanticEventFingerprint(const IoxEvent& event) {
     };
     if (const auto* basket = std::get_if<StartBasketEvent>(&event)) {
         auto normalized = *basket;
+        normalized.basket.topic = normalizeName(normalized.basket.topic);
         if (normalized.basket.kind == BasketKind::Unspecified) {
-            normalized.basket.kind = BasketKind::Initial;
+            normalized.basket.kind = BasketKind::Full;
         }
         if (normalized.basket.consistency == Consistency::Unspecified) {
             normalized.basket.consistency = Consistency::Complete;
@@ -196,7 +207,8 @@ inline std::string semanticEventFingerprint(const IoxEvent& event) {
     if (const auto* object = std::get_if<ObjectEvent>(&event)) {
         return eventFingerprint(
             IoxEvent{ObjectEvent{normalizeObject(object->object,
-                                                 normalizeObject)}});
+                                                 normalizeObject,
+                                                 normalizeName)}});
     }
     return eventFingerprint(event);
 }

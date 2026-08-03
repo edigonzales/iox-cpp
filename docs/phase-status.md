@@ -17,6 +17,7 @@
 | post-11 | completed | this commit | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 33/33); `iox.test.iox_ili.porting` (4/4); fixture manifest (0) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 33/33; 93.78% line, 85.71% branch) | Pinned iox-ili method matrix, 211 XTF fixtures plus 9 model files, fixture manifest, chunk/event/diagnostic parity, semantic writer roundtrip, explicit model/API gaps |
 | 13 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Version 0.2.0 API reset, ABI 2, event/result schema 2, lexical IOM values, ordered COW objects, stable diagnostics, private yyjson 0.12.0 |
 | 14 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Private Expat/XML implementation, callback exception containment, UTF-8 and resource limits, source positions, namespace-aware deterministic writer |
+| 15 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Private XTF 2.3 dialect, exact state/header/data rules, bounded event queue, lexical objects/references/geometry, strict/lenient option coverage |
 
 ## Build Commands
 
@@ -316,3 +317,38 @@ ctest --test-dir build/phase14-ilic --output-on-failure       # exit 0, 28/28
 
 No Linux or Windows run, sanitizer pass, fuzzing, or coverage threshold was
 claimed for this phase. Those release gates remain assigned to Phase 20.
+
+## Phase 15 — Conformant XTF 2.3 reader
+
+Phase 15 was verified on macOS on 2026-08-03. A single reader coordinator owns
+version detection, event-order checks, chunk buffering, and a bounded event
+deque. The private 2.3 dialect implements the exact transfer/header/data state
+machine without exposing XML types or building a document DOM. Queue pressure
+suspends Expat at `maxQueuedEvents`; draining via `next()` resumes buffered
+64-KiB input pieces. XTF 2.2 is rejected explicitly.
+
+The reader preserves model entries, aliases, OID spaces, comments, basket
+metadata, operations, consistency, references, ordered/repeated structures,
+source positions, extensions, and lexical primitive bytes. Geometry coverage
+includes coordinates, arcs, custom line forms, line attributes, clipped
+polylines, grouped clipped surfaces, boundaries, surfaces, and areas. Strict
+mode enforces normative case, required header metadata, and structural rules;
+lenient mode retains recoverable data and emits stable diagnostics. The pinned
+Java reader was inspected for the same areas; intentional differences are
+recorded in `docs/conformance.md`.
+
+### Phase 15 verification commands
+
+```text
+cmake --build build/phase14 --parallel                        # exit 0
+ctest --test-dir build/phase14 --output-on-failure            # exit 0, 33/33
+cmake --build build/phase14-ilic --parallel                   # exit 0
+ctest --test-dir build/phase14-ilic --output-on-failure       # exit 0, 28/28
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, Emscripten 3.1.64
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 8/8
+```
+
+The normative PDF and pinned Java source were inspected during implementation;
+normal CTest and WASM tests use neither network nor Java. No Linux or Windows
+run, sanitizer pass, fuzzing, or coverage threshold is claimed for this phase;
+those independent gates remain assigned to Phase 20.

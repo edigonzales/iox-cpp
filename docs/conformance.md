@@ -78,33 +78,34 @@ clone or download any of these references.
 
 ## Deliberate Differences from iox-ili
 
-### XTF 2.3 Namespace Convention
+### XTF 2.3 wire rules
 
-`iox-ili` uses the default-namespace XTF 2.3 encoding:
-```xml
-<TRANSFER xmlns="http://www.interlis.ch/INTERLIS2.3">
-  <HEADERSECTION SENDER="..." VERSION="2.3">
-```
+Section 3.3.3 (reference-manual pages 79–80) defines the `TRANSFER` expanded
+name with namespace `http://www.interlis.ch/INTERLIS2.3`; the XML prefix is not
+semantically relevant. The reader therefore accepts both default-namespace and
+prefixed documents only when the expanded root name is exact. Section 3.3.4
+(pages 80–81) defines `VERSION` and `SENDER` as `HEADERSECTION` attributes and
+requires `NAME`, `VERSION`, and `URI` on `MODEL`. Strict mode enforces this;
+lenient mode accepts the former 0.1 child-element header encoding with explicit
+diagnostics. The 0.2 writer uses the normative attributes.
 
-`iox-cpp` uses the `ili:`-prefixed canonical encoding:
-```xml
-<ili:TRANSFER xmlns:ili="http://www.interlis.ch/INTERLIS2.3">
-  <ili:HEADERSECTION>
-    <ili:SENDER>...</ili:SENDER>
-```
+Sections 3.3.5–3.3.9 (pages 85–88) define data/basket ordering, basket defaults,
+object operations, embedded and standalone references, and `ORDER_POS > 0`.
+Sections 3.3.11.9–3.3.11.14 (pages 90–92) define structures, lexical coordinate
+values, line attributes, clipped polylines/surfaces, boundaries, and reference
+attributes. Phase 15 tests these rules in strict and lenient modes and across
+whole-input, one-byte, fixed, and deterministic irregular chunk boundaries.
 
-Both are valid XTF 2.3. The `ili:`-prefixed form is the canonical representation
-from the INTERLIS 2.3 reference manual. The default-namespace form is a
-compatible variant used by older tools.
+### Behavioral comparison with pinned iox-ili
 
-### Header Field Encoding
-
-- **iox-ili:** Header fields (SENDER, VERSION, COMMENT) are ATTRIBUTES on HEADERSECTION/MODEL
-- **iox-cpp:** Header fields are SUB-ELEMENTS of HEADERSECTION
-
-Tests confirm that iox-ili fixtures parse correctly through our reader
-(event structure is preserved), though header field values may differ
-in extraction method.
+The pinned `Xtf23Reader.java` remains the behavioral comparison, but the
+reference manual wins on conflicts. iox-cpp deliberately rejects XTF 2.2,
+which the Java reader partly accepts. It preserves the complete `ALIAS` tree as
+an extension until Phase 18 applies model semantics; the Java reader validates
+and then discards that tree. iox-cpp also preserves each `OIDSPACE` `NAME` and
+`OIDDOMAIN`; the pinned Java implementation assigns synthetic `oidSpaceN`
+names. Unlike that implementation, the model-free geometry reader retains
+`LINEATTR` and multiple `CLIPPED` groups. No numeric lexical value is converted.
 
 ### iox-ili Test Fixtures
 
@@ -138,7 +139,12 @@ deviation.
 The checked-in `Surface.xtf`, `PolylineWithArcs.xtf`, `Area.xtf`, and related
 fixtures exercise the generic IOM geometry tree. `COORD`, `ARC`, `POLYLINE`,
 `SEGMENTS`, `SURFACE`, `BOUNDARY`, and `AREA` remain structured objects; no
-numeric conversion or polygonization is performed by the core.
+numeric conversion or polygonization is performed by the core. A line
+attribute is stored as `POLYLINE.lineattr`; every direct or clipped segment
+sequence is a `SEGMENTS` value under `POLYLINE.sequence`. Clipped polylines and
+surfaces carry `Consistency::Incomplete`. Surface clipping groups remain
+ordered `SURFACE.clipped` objects with ordered `boundary` values, so a later
+writer does not have to guess group boundaries.
 
 ### XTF 2.4 names
 

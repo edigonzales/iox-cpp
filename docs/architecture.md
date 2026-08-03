@@ -69,14 +69,21 @@ providing value-like semantics without deep copies on every assignment.
   internal XML event types are part of the installed/public API.
 - Parser callbacks copy QName/attribute data and catch every exception before
   returning through Expat's C callback frame.
+- `XtfReader` coordinates version detection, event-order validation, input
+  chunks, and a bounded event deque. When `maxQueuedEvents` is reached it
+  suspends Expat and resumes only after the consumer drains an event.
 - No DOM construction for the whole document.
 - No Xerces, no external entity resolution, no DTD.
 
 ## XTF Dialects
 
-XTF 2.3 and XTF 2.4 are implemented as separate internal dialect classes
-for both reading and writing. Common logic is extracted only when truly
-identical.
+`XtfReader` is the single public coordinator. The complete XTF 2.3 reader is
+a private dialect under `source/xtf/v23`; it receives expanded XML names and
+builds only the current header or attribute subtree, never a document DOM.
+Wire-format decisions stay in that dialect, while queueing, limits, and event
+order stay in the coordinator. The independent 2.4 replacement is deliberately
+left to Phase 17; the existing compatibility path remains isolated meanwhile.
+Common logic is extracted only when the wire rules are genuinely identical.
 
 ## Format Registry
 

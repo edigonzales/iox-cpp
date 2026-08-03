@@ -15,7 +15,6 @@
 #include "iox/abi/iox.h"
 #include "iox/json/JsonEventReader.h"
 #include "iox/json/JsonEventWriter.h"
-#include "iox/xtf/Xtf23Dialect.h"
 #include "iox/xtf/Xtf24Dialect.h"
 #include "iox/xtf/XtfReader.h"
 #include "iox/xtf/XtfReaderOptions.h"

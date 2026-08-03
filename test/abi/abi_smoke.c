@@ -88,8 +88,9 @@ int main(void) {
     const char* xtf =
         "<?xml version=\"1.0\"?><ili:TRANSFER "
         "xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
-        "<ili:HEADERSECTION><ili:SENDER>ABI</ili:SENDER>"
-        "</ili:HEADERSECTION></ili:TRANSFER>";
+        "<ili:HEADERSECTION SENDER=\"ABI\" VERSION=\"2.3\">"
+        "<ili:MODELS><ili:MODEL NAME=\"M\"/></ili:MODELS>"
+        "</ili:HEADERSECTION><ili:DATASECTION/></ili:TRANSFER>";
     reader = iox_reader_create("xtf23", NULL);
     assert(reader != NULL);
     assert(iox_reader_feed(reader, (const uint8_t*)xtf, strlen(xtf)) ==

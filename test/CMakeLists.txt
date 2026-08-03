@@ -114,10 +114,9 @@ if(IOX_BUILD_TOOLS)
     file(WRITE "${IOX_DUMP_FIXTURE}"
          "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
          "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
-         "<ili:HEADERSECTION>"
-         "<ili:SENDER>CTest</ili:SENDER>"
-         "<ili:SOFTWARE>iox-cpp</ili:SOFTWARE>"
-         "</ili:HEADERSECTION>"
+         "<ili:HEADERSECTION SENDER=\"CTest\" VERSION=\"2.3\">"
+         "<ili:MODELS><ili:MODEL NAME=\"Smoke\"/></ili:MODELS>"
+         "</ili:HEADERSECTION><ili:DATASECTION/>"
          "</ili:TRANSFER>")
     add_test(NAME iox.test.tools.iox_dump
              COMMAND iox-dump "${IOX_DUMP_FIXTURE}")

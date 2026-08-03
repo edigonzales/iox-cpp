@@ -157,7 +157,10 @@ IOX_TEST(iox_ili_writer_preserves_ordered_repeated_and_reference_values) {
         events, iox::xtf::XtfVersion::V23);
     IOX_CHECK_EQ(firstOutput, secondOutput);
 
-    const auto parsed = iox::conformance::parseBytes(firstOutput);
+    iox::xtf::XtfReaderOptions readerOptions;
+    readerOptions.requireAtLeastOneModel = false;
+    const auto parsed = iox::conformance::parseBytes(
+        firstOutput, 0, std::move(readerOptions));
     IOX_CHECK(parsed.ended);
     const auto expected = iox::conformance::semanticEventFingerprints(events);
     const auto actual =

@@ -73,6 +73,8 @@ static std::vector<iox::IoxEvent> knownEvents(const std::string& className) {
     iox::StartTransferEvent start;
     start.header.version = iox::XtfVersion::V23;
     start.header.sender = "Test";
+    start.header.models.push_back(
+        {"TestModel", std::nullopt, "urn:example:model", {}});
     events.push_back(start);
     iox::StartBasketEvent basket;
     basket.basket.topic = iox::IomName("TestModel.TopicA");

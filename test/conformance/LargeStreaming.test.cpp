@@ -13,11 +13,12 @@ std::string makeLargeTransfer(std::size_t objectCount) {
     std::string xml =
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
-        "<ili:HEADERSECTION><ili:SENDER>stream-test</ili:SENDER>"
+        "<ili:HEADERSECTION SENDER=\"stream-test\" VERSION=\"2.3\">"
+        "<ili:MODELS><ili:MODEL NAME=\"M\"/></ili:MODELS>"
         "</ili:HEADERSECTION><ili:DATASECTION>"
-        "<Topic ili:BID=\"B1\">";
+        "<Topic BID=\"B1\">";
     for (std::size_t i = 0; i < objectCount; ++i) {
-        xml += "<Class ili:TID=\"T" + std::to_string(i) + "\"><value>";
+        xml += "<Class TID=\"T" + std::to_string(i) + "\"><value>";
         xml += std::to_string(i);
         xml += "</value></Class>";
     }

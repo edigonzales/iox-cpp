@@ -55,7 +55,9 @@ std::vector<iox::IoxEvent> roundtrip(
     for (const auto& event : events) writer.write(event);
     writer.close();
 
-    iox::xtf::XtfReader reader;
+    iox::xtf::XtfReaderOptions readerOptions;
+    readerOptions.requireAtLeastOneModel = false;
+    iox::xtf::XtfReader reader(readerOptions);
     reader.feed(iox::ByteView(sink->str()));
     reader.finish();
     std::vector<iox::IoxEvent> result;

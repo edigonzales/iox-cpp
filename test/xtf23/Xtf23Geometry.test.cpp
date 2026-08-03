@@ -57,8 +57,38 @@ std::vector<iox::IoxEvent> roundtrip(std::string attribute,
     }
     writer.close();
 
-    iox::xtf::XtfReader reader;
+    iox::xtf::XtfReaderOptions readerOptions;
+    readerOptions.requireAtLeastOneModel = false;
+    iox::xtf::XtfReader reader(readerOptions);
     reader.feed(iox::ByteView(sink->str()));
+    reader.finish();
+    std::vector<iox::IoxEvent> events;
+    while (true) {
+        auto outcome = reader.next();
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        IOX_CHECK_EQ(iox::ReaderProgress::Event, outcome.progress);
+        events.push_back(std::move(*outcome.event));
+    }
+    return events;
+}
+
+std::string geometryDocument(std::string geometry) {
+    return "<?xml version=\"1.0\"?><TRANSFER "
+           "xmlns=\"http://www.interlis.ch/INTERLIS2.3\">"
+           "<HEADERSECTION SENDER=\"geometry\" VERSION=\"2.3\">"
+           "<MODELS><MODEL NAME=\"M\" VERSION=\"1\" URI=\"urn:m\"/>"
+           "</MODELS>"
+           "</HEADERSECTION>"
+           "<DATASECTION><M.T BID=\"B\"><M.T.C TID=\"O\"><geom>" +
+           geometry + "</geom></M.T.C></M.T></DATASECTION></TRANSFER>";
+}
+
+std::vector<iox::IoxEvent> parseGeometry(
+    const std::string& xml, iox::xtf::Strictness strictness) {
+    iox::xtf::XtfReaderOptions options;
+    options.strictness = strictness;
+    iox::xtf::XtfReader reader(options);
+    reader.feed(iox::ByteView(xml));
     reader.finish();
     std::vector<iox::IoxEvent> events;
     while (true) {
@@ -129,6 +159,91 @@ IOX_TEST(xtf23_geometry_incomplete_polyline) {
     IOX_CHECK(geometry.has_value());
     IOX_CHECK_EQ(static_cast<std::size_t>(2),
                  geometry->valueCount("sequence"));
+}
+
+IOX_TEST(xtf23_normative_polyline_normalizes_segments_without_numbers) {
+    const auto events = parseGeometry(
+        geometryDocument(
+            "<POLYLINE><COORD><C1>001.00</C1><C2>2</C2></COORD>"
+            "<ARC><C1>3</C1><C2>4</C2><A1>5</A1><A2>6</A2>"
+            "<R>07.0</R></ARC></POLYLINE>"),
+        iox::xtf::Strictness::Strict);
+    const auto line = std::get<iox::ObjectEvent>(events[2])
+                          .object.object("geom");
+    IOX_CHECK(line.has_value());
+    IOX_CHECK_EQ(std::string("POLYLINE"), line->tag().interlisName());
+    const auto sequence = line->object("sequence");
+    IOX_CHECK(sequence.has_value());
+    IOX_CHECK_EQ(static_cast<std::size_t>(2),
+                 sequence->valueCount("segment"));
+    IOX_CHECK_EQ(std::string_view("001.00"),
+                 *sequence->object("segment", 0)->primitive("C1"));
+    IOX_CHECK_EQ(std::string_view("07.0"),
+                 *sequence->object("segment", 1)->primitive("R"));
+}
+
+IOX_TEST(xtf23_normative_line_attributes_and_clipping_are_preserved) {
+    const auto events = parseGeometry(
+        geometryDocument(
+            "<POLYLINE><LINEATTR><M.LineAttr><width>001.20</width>"
+            "</M.LineAttr></LINEATTR>"
+            "<CLIPPED><COORD><C1>1</C1><C2>2</C2></COORD>"
+            "<ARC><C1>3</C1><C2>4</C2><A1>2</A1><A2>3</A2>"
+            "</ARC></CLIPPED>"
+            "<CLIPPED><COORD><C1>5</C1><C2>6</C2></COORD>"
+            "</CLIPPED></POLYLINE>"),
+        iox::xtf::Strictness::Strict);
+    const auto line = std::get<iox::ObjectEvent>(events[2])
+                          .object.object("geom");
+    IOX_CHECK(line.has_value());
+    IOX_CHECK_EQ(iox::Consistency::Incomplete, line->consistency());
+    IOX_CHECK_EQ(static_cast<std::size_t>(2), line->valueCount("sequence"));
+    const auto lineAttr = line->object("lineattr");
+    IOX_CHECK(lineAttr.has_value());
+    IOX_CHECK_EQ(std::string("M.LineAttr"), lineAttr->tag().interlisName());
+    IOX_CHECK_EQ(std::string_view("001.20"), *lineAttr->primitive("width"));
+}
+
+IOX_TEST(xtf23_normative_clipped_surface_groups_are_preserved) {
+    const auto events = parseGeometry(
+        geometryDocument(
+            "<SURFACE><CLIPPED><BOUNDARY><POLYLINE>"
+            "<COORD><C1>1</C1><C2>2</C2></COORD>"
+            "</POLYLINE></BOUNDARY></CLIPPED>"
+            "<CLIPPED><BOUNDARY><POLYLINE>"
+            "<COORD><C1>3</C1><C2>4</C2></COORD>"
+            "</POLYLINE></BOUNDARY></CLIPPED></SURFACE>"),
+        iox::xtf::Strictness::Strict);
+    const auto surface = std::get<iox::ObjectEvent>(events[2])
+                             .object.object("geom");
+    IOX_CHECK(surface.has_value());
+    IOX_CHECK_EQ(iox::Consistency::Incomplete, surface->consistency());
+    IOX_CHECK_EQ(static_cast<std::size_t>(2),
+                 surface->valueCount("clipped"));
+    IOX_CHECK(surface->object("clipped", 0)->object("boundary").has_value());
+}
+
+IOX_TEST(xtf23_invalid_geometry_is_diagnostic_or_fatal_by_mode) {
+    const auto xml = geometryDocument("<POLYLINE/>");
+    iox::xtf::XtfReader lenient;
+    lenient.feed(iox::ByteView(xml));
+    lenient.finish();
+    while (lenient.next().progress == iox::ReaderProgress::Event) {}
+    const auto diagnostics = lenient.takeDiagnostics();
+    IOX_CHECK_EQ(static_cast<std::size_t>(1), diagnostics.size());
+    IOX_CHECK_EQ(iox::DiagnosticCode::InvalidGeometry,
+                 diagnostics.front().code);
+
+    bool strictFailure = false;
+    try {
+        iox::xtf::XtfReaderOptions options;
+        options.strictness = iox::xtf::Strictness::Strict;
+        iox::xtf::XtfReader strict(options);
+        strict.feed(iox::ByteView(xml));
+    } catch (const iox::IoxError& error) {
+        strictFailure = error.code() == iox::DiagnosticCode::InvalidGeometry;
+    }
+    IOX_CHECK(strictFailure);
 }
 
 #include "iox/test/TestMain.h"
