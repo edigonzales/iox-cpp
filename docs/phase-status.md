@@ -16,6 +16,7 @@
 | 11 | completed | 7e98bef | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 31/31) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 31/31; 93.69% line, 85.09% branch) | ASan/UBSan 25/25, standalone fuzz 50 runs plus CTest 1/1, 10,000-object streaming, Native/WASM parity, deterministic roundtrip, public-header consumer, direct ilic-core 26/26 |
 | post-11 | completed | this commit | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 33/33); `iox.test.iox_ili.porting` (4/4); fixture manifest (0) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 33/33; 93.78% line, 85.71% branch) | Pinned iox-ili method matrix, 211 XTF fixtures plus 9 model files, fixture manifest, chunk/event/diagnostic parity, semantic writer roundtrip, explicit model/API gaps |
 | 13 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Version 0.2.0 API reset, ABI 2, event/result schema 2, lexical IOM values, ordered COW objects, stable diagnostics, private yyjson 0.12.0 |
+| 14 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Private Expat/XML implementation, callback exception containment, UTF-8 and resource limits, source positions, namespace-aware deterministic writer |
 
 ## Build Commands
 
@@ -280,3 +281,38 @@ cd packages/iox-wasm && npm pack --dry-run                    # exit 0, 9 packag
 No Linux or Windows run, sanitizer pass, fuzzing, or coverage threshold was
 claimed for this phase. Those independent release gates remain assigned to
 Phase 20.
+
+## Phase 14 — Hardened incremental XML foundation
+
+Phase 14 was verified on macOS on 2026-08-03. Expat and all XML event types
+are now private implementation details. The incremental parser rejects DTDs,
+external entities, non-UTF-8 declarations, malformed/truncated input, invalid
+UTF-8, and configured depth, attribute, text, and total-input limit breaches.
+It reports Expat byte, line, and column positions with the configured source
+name. Exceptions from start, end, and text handlers stop Expat inside the C
+callback and are rethrown as `IoxError` only after the C frame returns.
+
+The internal writer validates XML 1.0 characters and UTF-8, escapes text and
+attributes (including `]]>`), rejects duplicate expanded attributes and
+invalid state transitions, maintains namespace scopes, assigns deterministic
+prefixes, completes recoverable short writes, and reports zero/throwing sinks
+as `io.error`. It never closes missing elements and its destructor performs no
+throwing work. The pinned Java implementation was inspected; iox-cpp's
+explicit DTD/entity restrictions are intentionally stricter and documented in
+`docs/conformance.md`.
+
+### Phase 14 verification commands
+
+```text
+cmake -S . -B build/phase14 -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=ON -DIOX_BUILD_TOOLS=ON -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase14 --parallel                        # exit 0
+ctest --test-dir build/phase14 --output-on-failure            # exit 0, 33/33
+cmake -S . -B build/phase14-ilic -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase14-ilic --parallel                   # exit 0
+ctest --test-dir build/phase14-ilic --output-on-failure       # exit 0, 28/28
+./scripts/build-wasm.sh                                       # exit 0, Emscripten 3.1.64
+./scripts/test-wasm.sh                                        # exit 0, 8/8
+```
+
+No Linux or Windows run, sanitizer pass, fuzzing, or coverage threshold was
+claimed for this phase. Those release gates remain assigned to Phase 20.

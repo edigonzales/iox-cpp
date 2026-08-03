@@ -60,12 +60,11 @@ add_library(iox-xml STATIC
 )
 
 target_include_directories(iox-xml
-    PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/source
 )
 
-target_link_libraries(iox-xml PUBLIC iox-core expat)
+target_link_libraries(iox-xml PRIVATE iox-core expat)
 iox_set_warnings(iox-xml)
 
 # --- iox-xtf ------------------------------------------------------------
@@ -80,9 +79,11 @@ target_include_directories(iox-xtf
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/source
 )
 
-target_link_libraries(iox-xtf PUBLIC iox-xml iox-core)
+target_link_libraries(iox-xtf PUBLIC iox-core PRIVATE iox-xml)
 iox_set_warnings(iox-xtf)
 
 # --- built-in factories ---------------------------------------------------

@@ -122,6 +122,17 @@ association roles, views, translations, and model declaration validation are
 explicitly separated from the model-free event-stream tests; unresolved
 capabilities are marked as `api-gap` rather than silently treated as passed.
 
+### XML security comparison
+
+At the pinned iox-ili revision, `XtfReader.java`, `Xtf23Reader.java`, and
+`Xtf24Reader.java` construct a JAXP `XMLInputFactory` without explicitly
+setting DTD or external-entity properties. iox-cpp deliberately applies the
+stricter rules required by this project's specification: Expat is fixed to
+UTF-8, DTD declarations and external entities are rejected, no resolver or
+network path exists, and depth, attribute, text-node, and total-input limits
+are enforced. This is a robustness difference, not an XTF wire-format
+deviation.
+
 ### XTF 2.3 geometry mapping
 
 The checked-in `Surface.xtf`, `PolylineWithArcs.xtf`, `Area.xtf`, and related

@@ -9,8 +9,8 @@
 #include "iox/json/JsonEventReader.h"
 #include "iox/json/JsonEventWriter.h"
 #include "iox/test/Test.h"
-#include "iox/xml/ExpatParser.h"
-#include "iox/xml/XmlWriter.h"
+#include "xml/ExpatParser.h"
+#include "xml/XmlWriter.h"
 #include "iox/xtf/Xtf23Dialect.h"
 #include "iox/xtf/Xtf24Dialect.h"
 #include "iox/xtf/XtfReader.h"
@@ -250,54 +250,61 @@ IOX_TEST(coverage_xml_callbacks_limits_and_writer) {
     std::string starts;
     std::string ends;
     std::string text;
-    std::string comments;
-    iox::xml::ExpatCallbacks callbacks;
-    callbacks.onStartElement = [&](std::string_view name, const auto& attrs) {
-        starts += std::string(name) + ':' + std::to_string(attrs.size());
-    };
-    callbacks.onEndElement = [&](std::string_view name) {
-        ends += std::string(name);
-    };
-    callbacks.onCharacterData = [&](std::string_view value) { text += value; };
-    callbacks.onComment = [&](std::string_view value) { comments += value; };
-    iox::xml::ExpatParser parser(std::move(callbacks));
+    iox::xml::ExpatParser parser;
+    parser.setStartHandler([&](const auto& element) {
+        starts += element.name.localName + ':' +
+                  std::to_string(element.attributes.size());
+    });
+    parser.setEndHandler([&](const auto& element) {
+        ends += element.name.localName;
+    });
+    parser.setTextHandler([&](std::string_view value, const auto&) {
+        text += value;
+    });
     const std::string xml =
         "<?xml version=\"1.0\"?><r a=\"v\"><c>text</c><!-- x --></r>";
-    IOX_CHECK(parser.feed(iox::ByteView(xml)));
-    IOX_CHECK(parser.finish());
+    parser.feed(iox::ByteView(xml));
+    parser.finish();
     IOX_CHECK(!starts.empty() && !ends.empty());
     IOX_CHECK_EQ(std::string("text"), text);
-    IOX_CHECK_EQ(std::string(" x "), comments);
 
-    iox::xml::ExpatLimits limits;
-    limits.maxAttributeCount = 0;
-    iox::xml::ExpatParser limited({}, limits);
-    const std::string withAttribute = "<r a=\"1\"/>";
-    IOX_CHECK(!limited.feed(iox::ByteView(withAttribute)));
+    iox::xml::XmlLimits limits;
+    limits.maxAttributesPerElement = 1;
+    iox::xml::ExpatParser limited(limits);
+    const std::string withAttributes = "<r a=\"1\" b=\"2\"/>";
+    bool limitedFailed = false;
+    try {
+        limited.feed(iox::ByteView(withAttributes));
+    } catch (const iox::IoxError& error) {
+        limitedFailed = error.code() == iox::DiagnosticCode::XmlLimitExceeded;
+    }
+    IOX_CHECK(limitedFailed);
 
-    iox::xml::ExpatCallbacks throwing;
-    throwing.onStartElement = [](std::string_view, const auto&) {
+    iox::xml::ExpatParser callbackParser;
+    callbackParser.setStartHandler([](const auto&) {
         throw std::runtime_error("callback");
-    };
-    iox::xml::ExpatParser callbackParser(std::move(throwing));
+    });
     const std::string root = "<r/>";
-    IOX_CHECK(!callbackParser.feed(iox::ByteView(root)));
-    IOX_CHECK(!callbackParser.takeDiagnostics().empty());
+    bool callbackFailed = false;
+    try {
+        callbackParser.feed(iox::ByteView(root));
+    } catch (const iox::IoxError& error) {
+        callbackFailed = error.code() == iox::DiagnosticCode::InternalError;
+    }
+    IOX_CHECK(callbackFailed);
 
-    std::string output;
-    iox::xml::XmlWriter writer([&](const void* data, std::size_t size) {
-        output.append(static_cast<const char*>(data), size);
-    }, true, 1);
-    writer.writeDeclaration();
-    writer.writeStartElement("root", {{"a", "<&>\"'"}}, false);
-    writer.writeComment("bad--comment");
-    writer.writeStartElement("child");
-    writer.writeText("<&>\"'");
-    writer.writeEndElement("child");
-    writer.writeEndElement("root");
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriter writer(sink);
+    writer.startDocument();
+    writer.startElement({{}, "root", {}});
+    writer.writeAttribute({{}, "a", {}}, "<&>\"'");
+    writer.startElement({{}, "child", {}});
+    writer.text("<&>\"'");
+    writer.endElement();
+    writer.endElement();
+    writer.endDocument();
     writer.flush();
-    IOX_CHECK(output.find("&amp;") != std::string::npos);
-    IOX_CHECK_EQ(0, writer.depth());
+    IOX_CHECK(sink->str().find("&amp;") != std::string::npos);
 }
 
 IOX_TEST(coverage_basket_and_registry_state_paths) {
@@ -354,13 +361,13 @@ IOX_TEST(coverage_xtf_and_abi_state_paths) {
     iox::xtf::XtfReaderOptions options;
     options.expectedVersion = iox::XtfVersion::V24;
     iox::xtf::XtfReader wrong(options);
-    wrong.feed(iox::ByteView(minimal));
-    wrong.finish();
     bool mismatch = false;
-    for (const auto& diagnostic : wrong.takeDiagnostics()) {
-        if (diagnostic.code == iox::DiagnosticCode::UnsupportedXtfVersion) {
-            mismatch = true;
-        }
+    try {
+        wrong.feed(iox::ByteView(minimal));
+        wrong.finish();
+    } catch (const iox::IoxError& error) {
+        mismatch = error.code() ==
+                   iox::DiagnosticCode::UnsupportedXtfVersion;
     }
     IOX_CHECK(mismatch);
 

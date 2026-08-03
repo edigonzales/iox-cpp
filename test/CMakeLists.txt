@@ -53,10 +53,12 @@ add_test(NAME iox.test.abi.c_smoke COMMAND iox-test-abi-c)
 add_executable(iox-test-xml-writer
     xml/XmlWriter.test.cpp
 )
+target_include_directories(iox-test-xml-writer PRIVATE "${CMAKE_SOURCE_DIR}/source")
 target_link_libraries(iox-test-xml-writer PRIVATE iox-xml iox-core iox-test-support)
 add_test(NAME iox.test.xml.writer COMMAND iox-test-xml-writer)
 
 add_executable(iox-test-expat-security xml/ExpatSecurity.test.cpp)
+target_include_directories(iox-test-expat-security PRIVATE "${CMAKE_SOURCE_DIR}/source")
 target_link_libraries(iox-test-expat-security PRIVATE iox-xml iox-core iox-test-support)
 add_test(NAME iox.test.expat.security COMMAND iox-test-expat-security)
 
@@ -190,6 +192,7 @@ add_test(NAME iox.test.public_headers COMMAND iox-test-public-headers)
 add_executable(iox-test-coverage-edges
     coverage/CoverageEdges.test.cpp
 )
+target_include_directories(iox-test-coverage-edges PRIVATE "${CMAKE_SOURCE_DIR}/source")
 target_link_libraries(iox-test-coverage-edges PRIVATE iox-abi iox-factory iox-json iox-xtf iox-xml iox-core iox-test-support)
 add_test(NAME iox.test.coverage_edges COMMAND iox-test-coverage-edges)
 

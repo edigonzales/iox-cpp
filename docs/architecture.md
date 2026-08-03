@@ -65,6 +65,10 @@ providing value-like semantics without deep copies on every assignment.
 
 - **Reader:** Expat (pinned, static, private). Incremental chunk-based parsing.
 - **Writer:** Controlled internal UTF-8 XML writer.
+- XML parser and writer headers live under `source/xml`; neither Expat nor the
+  internal XML event types are part of the installed/public API.
+- Parser callbacks copy QName/attribute data and catch every exception before
+  returning through Expat's C callback frame.
 - No DOM construction for the whole document.
 - No Xerces, no external entity resolution, no DTD.
 
@@ -85,10 +89,11 @@ dynamic plugin loading or global static registrar constructors are used.
 
 ## Error Model
 
-Readers and writers keep structured diagnostics with stable codes. The
-convenience facades never throw for malformed transfer state; a fatal
-diagnostic terminates the facade, while the underlying event API remains
-available for applications that need finer-grained recovery.
+Readers and writers keep structured diagnostics with stable codes. Nonfatal
+issues are returned through `takeDiagnostics()`. Fatal parser, state,
+resource, and I/O failures throw `IoxError`; the C ABI converts them into
+terminal status/result objects and never lets an exception cross the C
+boundary.
 
 ## C ABI
 

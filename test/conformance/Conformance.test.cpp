@@ -18,6 +18,7 @@
 #include <sstream>
 #include <functional>
 #include <cstring>
+#include <optional>
 
 // ============================================================================
 // Helpers
@@ -46,6 +47,18 @@ static std::vector<iox::IoxEvent> parseXtf(const std::string& data) {
         if (outcome.event) events.push_back(std::move(*outcome.event));
     }
     return events;
+}
+
+static std::optional<iox::DiagnosticCode> parseFailure(
+    const std::string& data) {
+    try {
+        iox::xtf::XtfReader reader;
+        reader.feed(iox::ByteView(data));
+        reader.finish();
+    } catch (const iox::IoxError& error) {
+        return error.code();
+    }
+    return std::nullopt;
 }
 
 static int countEventType(const std::vector<iox::IoxEvent>& events,
@@ -103,34 +116,18 @@ IOX_TEST(conformance_xtf23_empty_transfer) {
 }
 
 IOX_TEST(conformance_xtf23_malformed_xml) {
-    // Malformed XML should be rejected
-    iox::xtf::XtfReader reader;
     const std::string malformed = "<ili:TRANSFER><ili:HEADERSECTION>";
-    reader.feed(iox::ByteView(malformed));
-    reader.finish();
-
-    auto diags = reader.takeDiagnostics();
-    // Should have at least one fatal diagnostic
-    bool hasFatal = false;
-    for (const auto& d : diags) {
-        if (d.severity == iox::DiagnosticSeverity::Fatal) hasFatal = true;
-    }
-    IOX_CHECK(hasFatal);
+    const auto code = parseFailure(malformed);
+    IOX_CHECK(code.has_value());
+    IOX_CHECK(*code == iox::DiagnosticCode::XmlMalformed);
 }
 
 IOX_TEST(conformance_xtf23_wrong_root) {
     // Wrong root element
     std::string xml = "<?xml version=\"1.0\"?><NOT_TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\"><ili:HEADERSECTION/></NOT_TRANSFER>";
-    iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(xml));
-    reader.finish();
-
-    auto diags = reader.takeDiagnostics();
-    bool hasFatal = false;
-    for (const auto& d : diags) {
-        if (d.severity == iox::DiagnosticSeverity::Fatal) hasFatal = true;
-    }
-    IOX_CHECK(hasFatal);
+    const auto code = parseFailure(xml);
+    IOX_CHECK(code.has_value());
+    IOX_CHECK(*code == iox::DiagnosticCode::InvalidXtfNamespace);
 }
 
 IOX_TEST(conformance_xtf23_wrong_namespace) {
@@ -339,16 +336,9 @@ IOX_TEST(conformance_xtf23_dtd_rejected) {
         "<!DOCTYPE transfer [<!ENTITY foo \"bar\">]>"
         "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
         "</ili:TRANSFER>";
-    iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(xml));
-    reader.finish();
-
-    auto diags = reader.takeDiagnostics();
-    bool hasFatal = false;
-    for (const auto& d : diags) {
-        if (d.severity == iox::DiagnosticSeverity::Fatal) hasFatal = true;
-    }
-    IOX_CHECK(hasFatal);
+    const auto code = parseFailure(xml);
+    IOX_CHECK(code.has_value());
+    IOX_CHECK(*code == iox::DiagnosticCode::XmlDtdForbidden);
 }
 
 IOX_TEST(conformance_xtf23_wrong_spelled_end_transfer) {
@@ -358,17 +348,9 @@ IOX_TEST(conformance_xtf23_wrong_spelled_end_transfer) {
         "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
         "<ili:HEADERSECTION><ili:SENDER>T</ili:SENDER><ili:SOFTWARE>X</ili:SOFTWARE></ili:HEADERSECTION>"
         "</ili:TRASNFER>";
-    iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(xml));
-    reader.finish();
-
-    auto diags = reader.takeDiagnostics();
-    bool hasFatal = false;
-    for (const auto& d : diags) {
-        if (d.severity == iox::DiagnosticSeverity::Fatal) hasFatal = true;
-    }
-    // Mismatched end tag should be fatal
-    IOX_CHECK(hasFatal);
+    const auto code = parseFailure(xml);
+    IOX_CHECK(code.has_value());
+    IOX_CHECK(*code == iox::DiagnosticCode::XmlMalformed);
 }
 
 IOX_TEST(conformance_xtf23_wrong_case_transfer) {
@@ -387,18 +369,11 @@ IOX_TEST(conformance_xtf23_wrong_case_transfer) {
 
 IOX_TEST(conformance_xtf23_truncated) {
     // Truncated XML
-    iox::xtf::XtfReader reader;
     const std::string truncated =
         "<?xml version=\"1.0\"?><ili:TRANSFER";
-    reader.feed(iox::ByteView(truncated));
-    reader.finish();
-
-    auto diags = reader.takeDiagnostics();
-    bool hasFatal = false;
-    for (const auto& d : diags) {
-        if (d.severity == iox::DiagnosticSeverity::Fatal) hasFatal = true;
-    }
-    IOX_CHECK(hasFatal);
+    const auto code = parseFailure(truncated);
+    IOX_CHECK(code.has_value());
+    IOX_CHECK(*code == iox::DiagnosticCode::XmlMalformed);
 }
 
 IOX_TEST(conformance_xtf23_text_between_elements) {

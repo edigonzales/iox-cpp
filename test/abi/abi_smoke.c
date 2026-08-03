@@ -101,6 +101,19 @@ int main(void) {
     iox_result_destroy(result);
     iox_reader_destroy(reader);
 
+    /* Fatal XML errors retain their stable code and source position. */
+    reader = iox_reader_create("xtf23", "{\"sourceName\":\"broken.xtf\"}");
+    assert(reader != NULL);
+    const char* malformed_xtf = "<ili:TRANSFER>";
+    assert(iox_reader_feed(reader, (const uint8_t*)malformed_xtf,
+                           strlen(malformed_xtf)) == IOX_STATUS_ERROR);
+    assert(iox_reader_next(reader, &result) == IOX_STATUS_ERROR);
+    assert(contains(iox_result_json(result), "xml.malformed"));
+    assert(contains(iox_result_json(result), "broken.xtf"));
+    assert(contains(iox_result_json(result), "\"line\":1"));
+    iox_result_destroy(result);
+    iox_reader_destroy(reader);
+
     /* Null argument safety and result accessors. */
     assert(iox_reader_create(NULL, NULL) == NULL);
     assert(iox_writer_create(NULL, NULL) == NULL);

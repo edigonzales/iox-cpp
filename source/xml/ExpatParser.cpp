@@ -1,317 +1,325 @@
-#include "iox/xml/ExpatParser.h"
+#include "xml/ExpatParser.h"
 
 #include <expat.h>
 
-#include <cstring>
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
+#include <exception>
+#include <limits>
 #include <stdexcept>
-#include <vector>
 #include <utility>
 
 namespace iox {
 namespace xml {
-
-// ============================================================================
-// Internal helpers
-// ============================================================================
-
 namespace {
 
-// Convert Expat attribute array to a vector of pairs.
-// Expat delivers attributes as [name1, value1, name2, value2, ..., nullptr]
-std::vector<std::pair<std::string_view, std::string_view>>
-makeAttrPairs(const char** atts) {
-    std::vector<std::pair<std::string_view, std::string_view>> result;
-    if (!atts) return result;
-    for (int i = 0; atts[i] != nullptr; i += 2) {
-        result.emplace_back(
-            std::string_view(atts[i]),
-            std::string_view(atts[i + 1] ? atts[i + 1] : ""));
+constexpr XML_Char namespaceSeparator = '\x1f';
+
+XmlQualifiedName decodeName(std::string_view encoded) {
+    const auto first = encoded.find(namespaceSeparator);
+    if (first == std::string_view::npos) {
+        return {{}, std::string(encoded), {}};
     }
-    return result;
+    const auto second = encoded.find(namespaceSeparator, first + 1U);
+    return {
+        std::string(encoded.substr(0, first)),
+        std::string(encoded.substr(first + 1U,
+            second == std::string_view::npos
+                ? std::string_view::npos
+                : second - first - 1U)),
+        second == std::string_view::npos
+            ? std::string{}
+            : std::string(encoded.substr(second + 1U))
+    };
 }
 
-// Per-parser user data
-struct ParserContext {
-    ExpatCallbacks callbacks;
-    ExpatLimits limits;
-    std::vector<Diagnostic> diagnostics;
+} // namespace
+
+struct ExpatParser::Impl final {
     XML_Parser parser = nullptr;
-    std::uint64_t totalBytes = 0;
+    XmlLimits limits;
+    std::string sourceName;
+    StartHandler startHandler;
+    EndHandler endHandler;
+    TextHandler textHandler;
+    std::exception_ptr callbackError;
+    SourceLocation callbackErrorLocation;
+    std::vector<std::size_t> textBytes;
+    std::size_t totalInputBytes = 0;
     std::size_t depth = 0;
-    bool finished = false;
-    bool fatal = false;
-};
+    bool finished_ = false;
+    bool failed = false;
 
-// ---- Expat C callbacks (must not throw) ----
+    explicit Impl(XmlLimits value, std::string source)
+        : limits(value), sourceName(std::move(source)) {}
 
-extern "C" {
+    SourceLocation currentLocation() const {
+        const auto byteIndex = XML_GetCurrentByteIndex(parser);
+        const auto line = XML_GetCurrentLineNumber(parser);
+        const auto column = XML_GetCurrentColumnNumber(parser);
+        return {
+            sourceName,
+            byteIndex < 0 ? 0U : static_cast<std::uint64_t>(byteIndex),
+            line <= 0 ? 0U : static_cast<std::uint32_t>(line),
+            column < 0 ? 0U : static_cast<std::uint32_t>(column + 1)
+        };
+    }
 
-static void XMLCALL onStartElement(void* userData,
-                                    const XML_Char* name,
-                                    const XML_Char** atts) {
-    auto* ctx = static_cast<ParserContext*>(userData);
-    if (ctx->fatal) return;
-    try {
-        const std::size_t attributeCount = atts == nullptr ? 0 :
-            [&]() { std::size_t n = 0; while (atts[n] != nullptr) n += 2; return n / 2; }();
-        if (attributeCount > ctx->limits.maxAttributeCount ||
-            std::strlen(name) > ctx->limits.maxElementNameLength) {
-            ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
-                DiagnosticCode::XmlLimitExceeded,
-                "XML element or attribute limit exceeded", {}, {}});
-            ctx->fatal = true;
-            XML_StopParser(ctx->parser, XML_FALSE);
-            return;
+    [[noreturn]] void fail(DiagnosticCode code, std::string message,
+                           SourceLocation where = {}) {
+        failed = true;
+        if (where.empty()) where = currentLocation();
+        throw IoxError(code, std::move(message), std::move(where));
+    }
+
+    template<typename Function>
+    void invokeFromCallback(Function&& function) noexcept {
+        if (callbackError || failed) return;
+        try {
+            function();
+        } catch (...) {
+            callbackError = std::current_exception();
+            callbackErrorLocation = currentLocation();
+            XML_StopParser(parser, XML_FALSE);
         }
-        for (std::size_t i = 0; i < attributeCount * 2; i += 2) {
-            if (std::strlen(atts[i + 1]) > ctx->limits.maxAttributeValueLength) {
-                ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
-                    DiagnosticCode::XmlLimitExceeded,
-                    "XML attribute value limit exceeded", {}, {}});
-                ctx->fatal = true;
-                XML_StopParser(ctx->parser, XML_FALSE);
-                return;
+    }
+
+    void raiseCallbackError() {
+        if (!callbackError) return;
+        auto error = std::move(callbackError);
+        callbackError = nullptr;
+        failed = true;
+        try {
+            std::rethrow_exception(error);
+        } catch (const IoxError&) {
+            throw;
+        } catch (const std::exception& exception) {
+            throw IoxError(DiagnosticCode::InternalError,
+                           std::string("XML callback failed: ") + exception.what(),
+                           callbackErrorLocation);
+        } catch (...) {
+            throw IoxError(DiagnosticCode::InternalError,
+                           "XML callback failed with an unknown exception",
+                           callbackErrorLocation);
+        }
+    }
+
+    static void XMLCALL startElement(void* userData, const XML_Char* name,
+                                     const XML_Char** attributes) noexcept {
+        auto& self = *static_cast<Impl*>(userData);
+        self.invokeFromCallback([&] {
+            std::size_t count = 0;
+            if (attributes != nullptr) {
+                while (attributes[count * 2U] != nullptr) ++count;
             }
-        }
-        ++ctx->depth;
-        if (ctx->depth > ctx->limits.maxElementDepth) {
-            ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
-                DiagnosticCode::XmlLimitExceeded,
-                "XML element depth limit exceeded", {}, {}});
-            ctx->fatal = true;
-            XML_StopParser(ctx->parser, XML_FALSE);
-            return;
-        }
-        if (ctx->callbacks.onStartElement) {
-            auto pairs = makeAttrPairs(atts);
-            ctx->callbacks.onStartElement(std::string_view(name), pairs);
-        }
-    } catch (const std::exception& e) {
-        ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
-            DiagnosticCode::InternalError,
-            std::string("onStartElement: ") + e.what(), {}, {}});
-        ctx->fatal = true;
-        XML_StopParser(ctx->parser, XML_FALSE);
-    } catch (...) {
-        ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
-            DiagnosticCode::InternalError,
-            "onStartElement: unknown exception", {}, {}});
-        ctx->fatal = true;
-        XML_StopParser(ctx->parser, XML_FALSE);
+            if (count > self.limits.maxAttributesPerElement) {
+                self.fail(DiagnosticCode::XmlLimitExceeded,
+                          "XML attribute count exceeds maxAttributesPerElement");
+            }
+            if (self.depth >= self.limits.maxDepth) {
+                self.fail(DiagnosticCode::XmlLimitExceeded,
+                          "XML depth exceeds maxDepth");
+            }
+
+            ++self.depth;
+            if (!self.textBytes.empty()) self.textBytes.back() = 0;
+            self.textBytes.push_back(0);
+
+            XmlStartElement element;
+            element.name = decodeName(name == nullptr ? std::string_view{}
+                                                      : std::string_view(name));
+            element.location = self.currentLocation();
+            element.attributes.reserve(count);
+            for (std::size_t index = 0; index < count; ++index) {
+                element.attributes.push_back({
+                    decodeName(attributes[index * 2U]),
+                    std::string(attributes[index * 2U + 1U])
+                });
+            }
+            if (self.startHandler) self.startHandler(element);
+        });
     }
-}
 
-static void XMLCALL onEndElement(void* userData,
-                                  const XML_Char* name) {
-    auto* ctx = static_cast<ParserContext*>(userData);
-    if (ctx->fatal) return;
-    try {
-        if (ctx->callbacks.onEndElement) {
-            ctx->callbacks.onEndElement(std::string_view(name));
-        }
-        if (ctx->depth > 0) --ctx->depth;
-    } catch (...) {
-        ctx->fatal = true;
-        XML_StopParser(ctx->parser, XML_FALSE);
+    static void XMLCALL endElement(void* userData, const XML_Char* name) noexcept {
+        auto& self = *static_cast<Impl*>(userData);
+        self.invokeFromCallback([&] {
+            XmlEndElement element;
+            element.name = decodeName(name == nullptr ? std::string_view{}
+                                                      : std::string_view(name));
+            element.location = self.currentLocation();
+            if (self.endHandler) self.endHandler(element);
+            if (self.depth > 0) --self.depth;
+            if (!self.textBytes.empty()) self.textBytes.pop_back();
+            if (!self.textBytes.empty()) self.textBytes.back() = 0;
+        });
     }
-}
 
-static void XMLCALL onCharacterData(void* userData,
-                                     const XML_Char* data,
-                                     int len) {
-    auto* ctx = static_cast<ParserContext*>(userData);
-    if (ctx->fatal) return;
-    try {
-        if (ctx->callbacks.onCharacterData && len > 0) {
-            ctx->callbacks.onCharacterData(std::string_view(data, static_cast<std::size_t>(len)));
-        }
-    } catch (...) {
-        ctx->fatal = true;
-        XML_StopParser(ctx->parser, XML_FALSE);
+    static void XMLCALL characterData(void* userData, const XML_Char* data,
+                                      int length) noexcept {
+        auto& self = *static_cast<Impl*>(userData);
+        self.invokeFromCallback([&] {
+            if (length <= 0) return;
+            if (self.textBytes.empty()) {
+                self.fail(DiagnosticCode::XmlMalformed,
+                          "XML character data occurred outside the root element");
+            }
+            const auto size = static_cast<std::size_t>(length);
+            if (size > self.limits.maxTextBytesPerNode -
+                           std::min(self.textBytes.back(),
+                                    self.limits.maxTextBytesPerNode)) {
+                self.fail(DiagnosticCode::XmlLimitExceeded,
+                          "XML text exceeds maxTextBytesPerNode");
+            }
+            self.textBytes.back() += size;
+            if (self.textHandler) {
+                self.textHandler(std::string_view(data, size),
+                                 self.currentLocation());
+            }
+        });
     }
-}
 
-static void XMLCALL onProcessingInstruction(void* userData,
-                                             const XML_Char* target,
-                                             const XML_Char* data) {
-    auto* ctx = static_cast<ParserContext*>(userData);
-    if (ctx->fatal) return;
-    try {
-        if (ctx->callbacks.onProcessingInstruction) {
-            ctx->callbacks.onProcessingInstruction(
-                std::string_view(target ? target : ""),
-                std::string_view(data ? data : ""));
-        }
-    } catch (...) {
-        ctx->fatal = true;
-        XML_StopParser(ctx->parser, XML_FALSE);
+    static void XMLCALL startDoctype(void* userData, const XML_Char*,
+                                     const XML_Char*, const XML_Char*, int) noexcept {
+        auto& self = *static_cast<Impl*>(userData);
+        self.invokeFromCallback([&] {
+            self.fail(DiagnosticCode::XmlDtdForbidden,
+                      "DTD declarations are forbidden");
+        });
     }
-}
 
-static void XMLCALL onComment(void* userData, const XML_Char* data) {
-    auto* ctx = static_cast<ParserContext*>(userData);
-    if (ctx->fatal) return;
-    try {
-        if (ctx->callbacks.onComment) {
-            ctx->callbacks.onComment(std::string_view(data ? data : ""));
-        }
-    } catch (...) {
-        ctx->fatal = true;
-        XML_StopParser(ctx->parser, XML_FALSE);
+    static void XMLCALL xmlDeclaration(void* userData, const XML_Char*,
+                                       const XML_Char* encoding, int) noexcept {
+        auto& self = *static_cast<Impl*>(userData);
+        self.invokeFromCallback([&] {
+            if (encoding == nullptr || *encoding == '\0') return;
+            std::string normalized(encoding);
+            std::transform(normalized.begin(), normalized.end(),
+                           normalized.begin(), [](unsigned char character) {
+                               return static_cast<char>(std::tolower(character));
+                           });
+            if (normalized != "utf-8") {
+                self.fail(DiagnosticCode::XmlMalformed,
+                          "Only UTF-8 XML input is supported");
+            }
+        });
     }
-}
 
-static void XMLCALL onXmlDeclaration(void* userData,
-                                      const XML_Char* version,
-                                      const XML_Char* encoding,
-                                      int standalone) {
-    auto* ctx = static_cast<ParserContext*>(userData);
-    if (ctx->fatal) return;
-    try {
-        if (ctx->callbacks.onXmlDeclaration) {
-            ctx->callbacks.onXmlDeclaration(
-                std::string_view(version ? version : ""),
-                std::string_view(encoding ? encoding : ""),
-                standalone != 0);
-        }
-    } catch (...) {
-        ctx->fatal = true;
-        XML_StopParser(ctx->parser, XML_FALSE);
+    static int XMLCALL externalEntity(XML_Parser parser, const XML_Char*,
+                                      const XML_Char*, const XML_Char*,
+                                      const XML_Char*) noexcept {
+        auto* self = static_cast<Impl*>(XML_GetUserData(parser));
+        if (self == nullptr) return XML_STATUS_ERROR;
+        self->invokeFromCallback([&] {
+            self->fail(DiagnosticCode::XmlExternalEntityForbidden,
+                       "External entities are forbidden");
+        });
+        return XML_STATUS_ERROR;
     }
-}
 
-static void XMLCALL onStartDoctypeDecl(void* userData,
-                                        const XML_Char* /*doctypeName*/,
-                                        const XML_Char* /*sysid*/,
-                                        const XML_Char* /*pubid*/,
-                                        int /*hasInternalSubset*/) {
-    auto* ctx = static_cast<ParserContext*>(userData);
-    ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
-        DiagnosticCode::XmlDtdForbidden,
-        "DTD is not supported", {}, {}});
-    ctx->fatal = true;
-    XML_StopParser(ctx->parser, XML_FALSE);
-}
-
-static int XMLCALL onExternalEntityRef(XML_Parser /*parser*/,
-                                        const XML_Char* /*context*/,
-                                        const XML_Char* /*base*/,
-                                        const XML_Char* /*systemId*/,
-                                        const XML_Char* /*publicId*/) {
-    // Reject all external entities. Expat never receives a resolver callback
-    // that can perform I/O; the normal parse error is still reported below.
-    return XML_STATUS_ERROR;
-}
-
-} // extern "C"
-
-} // anonymous namespace
-
-// ============================================================================
-// ExpatParser::Impl
-// ============================================================================
-
-struct ExpatParser::Impl {
-    XML_Parser parser = nullptr;
-    ParserContext ctx;
+    void parse(const char* data, int size, bool final) {
+        const auto status = XML_Parse(parser, data, size, final ? XML_TRUE : XML_FALSE);
+        raiseCallbackError();
+        if (status == XML_STATUS_ERROR) {
+            const auto code = XML_GetErrorCode(parser);
+            fail(DiagnosticCode::XmlMalformed,
+                 std::string("XML parse error: ") + XML_ErrorString(code));
+        }
+    }
 };
 
-// ============================================================================
-// ExpatParser — public API
-// ============================================================================
-
-ExpatParser::ExpatParser(ExpatCallbacks callbacks, ExpatLimits limits)
-    : impl_(std::make_unique<Impl>())
-{
-    impl_->ctx.callbacks = std::move(callbacks);
-    impl_->ctx.limits = limits;
-
-    impl_->parser = XML_ParserCreateNS(nullptr, '\xFF'); // namespace separator
-    impl_->ctx.parser = impl_->parser;
-
-    XML_SetUserData(impl_->parser, &impl_->ctx);
-
-    // Register callbacks
-    XML_SetStartElementHandler(impl_->parser, onStartElement);
-    XML_SetEndElementHandler(impl_->parser, onEndElement);
-    XML_SetCharacterDataHandler(impl_->parser, onCharacterData);
-    XML_SetProcessingInstructionHandler(impl_->parser, onProcessingInstruction);
-    XML_SetCommentHandler(impl_->parser, onComment);
-    XML_SetXmlDeclHandler(impl_->parser, onXmlDeclaration);
-    XML_SetStartDoctypeDeclHandler(impl_->parser, onStartDoctypeDecl);
-    XML_SetExternalEntityRefHandler(impl_->parser, onExternalEntityRef);
-
-    // Disable DTD processing completely
+ExpatParser::ExpatParser(XmlLimits limits, std::string sourceName)
+    : impl_(std::make_unique<Impl>(limits, std::move(sourceName))) {
+    if (limits.maxDepth == 0 || limits.maxAttributesPerElement == 0 ||
+        limits.maxTextBytesPerNode == 0) {
+        throw IoxError(DiagnosticCode::InvalidArgument,
+                       "XML limits other than maxTotalInputBytes must be non-zero");
+    }
+    impl_->parser = XML_ParserCreateNS("UTF-8", namespaceSeparator);
+    if (impl_->parser == nullptr) {
+        throw IoxError(DiagnosticCode::InternalError,
+                       "Unable to allocate Expat parser");
+    }
+    XML_SetUserData(impl_->parser, impl_.get());
+    XML_SetReturnNSTriplet(impl_->parser, 1);
+    XML_SetElementHandler(impl_->parser, &Impl::startElement, &Impl::endElement);
+    XML_SetCharacterDataHandler(impl_->parser, &Impl::characterData);
+    XML_SetXmlDeclHandler(impl_->parser, &Impl::xmlDeclaration);
+    XML_SetStartDoctypeDeclHandler(impl_->parser, &Impl::startDoctype);
+    XML_SetExternalEntityRefHandler(impl_->parser, &Impl::externalEntity);
     XML_SetParamEntityParsing(impl_->parser, XML_PARAM_ENTITY_PARSING_NEVER);
 }
 
 ExpatParser::~ExpatParser() {
-    if (impl_->parser) {
-        XML_ParserFree(impl_->parser);
+    if (impl_ && impl_->parser != nullptr) XML_ParserFree(impl_->parser);
+}
+
+void ExpatParser::setStartHandler(StartHandler handler) {
+    if (impl_->finished_ || impl_->failed) {
+        throw IoxError(DiagnosticCode::InvalidState,
+                       "Cannot change handlers after XML parsing has ended");
+    }
+    impl_->startHandler = std::move(handler);
+}
+
+void ExpatParser::setEndHandler(EndHandler handler) {
+    if (impl_->finished_ || impl_->failed) {
+        throw IoxError(DiagnosticCode::InvalidState,
+                       "Cannot change handlers after XML parsing has ended");
+    }
+    impl_->endHandler = std::move(handler);
+}
+
+void ExpatParser::setTextHandler(TextHandler handler) {
+    if (impl_->finished_ || impl_->failed) {
+        throw IoxError(DiagnosticCode::InvalidState,
+                       "Cannot change handlers after XML parsing has ended");
+    }
+    impl_->textHandler = std::move(handler);
+}
+
+void ExpatParser::feed(ByteView bytes) {
+    if (impl_->finished_ || impl_->failed) {
+        throw IoxError(DiagnosticCode::InvalidState,
+                       "Cannot feed a finished or failed XML parser");
+    }
+    if (bytes.size() > std::numeric_limits<std::size_t>::max() -
+                           impl_->totalInputBytes ||
+        (impl_->limits.maxTotalInputBytes != 0 &&
+         bytes.size() > impl_->limits.maxTotalInputBytes -
+                            std::min(impl_->totalInputBytes,
+                                     impl_->limits.maxTotalInputBytes))) {
+        impl_->fail(DiagnosticCode::XmlLimitExceeded,
+                    "XML input exceeds maxTotalInputBytes");
+    }
+    impl_->totalInputBytes += bytes.size();
+
+    std::size_t offset = 0;
+    const auto maxChunk = static_cast<std::size_t>(
+        std::numeric_limits<int>::max());
+    while (offset < bytes.size()) {
+        const auto count = std::min(bytes.size() - offset, maxChunk);
+        impl_->parse(reinterpret_cast<const char*>(bytes.data() + offset),
+                     static_cast<int>(count), false);
+        offset += count;
     }
 }
 
-bool ExpatParser::feed(ByteView data) {
-    if (impl_->ctx.fatal || impl_->ctx.finished) return false;
-
-    impl_->ctx.totalBytes += data.size();
-
-    if (XML_Parse(impl_->parser, reinterpret_cast<const char*>(data.data()),
-                  static_cast<int>(data.size()), 0)
-        == XML_STATUS_ERROR) {
-        auto err = XML_GetErrorCode(impl_->parser);
-        impl_->ctx.diagnostics.push_back({
-            DiagnosticSeverity::Fatal,
-            DiagnosticCode::XmlMalformed,
-            std::string("XML parse error: ") + XML_ErrorString(err),
-            SourceLocation{
-                impl_->ctx.callbacks.onStartElement ? "" : "",
-                impl_->ctx.totalBytes,
-                static_cast<std::uint32_t>(XML_GetCurrentLineNumber(impl_->parser)),
-                static_cast<std::uint32_t>(XML_GetCurrentColumnNumber(impl_->parser))
-            }, {}
-        });
-        impl_->ctx.fatal = true;
-        return false;
+void ExpatParser::finish() {
+    if (impl_->finished_ || impl_->failed) {
+        throw IoxError(DiagnosticCode::InvalidState,
+                       "XML parser can only be finished once");
     }
-    return !impl_->ctx.fatal;
+    impl_->parse("", 0, true);
+    impl_->finished_ = true;
 }
 
-bool ExpatParser::finish() {
-    if (impl_->ctx.fatal) return false;
-    if (impl_->ctx.finished) return true;
-
-    if (XML_Parse(impl_->parser, "", 0, 1) == XML_STATUS_ERROR) {
-        auto err = XML_GetErrorCode(impl_->parser);
-        impl_->ctx.diagnostics.push_back({
-            DiagnosticSeverity::Fatal,
-            DiagnosticCode::XmlMalformed,
-            std::string("XML parse error at end: ") + XML_ErrorString(err),
-            {}, {}
-        });
-        impl_->ctx.fatal = true;
-        return false;
-    }
-    impl_->ctx.finished = !impl_->ctx.fatal;
-    return !impl_->ctx.fatal;
+bool ExpatParser::finished() const noexcept {
+    return impl_->finished_;
 }
 
-std::vector<Diagnostic> ExpatParser::takeDiagnostics() {
-    auto diags = std::move(impl_->ctx.diagnostics);
-    impl_->ctx.diagnostics.clear();
-    return diags;
-}
-
-std::uint64_t ExpatParser::byteOffset() const noexcept {
-    return impl_->ctx.totalBytes;
-}
-
-int ExpatParser::line() const noexcept {
-    return static_cast<int>(XML_GetCurrentLineNumber(impl_->parser));
-}
-
-int ExpatParser::column() const noexcept {
-    return static_cast<int>(XML_GetCurrentColumnNumber(impl_->parser));
+SourceLocation ExpatParser::location() const {
+    return impl_->currentLocation();
 }
 
 } // namespace xml

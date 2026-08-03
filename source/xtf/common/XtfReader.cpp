@@ -1,7 +1,7 @@
 #include "iox/xtf/XtfReader.h"
 #include "iox/xtf/Xtf23Dialect.h"
 #include "iox/xtf/Xtf24Dialect.h"
-#include "iox/xml/ExpatParser.h"
+#include "xml/ExpatParser.h"
 
 #include <string>
 #include <vector>
@@ -22,6 +22,11 @@ std::string lowerAscii(std::string_view value) {
         result.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
     }
     return result;
+}
+
+std::string encodedName(const XmlQualifiedName& name) {
+    if (name.namespaceUri.empty()) return name.localName;
+    return name.namespaceUri + '\xFF' + name.localName;
 }
 }
 
@@ -60,10 +65,9 @@ struct XtfReader::Impl {
          inSoftware = false, inDate = false;
 
     void reset();
-    void onStartElement(std::string_view name,
-                        const std::vector<std::pair<std::string_view, std::string_view>>& attrs);
-    void onEndElement(std::string_view name);
-    void onCharacterData(std::string_view data);
+    void onStartElement(const xml::XmlStartElement& element);
+    void onEndElement(const xml::XmlEndElement& element);
+    void onCharacterData(std::string_view data, const SourceLocation& location);
     void emitStartTransfer();
     void createDialect();
 
@@ -90,6 +94,10 @@ void XtfReader::Impl::createDialect() {
             eventQueue.push_back(std::move(event));
         };
         cb.addDiagnostic = [this](Diagnostic d) {
+            if (d.severity == DiagnosticSeverity::Fatal) {
+                throw IoxError(d.code, std::move(d.message),
+                               std::move(d.location));
+            }
             diagnostics.push_back(std::move(d));
         };
         dialect23 = std::make_unique<Xtf23Dialect>(std::move(cb));
@@ -99,25 +107,36 @@ void XtfReader::Impl::createDialect() {
             eventQueue.push_back(std::move(event));
         };
         cb.addDiagnostic = [this](Diagnostic d) {
+            if (d.severity == DiagnosticSeverity::Fatal) {
+                throw IoxError(d.code, std::move(d.message),
+                               std::move(d.location));
+            }
             diagnostics.push_back(std::move(d));
         };
         dialect24 = std::make_unique<Xtf24Dialect>(std::move(cb));
     }
 }
 
-void XtfReader::Impl::onStartElement(
-    std::string_view name,
-    const std::vector<std::pair<std::string_view, std::string_view>>& attrs)
+void XtfReader::Impl::onStartElement(const xml::XmlStartElement& element)
 {
     if (phase == ParserPhase::Fatal) return;
-    std::string sname(name);
+    const auto sname = encodedName(element.name);
+    std::vector<std::pair<std::string, std::string>> attributeStorage;
+    attributeStorage.reserve(element.attributes.size());
+    for (const auto& attribute : element.attributes) {
+        attributeStorage.push_back({encodedName(attribute.name), attribute.value});
+    }
+    std::vector<std::pair<std::string_view, std::string_view>> attrs;
+    attrs.reserve(attributeStorage.size());
+    for (const auto& attribute : attributeStorage) {
+        attrs.push_back({attribute.first, attribute.second});
+    }
 
     if (rootClosed) {
-        diagnostics.push_back({DiagnosticSeverity::Fatal,
-            DiagnosticCode::InvalidEventOrder,
-            "Element encountered after the TRANSFER root was closed", {}, {}});
         phase = ParserPhase::Fatal;
-        return;
+        throw IoxError(DiagnosticCode::InvalidEventOrder,
+                       "Element encountered after the TRANSFER root was closed",
+                       element.location);
     }
 
     // Extract local name (after namespace separator)
@@ -128,7 +147,7 @@ void XtfReader::Impl::onStartElement(
     // --- Content phase: delegate to dialect ---
     if (phase == ParserPhase::InContent) {
         elementStack.push(sname);
-        if (dialect23) dialect23->onStartElement(name, attrs); else if (dialect24) dialect24->onStartElement(name, attrs);
+        if (dialect23) dialect23->onStartElement(sname, attrs); else if (dialect24) dialect24->onStartElement(sname, attrs);
         return;
     }
 
@@ -147,36 +166,34 @@ void XtfReader::Impl::onStartElement(
                        "http://www.interlis.ch/xtf/2.4/INTERLIS") {
                 detected = XtfVersion::V24;
             } else {
-                diagnostics.push_back({DiagnosticSeverity::Fatal,
-                    ns.find("2.2") != std::string::npos
-                        ? DiagnosticCode::UnsupportedXtfVersion
-                        : DiagnosticCode::InvalidXtfNamespace,
+                phase = ParserPhase::Fatal;
+                const auto code = ns.find("2.2") != std::string::npos
+                    ? DiagnosticCode::UnsupportedXtfVersion
+                    : DiagnosticCode::InvalidXtfNamespace;
+                throw IoxError(code,
                     ns.find("2.2") != std::string::npos
                         ? "XTF 2.2 is not supported"
                         : "Invalid XTF namespace: " + ns,
-                    {}, {}});
-                phase = ParserPhase::Fatal;
-                return;
+                    element.location);
             }
 
             if (options.expectedVersion && *options.expectedVersion != *detected) {
-                diagnostics.push_back({DiagnosticSeverity::Fatal,
-                    DiagnosticCode::UnsupportedXtfVersion,
-                    std::string("Expected XTF ") + toString(*options.expectedVersion) +
-                    " but detected " + toString(*detected), {}, {}});
                 phase = ParserPhase::Fatal;
-                return;
+                throw IoxError(DiagnosticCode::UnsupportedXtfVersion,
+                    std::string("Expected XTF ") +
+                        toString(*options.expectedVersion) +
+                        " but detected " + toString(*detected),
+                    element.location);
             }
 
             phase = ParserPhase::InHeader;
             return;
         }
 
-        diagnostics.push_back({DiagnosticSeverity::Fatal,
-            DiagnosticCode::InvalidXtfNamespace,
-            "Unknown root element: " + std::string(name), {}, {}});
         phase = ParserPhase::Fatal;
-        return;
+        throw IoxError(DiagnosticCode::InvalidXtfNamespace,
+                       "Unknown root element: " + sname,
+                       element.location);
     }
 
     // --- Header phase ---
@@ -210,7 +227,7 @@ void XtfReader::Impl::onStartElement(
             phase = ParserPhase::InContent;
             createDialect();
             // Re-dispatch this element to the dialect
-            if (dialect23) dialect23->onStartElement(name, attrs); else if (dialect24) dialect24->onStartElement(name, attrs);
+            if (dialect23) dialect23->onStartElement(sname, attrs); else if (dialect24) dialect24->onStartElement(sname, attrs);
             return;
         }
 
@@ -226,16 +243,16 @@ void XtfReader::Impl::onStartElement(
             emitStartTransfer();
             phase = ParserPhase::InContent;
             createDialect();
-            if (dialect23) dialect23->onStartElement(name, attrs); else if (dialect24) dialect24->onStartElement(name, attrs);
+            if (dialect23) dialect23->onStartElement(sname, attrs); else if (dialect24) dialect24->onStartElement(sname, attrs);
             return;
         }
     }
 }
 
-void XtfReader::Impl::onEndElement(std::string_view name) {
+void XtfReader::Impl::onEndElement(const xml::XmlEndElement& element) {
     if (phase == ParserPhase::Fatal) return;
     // Check for root TRANSFER close
-    std::string sname(name);
+    const auto sname = encodedName(element.name);
     auto sepPos = sname.find('\xFF');
     std::string localName = sname;
     if (sepPos != std::string::npos) {
@@ -261,7 +278,7 @@ void XtfReader::Impl::onEndElement(std::string_view name) {
     // Content phase: delegate to dialect
     if (phase == ParserPhase::InContent) {
         if (!elementStack.empty()) elementStack.pop();
-        if (dialect23) dialect23->onEndElement(name); else if (dialect24) dialect24->onEndElement(name);
+        if (dialect23) dialect23->onEndElement(sname); else if (dialect24) dialect24->onEndElement(sname);
         return;
     }
 
@@ -278,7 +295,8 @@ void XtfReader::Impl::onEndElement(std::string_view name) {
     }
 }
 
-void XtfReader::Impl::onCharacterData(std::string_view data) {
+void XtfReader::Impl::onCharacterData(std::string_view data,
+                                      const SourceLocation&) {
     if (phase == ParserPhase::Fatal) return;
     // Content phase: delegate to dialect
     if (phase == ParserPhase::InContent) {
@@ -308,19 +326,26 @@ XtfReader::XtfReader(XtfReaderOptions options)
     : impl_(std::make_unique<Impl>()) {
     impl_->options = std::move(options);
 
-    xml::ExpatCallbacks cb;
-    cb.onStartElement = [this](std::string_view name,
-                                const std::vector<std::pair<std::string_view, std::string_view>>& attrs) {
-        impl_->onStartElement(name, attrs);
-    };
-    cb.onEndElement = [this](std::string_view name) {
-        impl_->onEndElement(name);
-    };
-    cb.onCharacterData = [this](std::string_view data) {
-        impl_->onCharacterData(data);
-    };
-
-    impl_->xmlParser = std::make_unique<xml::ExpatParser>(std::move(cb));
+    xml::XmlLimits limits;
+    limits.maxDepth = impl_->options.xmlLimits.maxDepth;
+    limits.maxAttributesPerElement =
+        impl_->options.xmlLimits.maxAttributesPerElement;
+    limits.maxTextBytesPerNode =
+        impl_->options.xmlLimits.maxTextBytesPerNode;
+    limits.maxTotalInputBytes =
+        impl_->options.xmlLimits.maxTotalInputBytes;
+    impl_->xmlParser = std::make_unique<xml::ExpatParser>(
+        limits, impl_->options.sourceName);
+    impl_->xmlParser->setStartHandler([this](const xml::XmlStartElement& element) {
+        impl_->onStartElement(element);
+    });
+    impl_->xmlParser->setEndHandler([this](const xml::XmlEndElement& element) {
+        impl_->onEndElement(element);
+    });
+    impl_->xmlParser->setTextHandler(
+        [this](std::string_view data, const SourceLocation& location) {
+            impl_->onCharacterData(data, location);
+        });
 }
 
 XtfReader::~XtfReader() = default;
@@ -355,14 +380,16 @@ void XtfReader::feed(ByteView data) {
         throw IoxError(DiagnosticCode::InvalidState,
                        "XTF reader received input after finish()");
     }
-    if (impl_->phase == ParserPhase::Fatal) return;
-
-    if (!impl_->xmlParser->feed(data)) {
-        impl_->phase = ParserPhase::Fatal;
+    if (impl_->phase == ParserPhase::Fatal) {
+        throw IoxError(DiagnosticCode::InvalidState,
+                       "Cannot feed a failed XTF reader");
     }
-
-    auto diags = impl_->xmlParser->takeDiagnostics();
-    impl_->diagnostics.insert(impl_->diagnostics.end(), diags.begin(), diags.end());
+    try {
+        impl_->xmlParser->feed(data);
+    } catch (...) {
+        impl_->phase = ParserPhase::Fatal;
+        throw;
+    }
 }
 
 void XtfReader::finish() {
@@ -371,16 +398,18 @@ void XtfReader::finish() {
         throw IoxError(DiagnosticCode::InvalidState,
                        "XTF reader finish() called more than once");
     }
-    if (impl_->phase == ParserPhase::Fatal) return;
-
-    if (impl_->xmlParser->finish()) {
+    if (impl_->phase == ParserPhase::Fatal) {
+        throw IoxError(DiagnosticCode::InvalidState,
+                       "Cannot finish a failed XTF reader");
+    }
+    try {
+        impl_->xmlParser->finish();
         if (impl_->phase == ParserPhase::InHeader) {
             impl_->emitStartTransfer();
         }
-    } else {
-        auto diags = impl_->xmlParser->takeDiagnostics();
-        impl_->diagnostics.insert(impl_->diagnostics.end(), diags.begin(), diags.end());
+    } catch (...) {
         impl_->phase = ParserPhase::Fatal;
+        throw;
     }
 
     impl_->finished_ = true;

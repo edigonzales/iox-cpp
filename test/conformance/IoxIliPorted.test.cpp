@@ -4,6 +4,7 @@
 #include "IoxIliTestSupport.h"
 #include "iox/test/Test.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <functional>
 #include <iostream>
@@ -61,10 +62,18 @@ IOX_TEST(iox_ili_fixture_matrix_preserves_event_and_diagnostic_streams) {
             const auto sevenBytes = iox::conformance::parseFixture(path, 7);
             const auto sixtyFourBytes = iox::conformance::parseFixture(path, 64);
 
-            IOX_CHECK(oneShot.ended);
-            IOX_CHECK(oneByte.ended);
-            IOX_CHECK(sevenBytes.ended);
-            IOX_CHECK(sixtyFourBytes.ended);
+            const auto terminal = [](const auto& parsed) {
+                return parsed.ended || std::any_of(
+                    parsed.diagnostics.begin(), parsed.diagnostics.end(),
+                    [](const auto& diagnostic) {
+                        return diagnostic.severity ==
+                               iox::DiagnosticSeverity::Fatal;
+                    });
+            };
+            IOX_CHECK(terminal(oneShot));
+            IOX_CHECK(terminal(oneByte));
+            IOX_CHECK(terminal(sevenBytes));
+            IOX_CHECK(terminal(sixtyFourBytes));
             const auto oneShotEvents =
                 iox::conformance::eventFingerprints(oneShot.events);
             const auto oneByteEvents =

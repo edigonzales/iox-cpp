@@ -1,143 +1,240 @@
-#include "iox/xml/XmlWriter.h"
+#include "xml/XmlWriter.h"
 #include "iox/test/Test.h"
 
+#include <algorithm>
+#include <stdexcept>
 #include <string>
-#include <vector>
-#include <utility>
 
-IOX_TEST(xml_writer_declaration) {
-    std::string output;
-    auto writer = [&](const void* data, std::size_t size) {
-        output.append(static_cast<const char*>(data), size);
-    };
+namespace {
 
-    iox::xml::XmlWriter xml(writer, false, 0);
-    xml.writeDeclaration();
-
-    IOX_CHECK_EQ(std::string("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"), output);
+iox::XmlQualifiedName name(std::string local,
+                           std::string uri = {},
+                           std::string prefix = {}) {
+    return {std::move(uri), std::move(local), std::move(prefix)};
 }
 
-IOX_TEST(xml_writer_simple_element) {
-    std::string output;
-    auto writer = [&](const void* data, std::size_t size) {
-        output.append(static_cast<const char*>(data), size);
-    };
-
-    iox::xml::XmlWriter xml(writer, false, 0);
-    xml.writeStartElement("root");
-    xml.writeEndElement("root");
-
-    IOX_CHECK_EQ(std::string("<root/>"), output);
+std::string simpleDocument(bool pretty = false) {
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriterOptions options;
+    options.pretty = pretty;
+    iox::xml::XmlWriter writer(sink, options);
+    writer.startDocument();
+    writer.startElement(name("root"));
+    writer.startElement(name("child"));
+    writer.text("hello");
+    writer.endElement();
+    writer.endElement();
+    writer.endDocument();
+    return sink->str();
 }
 
-IOX_TEST(xml_writer_nested_elements) {
+class ShortWriteSink final : public iox::OutputSink {
+public:
+    std::size_t write(const void* data, std::size_t size) override {
+        const auto count = std::min<std::size_t>(2, size);
+        output.append(static_cast<const char*>(data), count);
+        return count;
+    }
     std::string output;
-    auto writer = [&](const void* data, std::size_t size) {
-        output.append(static_cast<const char*>(data), size);
-    };
+};
 
-    iox::xml::XmlWriter xml(writer, false, 0);
-    xml.writeStartElement("a");
-    xml.writeStartElement("b");
-    xml.writeText("hello");
-    xml.writeEndElement("b");
-    xml.writeEndElement("a");
+class ZeroWriteSink final : public iox::OutputSink {
+public:
+    std::size_t write(const void*, std::size_t) override { return 0; }
+};
 
-    IOX_CHECK_EQ(std::string("<a><b>hello</b></a>"), output);
+class ThrowingSink final : public iox::OutputSink {
+public:
+    std::size_t write(const void*, std::size_t) override {
+        throw std::runtime_error("sink marker");
+    }
+};
+
+} // namespace
+
+IOX_TEST(xml_writer_declaration_nesting_and_escaping) {
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriterOptions options;
+    options.pretty = false;
+    iox::xml::XmlWriter writer(sink, options);
+    writer.startDocument();
+    writer.startElement(name("root"));
+    writer.writeAttribute(name("value"), "<&\"\t\n\r");
+    writer.text("]]> <& \" '");
+    writer.endElement();
+    writer.endDocument();
+
+    IOX_CHECK_EQ(
+        std::string("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                    "<root value=\"&lt;&amp;&quot;&#x9;&#xA;&#xD;\">"
+                    "]]&gt; &lt;&amp; \" '</root>"),
+        sink->str());
 }
 
-IOX_TEST(xml_writer_escaping) {
-    std::string output;
-    auto writer = [&](const void* data, std::size_t size) {
-        output.append(static_cast<const char*>(data), size);
+IOX_TEST(xml_writer_empty_elements_and_pretty_output_are_deterministic) {
+    auto make = [] {
+        auto sink = std::make_shared<iox::StringOutputSink>();
+        iox::xml::XmlWriterOptions options;
+        options.pretty = true;
+        iox::xml::XmlWriter writer(sink, options);
+        writer.startDocument();
+        writer.startElement(name("root"));
+        writer.startElement(name("empty"));
+        writer.endElement();
+        writer.endElement();
+        writer.endDocument();
+        return sink->str();
     };
-
-    iox::xml::XmlWriter xml(writer, false, 0);
-    xml.writeStartElement("x");
-    xml.writeText("<>&\"'");
-    xml.writeEndElement("x");
-
-    IOX_CHECK_EQ(std::string("<x>&lt;&gt;&amp;&quot;&apos;</x>"), output);
+    const auto first = make();
+    IOX_CHECK_EQ(first, make());
+    IOX_CHECK(first.find("\n  <empty/>") != std::string::npos);
+    IOX_CHECK(first.find("\n</root>\n") != std::string::npos);
 }
 
-IOX_TEST(xml_writer_attributes) {
-    std::string output;
-    auto writer = [&](const void* data, std::size_t size) {
-        output.append(static_cast<const char*>(data), size);
-    };
+IOX_TEST(xml_writer_tracks_namespace_scopes_and_assigns_prefixes) {
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriterOptions options;
+    options.pretty = false;
+    iox::xml::XmlWriter writer(sink, options);
+    writer.startDocument();
+    writer.startElement(name("root", "urn:a", "m"));
+    writer.writeNamespace("g", "urn:global");
+    writer.writeAttribute(name("id", "urn:global", "g"), "1");
+    writer.startElement(name("child", "urn:a", "m"));
+    writer.endElement();
+    writer.startElement(name("other", "urn:b", "m"));
+    writer.endElement();
+    writer.endElement();
+    writer.endDocument();
 
-    iox::xml::XmlWriter xml(writer, false, 0);
-    std::vector<std::pair<std::string, std::string>> attrs = {
-        {"id", "123"},
-        {"name", "test"}
-    };
-    xml.writeStartElement("elem", attrs);
-    xml.writeEndElement("elem");
-
-    IOX_CHECK_EQ(std::string("<elem id=\"123\" name=\"test\"/>"), output);
+    const auto& output = sink->str();
+    IOX_CHECK(output.find("<m:root xmlns:m=\"urn:a\" xmlns:g=\"urn:global\"") !=
+              std::string::npos);
+    IOX_CHECK(output.find("<m:child/>") != std::string::npos);
+    IOX_CHECK(output.find("<ns0:other xmlns:ns0=\"urn:b\"/>") !=
+              std::string::npos);
 }
 
-IOX_TEST(xml_writer_self_closing) {
-    std::string output;
-    auto writer = [&](const void* data, std::size_t size) {
-        output.append(static_cast<const char*>(data), size);
-    };
+IOX_TEST(xml_writer_rejects_duplicate_attributes_and_invalid_content) {
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriterOptions options;
+    options.pretty = false;
+    iox::xml::XmlWriter writer(sink, options);
+    writer.startDocument();
+    writer.startElement(name("root"));
+    writer.writeAttribute(name("a", "urn:x", "x"), "1");
+    bool duplicate = false;
+    try {
+        writer.writeAttribute(name("a", "urn:x", "other"), "2");
+    } catch (const iox::IoxError& error) {
+        duplicate = error.code() == iox::DiagnosticCode::UnexpectedAttribute;
+    }
+    IOX_CHECK(duplicate);
 
-    iox::xml::XmlWriter xml(writer, false, 0);
-    xml.writeStartElement("br", {}, true);
+    auto invalidSink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriter invalid(invalidSink, options);
+    invalid.startDocument();
+    invalid.startElement(name("root"));
+    bool character = false;
+    try {
+        invalid.text(std::string("bad\x01", 4));
+    } catch (const iox::IoxError& error) {
+        character = error.code() == iox::DiagnosticCode::InvalidArgument;
+    }
+    IOX_CHECK(character);
 
-    IOX_CHECK_EQ(std::string("<br/>"), output);
+    auto nameSink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriter invalidName(nameSink, options);
+    invalidName.startDocument();
+    bool rejectedName = false;
+    try {
+        invalidName.startElement(name("1bad"));
+    } catch (const iox::IoxError& error) {
+        rejectedName = error.code() == iox::DiagnosticCode::InvalidArgument;
+    }
+    IOX_CHECK(rejectedName);
+
+    auto reservedSink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriter reserved(reservedSink, options);
+    reserved.startDocument();
+    reserved.startElement(name("root"));
+    bool rejectedXmlnsName = false;
+    try {
+        reserved.writeAttribute(
+            name("forbidden", "http://www.w3.org/2000/xmlns/", "xmlns"),
+            "value");
+    } catch (const iox::IoxError& error) {
+        rejectedXmlnsName =
+            error.code() == iox::DiagnosticCode::InvalidArgument;
+    }
+    IOX_CHECK(rejectedXmlnsName);
 }
 
-IOX_TEST(xml_writer_comment) {
-    std::string output;
-    auto writer = [&](const void* data, std::size_t size) {
-        output.append(static_cast<const char*>(data), size);
-    };
+IOX_TEST(xml_writer_completes_short_writes_and_reports_sink_failures) {
+    auto shortSink = std::make_shared<ShortWriteSink>();
+    iox::xml::XmlWriterOptions options;
+    options.pretty = false;
+    iox::xml::XmlWriter writer(shortSink, options);
+    writer.startDocument();
+    writer.startElement(name("root"));
+    writer.endElement();
+    writer.endDocument();
+    IOX_CHECK_EQ(std::string("<?xml version=\"1.0\" encoding=\"UTF-8\"?><root/>"),
+                 shortSink->output);
 
-    iox::xml::XmlWriter xml(writer, false, 0);
-    xml.writeComment("test comment");
-    xml.writeStartElement("x", {}, true);
-
-    IOX_CHECK(output.find("<!-- test comment -->") != std::string::npos);
-    IOX_CHECK(output.find("<x/>") != std::string::npos);
+    for (const auto& failing : {
+             std::shared_ptr<iox::OutputSink>(std::make_shared<ZeroWriteSink>()),
+             std::shared_ptr<iox::OutputSink>(std::make_shared<ThrowingSink>())}) {
+        bool ioError = false;
+        try {
+            iox::xml::XmlWriter failed(failing, options);
+            failed.startDocument();
+        } catch (const iox::IoxError& error) {
+            ioError = error.code() == iox::DiagnosticCode::IoError;
+        }
+        IOX_CHECK(ioError);
+    }
 }
 
-IOX_TEST(xml_writer_pretty_print) {
-    std::string output;
-    auto writer = [&](const void* data, std::size_t size) {
-        output.append(static_cast<const char*>(data), size);
-    };
+IOX_TEST(xml_writer_validates_state_and_never_invents_end_elements) {
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriterOptions options;
+    options.pretty = false;
+    iox::xml::XmlWriter writer(sink, options);
+    writer.startDocument();
+    writer.startElement(name("root"));
+    bool openElement = false;
+    try {
+        writer.endDocument();
+    } catch (const iox::IoxError& error) {
+        openElement = error.code() == iox::DiagnosticCode::WriterStateError;
+    }
+    IOX_CHECK(openElement);
+    IOX_CHECK(sink->str().find("</root>") == std::string::npos);
 
-    iox::xml::XmlWriter xml(writer, true, 2);
-    xml.writeStartElement("root");
-    xml.writeStartElement("child", {}, true);
-    xml.writeEndElement("root");
+    auto emptySink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriter empty(emptySink, options);
+    empty.startDocument();
+    bool missingRoot = false;
+    try {
+        empty.endDocument();
+    } catch (const iox::IoxError& error) {
+        missingRoot = error.code() == iox::DiagnosticCode::WriterStateError;
+    }
+    IOX_CHECK(missingRoot);
 
-    // Should contain newlines and indentation
-    IOX_CHECK(output.find('\n') != std::string::npos);
-    IOX_CHECK(output.find("<root>") != std::string::npos);
-}
-
-IOX_TEST(xml_writer_deterministic) {
-    auto makeOutput = []() -> std::string {
-        std::string out;
-        auto writer = [&](const void* data, std::size_t size) {
-            out.append(static_cast<const char*>(data), size);
-        };
-        iox::xml::XmlWriter xml(writer, false, 0);
-        xml.writeDeclaration();
-        xml.writeStartElement("a");
-        xml.writeStartElement("b");
-        xml.writeText("c");
-        xml.writeEndElement("b");
-        xml.writeEndElement("a");
-        return out;
-    };
-
-    auto out1 = makeOutput();
-    auto out2 = makeOutput();
-    IOX_CHECK_EQ(out1, out2);
+    auto rootsSink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriter roots(rootsSink, options);
+    roots.startDocument();
+    roots.startElement(name("one"));
+    roots.endElement();
+    bool secondRoot = false;
+    try {
+        roots.startElement(name("two"));
+    } catch (const iox::IoxError& error) {
+        secondRoot = error.code() == iox::DiagnosticCode::WriterStateError;
+    }
+    IOX_CHECK(secondRoot);
 }
 
 #include "iox/test/TestMain.h"

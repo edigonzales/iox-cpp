@@ -1,7 +1,7 @@
 #include "iox/xtf/XtfWriter.h"
 
 #include "iox/Diagnostic.h"
-#include "iox/xml/XmlWriter.h"
+#include "xml/XmlWriter.h"
 
 #include <cctype>
 #include <functional>
@@ -15,6 +15,8 @@ namespace xtf {
 namespace {
 
 constexpr const char* GEOMETRY_NS = "http://www.interlis.ch/geometry/1.0";
+constexpr const char* XTF23_NS = "http://www.interlis.ch/INTERLIS2.3";
+constexpr const char* XTF24_NS = "http://www.interlis.ch/xtf/2.4/INTERLIS";
 
 std::string lowerAscii(std::string_view value) {
     std::string result;
@@ -83,6 +85,44 @@ struct XtfWriter::Impl final {
     std::size_t nextModelPrefix = 0;
     std::string basketTag;
 
+    XmlQualifiedName qualifiedName(std::string_view lexical) {
+        const auto separator = lexical.find(':');
+        if (separator == std::string_view::npos) {
+            return {{}, std::string(lexical), {}};
+        }
+        const auto prefix = std::string(lexical.substr(0, separator));
+        const auto localName = std::string(lexical.substr(separator + 1U));
+        if (prefix == "ili") {
+            return {options.version == XtfVersion::V24 ? XTF24_NS : XTF23_NS,
+                    localName, prefix};
+        }
+        if (prefix == "geom") return {GEOMETRY_NS, localName, prefix};
+        const auto owner = prefixOwners.find(prefix);
+        if (owner == prefixOwners.end()) {
+            throw IoxError(DiagnosticCode::UnknownInterlisName,
+                           "Unknown XML namespace prefix: " + prefix);
+        }
+        return {owner->second, localName, prefix};
+    }
+
+    void startElement(
+        std::string_view name,
+        const std::vector<std::pair<std::string, std::string>>& attributes = {},
+        bool selfClosing = false) {
+        xml->startElement(qualifiedName(name));
+        for (const auto& attribute : attributes) {
+            if (attribute.first == "xmlns") {
+                xml->writeNamespace({}, attribute.second);
+            } else if (attribute.first.rfind("xmlns:", 0) == 0) {
+                xml->writeNamespace(attribute.first.substr(6), attribute.second);
+            } else {
+                xml->writeAttribute(qualifiedName(attribute.first),
+                                    attribute.second);
+            }
+        }
+        if (selfClosing) xml->endElement();
+    }
+
     std::string elementName(const IomName& name) {
         if (options.version != XtfVersion::V24) return name.interlisName();
         if (!name.hasXmlName()) {
@@ -147,41 +187,41 @@ struct XtfWriter::Impl final {
     }
 
     void writeStartTransfer(const StartTransferEvent& event) {
-        xml->writeDeclaration();
+        xml->startDocument();
         std::vector<std::pair<std::string, std::string>> attributes;
         if (options.version == XtfVersion::V24) {
-            attributes.push_back({"xmlns:ili", "http://www.interlis.ch/xtf/2.4/INTERLIS"});
+            attributes.push_back({"xmlns:ili", XTF24_NS});
             attributes.push_back({"xmlns:geom", GEOMETRY_NS});
         } else {
-            attributes.push_back({"xmlns:ili", "http://www.interlis.ch/INTERLIS2.3"});
+            attributes.push_back({"xmlns:ili", XTF23_NS});
         }
-        xml->writeStartElement("ili:TRANSFER", attributes);
+        startElement("ili:TRANSFER", attributes);
         const auto writeTextElement = [this](const char* tag, const std::string& value) {
             if (value.empty()) return;
-            xml->writeStartElement(tag);
-            xml->writeText(value);
-            xml->writeEndElement(tag);
+            startElement(tag);
+            xml->text(value);
+            xml->endElement();
         };
         const auto sender = event.header.sender.empty() ? options.sender
                                                         : event.header.sender;
         if (options.version == XtfVersion::V24) {
-            xml->writeStartElement("ili:headersection");
+            startElement("ili:headersection");
             writeTextElement("ili:sender", sender);
             if (event.header.comment) writeTextElement("ili:comment", *event.header.comment);
-            xml->writeEndElement("ili:headersection");
+            xml->endElement();
         } else {
-            xml->writeStartElement("ili:HEADERSECTION");
+            startElement("ili:HEADERSECTION");
             writeTextElement("ili:SENDER", sender);
             if (event.header.comment) writeTextElement("ili:COMMENT", *event.header.comment);
-            xml->writeEndElement("ili:HEADERSECTION");
+            xml->endElement();
         }
         state = WriterState::InTransfer;
     }
 
     void writeStartBasket(const StartBasketEvent& event) {
         if (!dataSectionOpen) {
-            xml->writeStartElement(options.version == XtfVersion::V24
-                                       ? "ili:datasection" : "ili:DATASECTION");
+            startElement(options.version == XtfVersion::V24
+                             ? "ili:datasection" : "ili:DATASECTION");
             dataSectionOpen = true;
         }
         std::vector<std::pair<std::string, std::string>> attributes;
@@ -201,7 +241,7 @@ struct XtfWriter::Impl final {
             basketTag = options.version == XtfVersion::V24 ? "ili:basket" : "ili:BASKET";
         }
         addNamespaceBinding(attributes, event.basket.topic);
-        xml->writeStartElement(basketTag, attributes);
+        startElement(basketTag, attributes);
         state = WriterState::InBasket;
     }
 
@@ -251,7 +291,7 @@ struct XtfWriter::Impl final {
                            "Object has no writable class name");
         }
         addNamespaceBinding(attributes, object.tag());
-        xml->writeStartElement(tag, attributes);
+        startElement(tag, attributes);
 
         std::function<void(const IomObject&)> writeContents;
         std::function<void(const IomObject&)> writeStructured;
@@ -264,9 +304,9 @@ struct XtfWriter::Impl final {
             }
             std::vector<std::pair<std::string, std::string>> nestedAttributes;
             addNamespaceBinding(nestedAttributes, value.tag());
-            xml->writeStartElement(nestedTag, nestedAttributes);
+            startElement(nestedTag, nestedAttributes);
             writeContents(value);
-            xml->writeEndElement(nestedTag);
+            xml->endElement();
         };
 
         writeContents = [this, &writeStructured](const IomObject& owner) {
@@ -315,34 +355,33 @@ struct XtfWriter::Impl final {
                     addNamespaceBinding(valueAttributes, name);
                     if (value.isObject() && value.object().isReference()) {
                         writeReferenceAttributes(valueAttributes, value.object().reference());
-                        xml->writeStartElement(lexicalName, valueAttributes, true);
+                        startElement(lexicalName, valueAttributes, true);
                         continue;
                     }
-                    xml->writeStartElement(lexicalName, valueAttributes);
-                    if (value.isPrimitive()) xml->writeText(value.primitive());
+                    startElement(lexicalName, valueAttributes);
+                    if (value.isPrimitive()) xml->text(value.primitive());
                     else writeStructured(value.object());
-                    xml->writeEndElement(lexicalName);
+                    xml->endElement();
                 }
             }
         };
 
         writeContents(object);
-        xml->writeEndElement(tag);
+        xml->endElement();
     }
 
     void writeEndBasket() {
-        xml->writeEndElement(basketTag);
+        xml->endElement();
         basketTag.clear();
         state = WriterState::InTransfer;
     }
 
     void writeEndTransfer() {
         if (dataSectionOpen) {
-            xml->writeEndElement(options.version == XtfVersion::V24
-                                     ? "ili:datasection" : "ili:DATASECTION");
+            xml->endElement();
             dataSectionOpen = false;
         }
-        xml->writeEndElement("ili:TRANSFER");
+        xml->endElement();
         state = WriterState::AfterTransfer;
     }
 };
@@ -354,15 +393,10 @@ XtfWriter::XtfWriter(std::shared_ptr<OutputSink> output,
                                 "XtfWriter requires an output sink");
     impl_->options = std::move(options);
     impl_->sink = std::move(output);
-    auto callback = [this](const void* data, std::size_t size) {
-        const auto written = impl_->sink->write(data, size);
-        if (written != size) {
-            throw IoxError(DiagnosticCode::IoError,
-                           "Output sink performed a short XML write");
-        }
-    };
-    impl_->xml = std::make_unique<xml::XmlWriter>(
-        std::move(callback), impl_->options.pretty, 2);
+    xml::XmlWriterOptions xmlOptions;
+    xmlOptions.pretty = impl_->options.pretty;
+    impl_->xml = std::make_unique<xml::XmlWriter>(impl_->sink,
+                                                  std::move(xmlOptions));
 }
 
 XtfWriter::~XtfWriter() = default;
@@ -411,7 +445,7 @@ void XtfWriter::close() {
         throw IoxError(DiagnosticCode::InvalidEventOrder,
                        "XTF writer closed before EndTransferEvent");
     }
-    impl_->xml->flush();
+    impl_->xml->endDocument();
     impl_->sink->close();
     impl_->state = WriterState::Closed;
 }
