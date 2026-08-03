@@ -15,6 +15,14 @@
 | 10 | Convenience APIs, Examples, and iox-dump | completed |
 | 11 | Final Conformance, Coverage, and Fuzz Hardening | completed |
 | post-11 | iox-ili XTF Test Porting Matrix | completed |
+| 13 | Core, Error, and Event Schema 0.2 Reset | completed |
+| 14 | Hardened Incremental XML Foundation | pending |
+| 15 | Conformant XTF 2.3 Reader | pending |
+| 16 | Conformant XTF 2.3 Writer | pending |
+| 17 | Conformant XTF 2.4 Dialect | pending |
+| 18 | Extended Direct ilic Semantics | pending |
+| 19 | Native, WASM, Browser, and Worker Parity | pending |
+| 20 | Independent Conformance and Release Gates | pending |
 
 ## Acceptance Criteria per Phase
 

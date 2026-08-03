@@ -1,6 +1,6 @@
 {
   "name": "@interlis/iox-wasm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "INTERLIS XTF 2.3/2.4 Reader/Writer WebAssembly module",
   "type": "module",
   "main": "index.js",

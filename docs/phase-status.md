@@ -15,6 +15,7 @@
 | 10 | completed | 05d3a6d | `cmake -S . -B build/phase10 ...` (0); `cmake --build build/phase10 --parallel` (0); `ctest --test-dir build/phase10 --output-on-failure` (0, 28/28) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 28/28 instrumentation) | BasketReader and limit diagnostics, scored factories, custom format, examples, iox-dump |
 | 11 | completed | 7e98bef | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 31/31) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 31/31; 93.69% line, 85.09% branch) | ASan/UBSan 25/25, standalone fuzz 50 runs plus CTest 1/1, 10,000-object streaming, Native/WASM parity, deterministic roundtrip, public-header consumer, direct ilic-core 26/26 |
 | post-11 | completed | this commit | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 33/33); `iox.test.iox_ili.porting` (4/4); fixture manifest (0) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 33/33; 93.78% line, 85.71% branch) | Pinned iox-ili method matrix, 211 XTF fixtures plus 9 model files, fixture manifest, chunk/event/diagnostic parity, semantic writer roundtrip, explicit model/API gaps |
+| 13 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Version 0.2.0 API reset, ABI 2, event/result schema 2, lexical IOM values, ordered COW objects, stable diagnostics, private yyjson 0.12.0 |
 
 ## Build Commands
 
@@ -248,3 +249,34 @@ diagnostics. Writer checks compare deterministic bytes separately from the
 semantic Reader → Writer → Reader roundtrip. Model-dependent Java behavior
 is documented as `api-gap` until a concrete direct `ilic-core` capability and
 test exist; the optional `iox-ilic` build remains green with 28/28 tests.
+
+## Phase 13 — Core, error, and schema reset for 0.2
+
+Phase 13 was verified on macOS on 2026-08-03. It intentionally breaks the
+0.1 C++, C ABI, event JSON, and npm contracts together. `IomValue` now retains
+only lexical primitives and nested objects; `IomObject` exposes ordered COW
+mutators without escaping mutable references. INTERLIS names and XML QNames,
+transfer and basket metadata, source locations, references, and extensions are
+represented explicitly in `iox-event/2`. The C boundary uses ABI 2 and
+`iox-result/2`, catches both expected and unexpected C++ exceptions, and
+reports stable diagnostic codes. yyjson 0.12.0 is pinned to commit `8b4a38d`
+and linked privately by `iox-json` only.
+
+### Phase 13 verification commands
+
+```text
+git fetch --prune origin                                      # exit 0; main == origin/main == d4093bf6
+cmake -S . -B build/phase13 -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=ON -DIOX_BUILD_TOOLS=ON -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase13 --parallel                        # exit 0
+ctest --test-dir build/phase13 --output-on-failure            # exit 0, 33/33
+cmake -S . -B build/phase13-ilic -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase13-ilic --parallel                   # exit 0
+ctest --test-dir build/phase13-ilic --output-on-failure       # exit 0, 28/28
+./scripts/build-wasm.sh                                       # exit 0, Emscripten 3.1.64
+./scripts/test-wasm.sh                                        # exit 0, 8/8
+cd packages/iox-wasm && npm pack --dry-run                    # exit 0, 9 package files
+```
+
+No Linux or Windows run, sanitizer pass, fuzzing, or coverage threshold was
+claimed for this phase. Those independent release gates remain assigned to
+Phase 20.

@@ -48,8 +48,8 @@ const mod = await createIoxModule({
     locateFile: (path) => `/wasm/${path}`
 });
 
-console.log(mod.abiVersion()); // 1
-console.log(mod.version());    // "0.1.0"
+console.log(mod.abiVersion()); // 2
+console.log(mod.version());    // "0.2.0"
 ```
 
 ### Reading XTF
@@ -94,14 +94,23 @@ import { XtfWriter } from '@interlis/iox-wasm';
 
 const writer = new XtfWriter(mod, { version: '2.3', sender: 'MyApp' });
 
-writer.write({ event: 'startTransfer', sender: 'MyApp', version: 23 });
-writer.write({ event: 'startBasket', bid: 'B1', basketType: 'Model.Topic.Basket' });
-writer.write({ event: 'object', operation: 'insert', objectId: 'T1', object: {
-    tag: 'Model.Topic.MyClass',
-    attrs: [{ name: 'Name', value: 'test' }]
+writer.write({ schema: 'iox-event/2', event: 'startTransfer', header: {
+    version: '2.3', sender: 'MyApp', models: [], oidSpaces: [], extensions: []
 }});
-writer.write({ event: 'endBasket', bid: 'B1' });
-writer.write({ event: 'endTransfer' });
+writer.write({ schema: 'iox-event/2', event: 'startBasket', basket: {
+    topic: { interlisName: 'Model.Topic', xml: null }, basketId: 'B1',
+    kind: 'full', consistency: 'complete', domains: [], topics: [], extensions: [],
+    location: { sourceName: '', byteOffset: 0, line: 0, column: 0 }
+}});
+writer.write({ schema: 'iox-event/2', event: 'object', object: {
+    tag: { interlisName: 'Model.Topic.MyClass', xml: null }, oid: 'T1',
+    operation: 'insert', consistency: 'complete', reference: null,
+    location: { sourceName: '', byteOffset: 0, line: 0, column: 0 },
+    attributes: [{ name: { interlisName: 'Name', xml: null },
+                   values: [{ kind: 'primitive', value: 'test' }] }]
+}});
+writer.write({ schema: 'iox-event/2', event: 'endBasket' });
+writer.write({ schema: 'iox-event/2', event: 'endTransfer' });
 
 const output = writer.finish(); // Uint8Array
 ```

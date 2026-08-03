@@ -56,18 +56,18 @@ static void XMLCALL onStartElement(void* userData,
             [&]() { std::size_t n = 0; while (atts[n] != nullptr) n += 2; return n / 2; }();
         if (attributeCount > ctx->limits.maxAttributeCount ||
             std::strlen(name) > ctx->limits.maxElementNameLength) {
-            ctx->diagnostics.push_back({Diagnostic::Severity::Fatal,
-                ErrorCode::XmlLimitExceeded,
-                "XML element or attribute limit exceeded"});
+            ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
+                DiagnosticCode::XmlLimitExceeded,
+                "XML element or attribute limit exceeded", {}, {}});
             ctx->fatal = true;
             XML_StopParser(ctx->parser, XML_FALSE);
             return;
         }
         for (std::size_t i = 0; i < attributeCount * 2; i += 2) {
             if (std::strlen(atts[i + 1]) > ctx->limits.maxAttributeValueLength) {
-                ctx->diagnostics.push_back({Diagnostic::Severity::Fatal,
-                    ErrorCode::XmlLimitExceeded,
-                    "XML attribute value limit exceeded"});
+                ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
+                    DiagnosticCode::XmlLimitExceeded,
+                    "XML attribute value limit exceeded", {}, {}});
                 ctx->fatal = true;
                 XML_StopParser(ctx->parser, XML_FALSE);
                 return;
@@ -75,9 +75,9 @@ static void XMLCALL onStartElement(void* userData,
         }
         ++ctx->depth;
         if (ctx->depth > ctx->limits.maxElementDepth) {
-            ctx->diagnostics.push_back({Diagnostic::Severity::Fatal,
-                ErrorCode::XmlLimitExceeded,
-                "XML element depth limit exceeded"});
+            ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
+                DiagnosticCode::XmlLimitExceeded,
+                "XML element depth limit exceeded", {}, {}});
             ctx->fatal = true;
             XML_StopParser(ctx->parser, XML_FALSE);
             return;
@@ -87,15 +87,15 @@ static void XMLCALL onStartElement(void* userData,
             ctx->callbacks.onStartElement(std::string_view(name), pairs);
         }
     } catch (const std::exception& e) {
-        ctx->diagnostics.push_back({Diagnostic::Severity::Fatal,
-            ErrorCode::InternalError,
-            std::string("onStartElement: ") + e.what()});
+        ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
+            DiagnosticCode::InternalError,
+            std::string("onStartElement: ") + e.what(), {}, {}});
         ctx->fatal = true;
         XML_StopParser(ctx->parser, XML_FALSE);
     } catch (...) {
-        ctx->diagnostics.push_back({Diagnostic::Severity::Fatal,
-            ErrorCode::InternalError,
-            "onStartElement: unknown exception"});
+        ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
+            DiagnosticCode::InternalError,
+            "onStartElement: unknown exception", {}, {}});
         ctx->fatal = true;
         XML_StopParser(ctx->parser, XML_FALSE);
     }
@@ -186,9 +186,9 @@ static void XMLCALL onStartDoctypeDecl(void* userData,
                                         const XML_Char* /*pubid*/,
                                         int /*hasInternalSubset*/) {
     auto* ctx = static_cast<ParserContext*>(userData);
-    ctx->diagnostics.push_back({Diagnostic::Severity::Fatal,
-        ErrorCode::XmlDtdForbidden,
-        "DTD is not supported"});
+    ctx->diagnostics.push_back({DiagnosticSeverity::Fatal,
+        DiagnosticCode::XmlDtdForbidden,
+        "DTD is not supported", {}, {}});
     ctx->fatal = true;
     XML_StopParser(ctx->parser, XML_FALSE);
 }
@@ -256,19 +256,20 @@ bool ExpatParser::feed(ByteView data) {
 
     impl_->ctx.totalBytes += data.size();
 
-    if (XML_Parse(impl_->parser, data.data(), static_cast<int>(data.size()), 0)
+    if (XML_Parse(impl_->parser, reinterpret_cast<const char*>(data.data()),
+                  static_cast<int>(data.size()), 0)
         == XML_STATUS_ERROR) {
         auto err = XML_GetErrorCode(impl_->parser);
         impl_->ctx.diagnostics.push_back({
-            Diagnostic::Severity::Fatal,
-            ErrorCode::XmlMalformed,
+            DiagnosticSeverity::Fatal,
+            DiagnosticCode::XmlMalformed,
             std::string("XML parse error: ") + XML_ErrorString(err),
-            Diagnostic::Location{
+            SourceLocation{
                 impl_->ctx.callbacks.onStartElement ? "" : "",
                 impl_->ctx.totalBytes,
-                static_cast<int>(XML_GetCurrentLineNumber(impl_->parser)),
-                static_cast<int>(XML_GetCurrentColumnNumber(impl_->parser))
-            }
+                static_cast<std::uint32_t>(XML_GetCurrentLineNumber(impl_->parser)),
+                static_cast<std::uint32_t>(XML_GetCurrentColumnNumber(impl_->parser))
+            }, {}
         });
         impl_->ctx.fatal = true;
         return false;
@@ -283,9 +284,10 @@ bool ExpatParser::finish() {
     if (XML_Parse(impl_->parser, "", 0, 1) == XML_STATUS_ERROR) {
         auto err = XML_GetErrorCode(impl_->parser);
         impl_->ctx.diagnostics.push_back({
-            Diagnostic::Severity::Fatal,
-            ErrorCode::XmlMalformed,
-            std::string("XML parse error at end: ") + XML_ErrorString(err)
+            DiagnosticSeverity::Fatal,
+            DiagnosticCode::XmlMalformed,
+            std::string("XML parse error at end: ") + XML_ErrorString(err),
+            {}, {}
         });
         impl_->ctx.fatal = true;
         return false;

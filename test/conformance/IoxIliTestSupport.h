@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -35,7 +34,9 @@ inline std::string readFixture(const std::filesystem::path& path) {
     if (end < 0) return {};
     input.seekg(0);
     std::string data(static_cast<std::size_t>(end), '\0');
-    if (!data.empty()) input.read(data.data(), static_cast<std::streamsize>(data.size()));
+    if (!data.empty()) {
+        input.read(data.data(), static_cast<std::streamsize>(data.size()));
+    }
     return data;
 }
 
@@ -44,102 +45,57 @@ inline void appendString(std::ostringstream& output, std::string_view value) {
 }
 
 inline void appendName(std::ostringstream& output, const IomName& name) {
-    appendString(output, name.iliName());
-    if (name.xmlName()) {
-        output << "<";
-        appendString(output, name.xmlName()->namespaceUri);
-        appendString(output, name.xmlName()->localName);
-        appendString(output, name.xmlName()->prefixHint);
-        output << ">";
+    appendString(output, name.interlisName());
+    if (name.hasXmlName()) {
+        output << '<';
+        appendString(output, name.xmlName().namespaceUri);
+        appendString(output, name.xmlName().localName);
+        appendString(output, name.xmlName().prefixHint);
+        output << '>';
     } else {
-        output << "-";
+        output << '-';
     }
 }
 
-inline void appendValue(std::ostringstream& output, const IomValue& value);
-inline void appendValue(std::ostringstream& output, const IomObject& value);
-inline void appendValue(std::ostringstream& output,
-                        const IomAttribute::AttrValue& value);
+inline void appendOptional(std::ostringstream& output,
+                           const std::optional<std::string>& value) {
+    if (value) appendString(output, *value);
+    else output << '-';
+}
 
-inline void appendObject(std::ostringstream& output, const IomObject& object) {
+inline void appendObject(std::ostringstream& output,
+                         const IomObject& object) {
     output << "object{";
     appendName(output, object.tag());
-    if (object.ref()) {
-        output << "ref=";
-        appendString(output, *object.ref());
+    appendOptional(output, object.oid());
+    output << "op=" << static_cast<int>(object.operation())
+           << "consistency=" << static_cast<int>(object.consistency());
+    appendOptional(output, object.reference().targetOid);
+    appendOptional(output, object.reference().targetBasketId);
+    if (object.reference().orderPosition) {
+        output << *object.reference().orderPosition;
     } else {
-        output << "ref=-";
-    }
-    if (object.bid()) {
-        output << "bid=";
-        appendString(output, *object.bid());
-    } else {
-        output << "bid=-";
-    }
-    if (object.orderPos()) {
-        output << "pos=" << *object.orderPos();
-    } else {
-        output << "pos=-";
+        output << '-';
     }
     output << "attrs=" << object.attributeCount() << '[';
-    for (std::size_t index = 0; index < object.attributeCount(); ++index) {
-        const auto& attribute = object.attributeAt(index);
-        appendName(output, attribute.name);
-        if (attribute.ref) {
-            output << "ref=";
-            appendString(output, *attribute.ref);
-        } else {
-            output << "ref=-";
+    for (std::size_t attributeIndex = 0;
+         attributeIndex < object.attributeCount(); ++attributeIndex) {
+        const auto& name = object.attributeName(attributeIndex);
+        appendName(output, name);
+        const auto count = object.valueCount(name.interlisName());
+        output << "values=" << count << '[';
+        for (std::size_t valueIndex = 0; valueIndex < count; ++valueIndex) {
+            const auto& value = object.value(name.interlisName(), valueIndex);
+            if (value.isPrimitive()) {
+                output << "primitive=";
+                appendString(output, value.primitive());
+            } else {
+                appendObject(output, value.object());
+            }
         }
-        if (attribute.bid) {
-            output << "bid=";
-            appendString(output, *attribute.bid);
-        } else {
-            output << "bid=-";
-        }
-        if (attribute.orderPos) {
-            output << "pos=" << *attribute.orderPos;
-        } else {
-            output << "pos=-";
-        }
-        output << "values=" << attribute.values.size() << '[';
-        for (const auto& value : attribute.values) appendValue(output, value);
-        output << "]";
+        output << ']';
     }
     output << "]}";
-}
-
-inline void appendValue(std::ostringstream& output, const IomValue& value) {
-    switch (value.kind()) {
-    case IomValue::Kind::Null:
-        output << "null;";
-        break;
-    case IomValue::Kind::Text:
-        output << "text=";
-        appendString(output, value.asText());
-        output << ';';
-        break;
-    case IomValue::Kind::Integer:
-        output << "integer=" << value.asInteger() << ';';
-        break;
-    case IomValue::Kind::Decimal:
-        output << "decimal=" << std::setprecision(17) << value.asDecimal() << ';';
-        break;
-    case IomValue::Kind::Boolean:
-        output << "boolean=" << (value.asBoolean() ? "true" : "false") << ';';
-        break;
-    }
-}
-
-inline void appendValue(std::ostringstream& output, const IomObject& value) {
-    appendObject(output, value);
-}
-
-inline void appendValue(std::ostringstream& output,
-                        const IomAttribute::AttrValue& value) {
-    std::visit([&output](const auto& item) {
-        appendValue(output, item);
-    }, value);
 }
 
 inline std::string eventFingerprint(const IoxEvent& event) {
@@ -147,50 +103,41 @@ inline std::string eventFingerprint(const IoxEvent& event) {
     std::visit([&output](const auto& value) {
         using T = std::decay_t<decltype(value)>;
         if constexpr (std::is_same_v<T, StartTransferEvent>) {
-            output << "startTransfer{";
-            appendString(output, value.sender);
-            appendString(output, value.comment);
-            appendString(output, value.iliVersion);
-            appendString(output, value.software);
-            appendString(output, value.date);
-            output << "version=";
-            if (value.version) output << *value.version;
-            else output << '-';
+            output << "startTransfer{" << static_cast<int>(value.header.version);
+            appendString(output, value.header.sender);
+            appendOptional(output, value.header.comment);
+            output << "models=" << value.header.models.size();
+            for (const auto& model : value.header.models) {
+                appendString(output, model.name);
+                appendOptional(output, model.version);
+                appendOptional(output, model.uri);
+                appendString(output, model.xmlNamespace.expanded());
+            }
+            output << "oids=" << value.header.oidSpaces.size();
+            for (const auto& oid : value.header.oidSpaces) {
+                appendString(output, oid.name);
+                appendString(output, oid.domain);
+            }
             output << '}';
         } else if constexpr (std::is_same_v<T, StartBasketEvent>) {
             output << "startBasket{";
-            appendName(output, value.basketType);
-            appendString(output, value.bid);
-            appendString(output, value.consistency);
-            appendString(output, value.operation);
-            output << "domains=" << value.domains.size() << '[';
-            for (const auto& domain : value.domains) appendString(output, domain);
-            output << ']';
-            if (value.oidDomain) output << "oid=" << *value.oidDomain;
-            else output << "oid=-";
-            if (value.startState) { output << "start="; appendString(output, *value.startState); }
-            else output << "start=-";
-            if (value.endState) { output << "end="; appendString(output, *value.endState); }
-            else output << "end=-";
-            if (value.kind) { output << "kind="; appendString(output, *value.kind); }
-            else output << "kind=-";
+            appendName(output, value.basket.topic);
+            appendString(output, value.basket.basketId);
+            output << static_cast<int>(value.basket.kind)
+                   << static_cast<int>(value.basket.consistency);
+            appendOptional(output, value.basket.startState);
+            appendOptional(output, value.basket.endState);
+            output << "domains=" << value.basket.domains.size();
+            for (const auto& item : value.basket.domains) appendString(output, item);
+            output << "topics=" << value.basket.topics.size();
+            for (const auto& item : value.basket.topics) appendString(output, item);
             output << '}';
         } else if constexpr (std::is_same_v<T, ObjectEvent>) {
             output << "objectEvent{";
             appendObject(output, value.object);
-            appendString(output, value.operation);
-            appendString(output, value.objectId);
-            if (value.consistency) { output << "consistency="; appendString(output, *value.consistency); }
-            else output << "consistency=-";
-            if (value.refBid) { output << "refBid="; appendString(output, *value.refBid); }
-            else output << "refBid=-";
-            if (value.refOrderPos) { output << "refOrder="; appendString(output, *value.refOrderPos); }
-            else output << "refOrder=-";
             output << '}';
         } else if constexpr (std::is_same_v<T, EndBasketEvent>) {
-            output << "endBasket{";
-            appendString(output, value.bid);
-            output << '}';
+            output << "endBasket";
         } else {
             output << "endTransfer";
         }
@@ -198,7 +145,8 @@ inline std::string eventFingerprint(const IoxEvent& event) {
     return output.str();
 }
 
-inline std::vector<std::string> eventFingerprints(const std::vector<IoxEvent>& events) {
+inline std::vector<std::string> eventFingerprints(
+    const std::vector<IoxEvent>& events) {
     std::vector<std::string> result;
     result.reserve(events.size());
     for (const auto& event : events) result.push_back(eventFingerprint(event));
@@ -206,19 +154,49 @@ inline std::vector<std::string> eventFingerprints(const std::vector<IoxEvent>& e
 }
 
 inline std::string semanticEventFingerprint(const IoxEvent& event) {
-    if (const auto* transfer = std::get_if<StartTransferEvent>(&event)) {
-        std::ostringstream output;
-        output << "startTransfer{version=";
-        if (transfer->version) output << *transfer->version;
-        else output << '-';
-        output << '}';
-        return output.str();
-    }
+    const auto normalizeObject = [](const IomObject& source,
+                                    const auto& self) -> IomObject {
+        IomObject result(source.tag(), source.oid());
+        result.setOperation(source.operation());
+        result.setConsistency(
+            source.consistency() == Consistency::Unspecified
+                ? Consistency::Complete
+                : source.consistency());
+        result.setReference(source.reference());
+        result.setSourceLocation(source.sourceLocation());
+        for (std::size_t attributeIndex = 0;
+             attributeIndex < source.attributeCount(); ++attributeIndex) {
+            const auto& name = source.attributeName(attributeIndex);
+            for (std::size_t valueIndex = 0;
+                 valueIndex < source.valueCount(name.interlisName());
+                 ++valueIndex) {
+                const auto& value =
+                    source.value(name.interlisName(), valueIndex);
+                if (value.isPrimitive()) {
+                    result.appendPrimitive(name, value.primitive());
+                } else {
+                    auto nested = self(value.object(), self);
+                    if (nested.isReference()) nested.setTag(name);
+                    result.appendObject(name, std::move(nested));
+                }
+            }
+        }
+        return result;
+    };
     if (const auto* basket = std::get_if<StartBasketEvent>(&event)) {
         auto normalized = *basket;
-        if (normalized.consistency.empty()) normalized.consistency = "complete";
-        if (normalized.operation.empty()) normalized.operation = "insert";
+        if (normalized.basket.kind == BasketKind::Unspecified) {
+            normalized.basket.kind = BasketKind::Initial;
+        }
+        if (normalized.basket.consistency == Consistency::Unspecified) {
+            normalized.basket.consistency = Consistency::Complete;
+        }
         return eventFingerprint(IoxEvent{std::move(normalized)});
+    }
+    if (const auto* object = std::get_if<ObjectEvent>(&event)) {
+        return eventFingerprint(
+            IoxEvent{ObjectEvent{normalizeObject(object->object,
+                                                 normalizeObject)}});
     }
     return eventFingerprint(event);
 }
@@ -227,7 +205,9 @@ inline std::vector<std::string> semanticEventFingerprints(
     const std::vector<IoxEvent>& events) {
     std::vector<std::string> result;
     result.reserve(events.size());
-    for (const auto& event : events) result.push_back(semanticEventFingerprint(event));
+    for (const auto& event : events) {
+        result.push_back(semanticEventFingerprint(event));
+    }
     return result;
 }
 
@@ -236,8 +216,9 @@ inline std::vector<std::string> diagnosticFingerprints(
     std::vector<std::string> result;
     result.reserve(diagnostics.size());
     for (const auto& diagnostic : diagnostics) {
-        result.push_back(std::to_string(static_cast<int>(diagnostic.severity)) + ":" +
-                         diagnostic.code);
+        result.push_back(
+            std::to_string(static_cast<int>(diagnostic.severity)) + ':' +
+            std::string(diagnosticCodeName(diagnostic.code)));
     }
     return result;
 }
@@ -245,48 +226,58 @@ inline std::vector<std::string> diagnosticFingerprints(
 inline std::vector<std::string> diagnosticContract(
     const std::vector<Diagnostic>& diagnostics) {
     for (const auto& diagnostic : diagnostics) {
-        if (diagnostic.severity == Diagnostic::Severity::Fatal) {
-            return {"fatal:" + diagnostic.code};
+        if (diagnostic.severity == DiagnosticSeverity::Fatal) {
+            return {"fatal:" + std::string(diagnosticCodeName(diagnostic.code))};
         }
     }
     return diagnosticFingerprints(diagnostics);
 }
 
-inline ParsedFixture parseBytes(std::string_view data, std::size_t chunkSize = 0,
+inline ParsedFixture parseBytes(std::string_view data,
+                                std::size_t chunkSize = 0,
                                 xtf::XtfReaderOptions options = {}) {
     xtf::XtfReader reader(std::move(options));
-    if (chunkSize == 0) {
-        reader.feed(ByteView(data));
-    } else {
-        for (std::size_t offset = 0; offset < data.size(); offset += chunkSize) {
-            reader.feed(ByteView(data.data() + offset,
-                                  std::min(chunkSize, data.size() - offset)));
-        }
-    }
-    reader.finish();
-
     ParsedFixture result;
-    while (true) {
-        auto outcome = reader.next();
-        result.diagnostics.insert(result.diagnostics.end(),
-                                  outcome.diagnostics.begin(), outcome.diagnostics.end());
-        if (outcome.event) result.events.push_back(std::move(*outcome.event));
-        if (outcome.status == ReadOutcome::Status::End) {
-            result.ended = true;
-            break;
+    try {
+        if (chunkSize == 0) {
+            reader.feed(ByteView(
+                reinterpret_cast<const std::uint8_t*>(data.data()),
+                data.size()));
+        } else {
+            for (std::size_t offset = 0; offset < data.size();
+                 offset += chunkSize) {
+                reader.feed(ByteView(
+                    reinterpret_cast<const std::uint8_t*>(data.data() + offset),
+                    std::min(chunkSize, data.size() - offset)));
+            }
         }
-        if (outcome.status == ReadOutcome::Status::NeedInput) break;
+        reader.finish();
+        while (true) {
+            auto outcome = reader.next();
+            if (outcome.event) result.events.push_back(std::move(*outcome.event));
+            if (outcome.progress == ReaderProgress::End) {
+                result.ended = true;
+                break;
+            }
+            if (outcome.progress == ReaderProgress::NeedInput) break;
+        }
+    } catch (const IoxError& error) {
+        result.diagnostics.push_back({DiagnosticSeverity::Fatal, error.code(),
+                                      error.what(), error.location(), {}});
     }
-    const auto remaining = reader.takeDiagnostics();
-    result.diagnostics.insert(result.diagnostics.end(), remaining.begin(), remaining.end());
+    auto remaining = reader.takeDiagnostics();
+    result.diagnostics.insert(result.diagnostics.end(),
+                              std::make_move_iterator(remaining.begin()),
+                              std::make_move_iterator(remaining.end()));
     return result;
 }
 
 inline ParsedFixture parseFixture(const std::filesystem::path& path,
                                   std::size_t chunkSize = 0) {
-    const auto data = readFixture(path);
-    return parseBytes(data, chunkSize,
-                      xtf::XtfReaderOptions{false, path.string(), std::nullopt, true});
+    auto options = xtf::XtfReaderOptions{};
+    options.sourceName = path.string();
+    options.preserveUnknownExtensions = true;
+    return parseBytes(readFixture(path), chunkSize, std::move(options));
 }
 
 inline std::string writeEvents(const std::vector<IoxEvent>& events,
@@ -296,7 +287,6 @@ inline std::string writeEvents(const std::vector<IoxEvent>& events,
     options.version = version;
     options.pretty = false;
     options.sender = "iox-ili-porting-matrix";
-    options.software = "iox-cpp";
     xtf::XtfWriter writer(sink, options);
     for (const auto& event : events) writer.write(event);
     writer.close();
@@ -307,10 +297,13 @@ inline std::vector<std::filesystem::path> transferFixtures(
     const std::filesystem::path& root) {
     std::vector<std::filesystem::path> result;
     if (!std::filesystem::exists(root)) return result;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+    for (const auto& entry :
+         std::filesystem::recursive_directory_iterator(root)) {
         if (!entry.is_regular_file()) continue;
         const auto extension = entry.path().extension().string();
-        if (extension == ".xtf" || extension == ".xml") result.push_back(entry.path());
+        if (extension == ".xtf" || extension == ".xml") {
+            result.push_back(entry.path());
+        }
     }
     std::sort(result.begin(), result.end());
     return result;

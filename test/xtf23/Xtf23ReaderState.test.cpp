@@ -10,11 +10,11 @@ IOX_TEST(xtf23_reader_rejects_input_after_finish) {
     iox::xtf::XtfReader reader;
     reader.feed(iox::ByteView(xml));
     reader.finish();
-    reader.feed(iox::ByteView(xml));
-    auto diagnostics = reader.takeDiagnostics();
     bool found = false;
-    for (const auto& diagnostic : diagnostics) {
-        if (diagnostic.code == iox::ErrorCode::InvalidState) found = true;
+    try {
+        reader.feed(iox::ByteView(xml));
+    } catch (const iox::IoxError& error) {
+        found = error.code() == iox::DiagnosticCode::InvalidState;
     }
     IOX_CHECK(found);
 }
@@ -26,11 +26,11 @@ IOX_TEST(xtf23_reader_rejects_double_finish) {
     iox::xtf::XtfReader reader;
     reader.feed(iox::ByteView(xml));
     reader.finish();
-    reader.finish();
-    auto diagnostics = reader.takeDiagnostics();
     bool found = false;
-    for (const auto& diagnostic : diagnostics) {
-        if (diagnostic.code == iox::ErrorCode::InvalidState) found = true;
+    try {
+        reader.finish();
+    } catch (const iox::IoxError& error) {
+        found = error.code() == iox::DiagnosticCode::InvalidState;
     }
     IOX_CHECK(found);
 }

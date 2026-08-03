@@ -4,6 +4,7 @@
 #include "iox/test/Test.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <string>
 
 namespace {
@@ -34,7 +35,9 @@ IOX_TEST(large_xtf23_transfer_is_incremental_and_ordered) {
     constexpr std::size_t chunkSize = 4096;
     for (std::size_t offset = 0; offset < xml.size(); offset += chunkSize) {
         const auto size = std::min(chunkSize, xml.size() - offset);
-        reader.feed(iox::ByteView(xml.data() + offset, size));
+        reader.feed(iox::ByteView(
+            reinterpret_cast<const std::uint8_t*>(xml.data() + offset),
+            size));
     }
     reader.finish();
 
@@ -42,10 +45,12 @@ IOX_TEST(large_xtf23_transfer_is_incremental_and_ordered) {
     std::size_t lastObject = 0;
     while (true) {
         const auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-        IOX_CHECK(outcome.status != iox::ReadOutcome::Status::NeedInput);
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        IOX_CHECK(outcome.progress != iox::ReaderProgress::NeedInput);
         if (const auto* object = std::get_if<iox::ObjectEvent>(&*outcome.event)) {
-            IOX_CHECK_EQ("T" + std::to_string(objects), object->objectId);
+            IOX_CHECK(object->object.oid().has_value());
+            IOX_CHECK_EQ("T" + std::to_string(objects),
+                         *object->object.oid());
             lastObject = objects;
             ++objects;
         }

@@ -37,34 +37,39 @@ ReadOutcome IlicXtfReader::next() {
         std::visit([this](const auto& e) {
             using T = std::decay_t<decltype(e)>;
             if constexpr (std::is_same_v<T, ObjectEvent>) {
-                auto* cls = impl_->index.findClass(e.object.tag().iliName());
+                auto* cls = impl_->index.findClass(e.object.tag().interlisName());
                 if (!cls && impl_->options.rejectUnknownClasses) {
                     impl_->accumulated.push_back({
-                        Diagnostic::Severity::Error,
-                        "ilic.unknown_class",
-                        "Unknown class: " + e.object.tag().iliName()});
+                        DiagnosticSeverity::Error,
+                        DiagnosticCode::UnknownInterlisName,
+                        "Unknown class: " + e.object.tag().interlisName(),
+                        {}, {}});
                 }
                 if (cls && impl_->options.rejectUnknownProperties) {
                     for (std::size_t i = 0; i < e.object.attributeCount(); ++i) {
-                        const auto& attr = e.object.attributeAt(i);
-                        auto* prop = impl_->index.findProperty(*cls, attr.name.iliName());
+                        const auto& name = e.object.attributeName(i);
+                        auto* prop = impl_->index.findProperty(
+                            *cls, name.interlisName());
                         if (!prop) {
                             impl_->accumulated.push_back({
-                                Diagnostic::Severity::Error,
-                                "ilic.unknown_property",
-                                "Unknown property '" + attr.name.iliName() +
-                                "' on class " + e.object.tag().iliName()});
+                                DiagnosticSeverity::Error,
+                                DiagnosticCode::UnknownInterlisName,
+                                "Unknown property '" + name.interlisName() +
+                                "' on class " + e.object.tag().interlisName(),
+                                {}, {}});
                         }
                     }
                 }
             } else if constexpr (std::is_same_v<T, StartBasketEvent>) {
                 if (impl_->options.rejectUnknownTopics) {
-                    auto* topic = impl_->index.findTopic(e.basketType.iliName());
+                    auto* topic = impl_->index.findTopic(
+                        e.basket.topic.interlisName());
                     if (!topic) {
                         impl_->accumulated.push_back({
-                            Diagnostic::Severity::Error,
-                            "ilic.unknown_topic",
-                            "Unknown topic: " + e.basketType.iliName()});
+                            DiagnosticSeverity::Error,
+                            DiagnosticCode::UnknownInterlisName,
+                            "Unknown topic: " +
+                                e.basket.topic.interlisName(), {}, {}});
                     }
                 }
             }
@@ -115,26 +120,29 @@ void IlicXtfWriter::write(const IoxEvent& event) {
     std::visit([this, &rejectEvent](const auto& e) {
         using T = std::decay_t<decltype(e)>;
         if constexpr (std::is_same_v<T, ObjectEvent>) {
-            auto* cls = impl_->index.findClass(e.object.tag().iliName());
+            auto* cls = impl_->index.findClass(e.object.tag().interlisName());
             if (!cls && impl_->options.rejectUnknownClasses) {
                 rejectEvent = true;
                 impl_->accumulated.push_back({
-                    Diagnostic::Severity::Error,
-                    "ilic.unknown_class",
-                    "Cannot write unknown class: " + e.object.tag().iliName()});
+                    DiagnosticSeverity::Error,
+                    DiagnosticCode::UnknownInterlisName,
+                    "Cannot write unknown class: " +
+                        e.object.tag().interlisName(), {}, {}});
                 return;
             }
             if (cls && impl_->options.rejectUnknownProperties) {
                 for (std::size_t i = 0; i < e.object.attributeCount(); ++i) {
-                    const auto& attr = e.object.attributeAt(i);
-                    auto* prop = impl_->index.findProperty(*cls, attr.name.iliName());
+                    const auto& name = e.object.attributeName(i);
+                    auto* prop = impl_->index.findProperty(
+                        *cls, name.interlisName());
                     if (!prop) {
                         rejectEvent = true;
                         impl_->accumulated.push_back({
-                            Diagnostic::Severity::Error,
-                            "ilic.unknown_property",
-                            "Unknown property '" + attr.name.iliName() +
-                            "' on class " + e.object.tag().iliName()});
+                            DiagnosticSeverity::Error,
+                            DiagnosticCode::UnknownInterlisName,
+                            "Unknown property '" + name.interlisName() +
+                            "' on class " + e.object.tag().interlisName(),
+                            {}, {}});
                     }
                 }
             }
@@ -145,26 +153,48 @@ void IlicXtfWriter::write(const IoxEvent& event) {
 
     if (const auto* objectEvent = std::get_if<ObjectEvent>(&event);
         objectEvent != nullptr && impl_->options.enforceTransferOrder) {
-        const auto* klass = impl_->index.findClass(objectEvent->object.tag().iliName());
+        const auto* klass = impl_->index.findClass(objectEvent->object.tag().interlisName());
         if (klass != nullptr) {
-            IomObject ordered(objectEvent->object.tag());
-            if (objectEvent->object.ref()) ordered.setRef(*objectEvent->object.ref());
-            if (objectEvent->object.bid()) ordered.setBid(*objectEvent->object.bid());
-            if (objectEvent->object.orderPos()) ordered.setOrderPos(*objectEvent->object.orderPos());
+            IomObject ordered(objectEvent->object.tag(),
+                              objectEvent->object.oid());
+            ordered.setOperation(objectEvent->object.operation());
+            ordered.setConsistency(objectEvent->object.consistency());
+            ordered.setReference(objectEvent->object.reference());
+            ordered.setSourceLocation(objectEvent->object.sourceLocation());
+
+            const auto copyAttribute = [&objectEvent, &ordered](
+                const IomName& name) {
+                const auto count = objectEvent->object.valueCount(
+                    name.interlisName());
+                for (std::size_t index = 0; index < count; ++index) {
+                    const auto& value = objectEvent->object.value(
+                        name.interlisName(), index);
+                    if (value.isPrimitive()) {
+                        ordered.appendPrimitive(name, value.primitive());
+                    } else {
+                        ordered.appendObject(name, value.object());
+                    }
+                }
+            };
 
             for (const auto* property : impl_->index.transferProperties(*klass)) {
-                const auto* attribute = objectEvent->object.findAttribute(property->Name);
-                if (attribute != nullptr) {
-                    auto& target = ordered.setAttribute(attribute->name);
-                    target = *attribute;
+                if (objectEvent->object.hasAttribute(property->Name)) {
+                    for (std::size_t index = 0;
+                         index < objectEvent->object.attributeCount(); ++index) {
+                        const auto& name = objectEvent->object.attributeName(index);
+                        if (name.interlisName() == property->Name) {
+                            copyAttribute(name);
+                            break;
+                        }
+                    }
                 }
             }
             // Preserve unknown attributes in their original relative order.
             for (std::size_t i = 0; i < objectEvent->object.attributeCount(); ++i) {
-                const auto& attribute = objectEvent->object.attributeAt(i);
-                if (impl_->index.findProperty(*klass, attribute.name.iliName()) == nullptr) {
-                    auto& target = ordered.setAttribute(attribute.name);
-                    target = attribute;
+                const auto& name = objectEvent->object.attributeName(i);
+                if (impl_->index.findProperty(*klass,
+                                              name.interlisName()) == nullptr) {
+                    copyAttribute(name);
                 }
             }
 

@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -16,31 +17,28 @@ const std::filesystem::path fixtureRoot = "test/fixtures";
 std::vector<iox::IoxEvent> orderedReferenceEvents() {
     std::vector<iox::IoxEvent> events;
     iox::StartTransferEvent transfer;
-    transfer.version = 23;
-    transfer.iliVersion = "2.3";
+    transfer.header.version = iox::XtfVersion::V23;
+    transfer.header.sender = "matrix";
     events.push_back(transfer);
 
     iox::StartBasketEvent basket;
-    basket.basketType = iox::IomName("Matrix.Topic.Data");
-    basket.bid = "B1";
+    basket.basket.topic = iox::IomName("Matrix.Topic.Data");
+    basket.basket.basketId = "B1";
     events.push_back(basket);
 
     iox::ObjectEvent object;
-    object.operation = "insert";
-    object.objectId = "T1";
-    object.object = iox::IomObject(iox::IomName("Matrix.Topic.Class"));
-    auto& first = object.object.setAttribute(iox::IomName("First"));
-    first.values.push_back(iox::IomValue::text("one"));
-    auto& repeated = object.object.setAttribute(iox::IomName("Repeated"));
-    repeated.values.push_back(iox::IomValue::text("a"));
-    repeated.values.push_back(iox::IomValue::text("b"));
-    auto& reference = object.object.setAttribute(iox::IomName("Reference"));
-    reference.ref = "T2";
-    reference.orderPos = 2;
-    reference.values.push_back(iox::IomValue::text("target"));
+    object.object = iox::IomObject(
+        iox::IomName("Matrix.Topic.Class"), "T1");
+    object.object.setOperation(iox::ObjectOperation::Insert);
+    object.object.setPrimitive(iox::IomName("First"), "one");
+    object.object.appendPrimitive(iox::IomName("Repeated"), "a");
+    object.object.appendPrimitive(iox::IomName("Repeated"), "b");
+    iox::IomObject reference(iox::IomName("REFERENCE"));
+    reference.setReference({"T2", std::nullopt, 2U});
+    object.object.setObject(iox::IomName("Reference"), reference);
     events.push_back(object);
 
-    events.push_back(iox::EndBasketEvent{"B1"});
+    events.push_back(iox::EndBasketEvent{});
     events.push_back(iox::EndTransferEvent{});
     return events;
 }
@@ -67,8 +65,14 @@ IOX_TEST(iox_ili_fixture_matrix_preserves_event_and_diagnostic_streams) {
             IOX_CHECK(oneByte.ended);
             IOX_CHECK(sevenBytes.ended);
             IOX_CHECK(sixtyFourBytes.ended);
-            IOX_CHECK_EQ(iox::conformance::eventFingerprints(oneShot.events),
-                         iox::conformance::eventFingerprints(oneByte.events));
+            const auto oneShotEvents =
+                iox::conformance::eventFingerprints(oneShot.events);
+            const auto oneByteEvents =
+                iox::conformance::eventFingerprints(oneByte.events);
+            if (oneShotEvents != oneByteEvents) {
+                std::cerr << "chunk mismatch: " << path << '\n';
+            }
+            IOX_CHECK_EQ(oneShotEvents, oneByteEvents);
             IOX_CHECK_EQ(iox::conformance::eventFingerprints(oneShot.events),
                          iox::conformance::eventFingerprints(sevenBytes.events));
             IOX_CHECK_EQ(iox::conformance::eventFingerprints(oneShot.events),
@@ -97,14 +101,15 @@ IOX_TEST(iox_ili_xtf23_reference_fixture_preserves_attributes_and_values) {
     std::function<void(const iox::IomObject&)> inspect =
         [&](const iox::IomObject& object) {
             for (std::size_t index = 0; index < object.attributeCount(); ++index) {
-                const auto& attribute = object.attributeAt(index);
-                if (attribute.ref) {
-                    foundReference = true;
-                }
-                for (const auto& value : attribute.values) {
-                    if (const auto* nested = std::get_if<iox::IomObject>(&value)) {
-                        inspect(*nested);
-                    }
+                const auto& name = object.attributeName(index);
+                const auto count = object.valueCount(name.interlisName());
+                for (std::size_t valueIndex = 0; valueIndex < count;
+                     ++valueIndex) {
+                    const auto& value =
+                        object.value(name.interlisName(), valueIndex);
+                    if (!value.isObject()) continue;
+                    if (value.object().isReference()) foundReference = true;
+                    inspect(value.object());
                 }
             }
         };
@@ -126,7 +131,7 @@ IOX_TEST(iox_ili_xtf24_writer_fixtures_have_semantic_roundtrip) {
     for (const auto& path : paths) {
         const auto input = iox::conformance::parseFixture(path);
         const auto output = iox::conformance::writeEvents(
-            input.events, iox::xtf::XtfVersion::Xtf24);
+            input.events, iox::xtf::XtfVersion::V24);
         const auto roundtrip = iox::conformance::parseBytes(output);
         IOX_CHECK(input.ended);
         IOX_CHECK(roundtrip.ended);
@@ -138,15 +143,22 @@ IOX_TEST(iox_ili_xtf24_writer_fixtures_have_semantic_roundtrip) {
 IOX_TEST(iox_ili_writer_preserves_ordered_repeated_and_reference_values) {
     const auto events = orderedReferenceEvents();
     const auto firstOutput = iox::conformance::writeEvents(
-        events, iox::xtf::XtfVersion::Xtf23);
+        events, iox::xtf::XtfVersion::V23);
     const auto secondOutput = iox::conformance::writeEvents(
-        events, iox::xtf::XtfVersion::Xtf23);
+        events, iox::xtf::XtfVersion::V23);
     IOX_CHECK_EQ(firstOutput, secondOutput);
 
     const auto parsed = iox::conformance::parseBytes(firstOutput);
     IOX_CHECK(parsed.ended);
-    IOX_CHECK_EQ(iox::conformance::semanticEventFingerprints(events),
-                 iox::conformance::semanticEventFingerprints(parsed.events));
+    const auto expected = iox::conformance::semanticEventFingerprints(events);
+    const auto actual =
+        iox::conformance::semanticEventFingerprints(parsed.events);
+    if (expected != actual) {
+        std::cerr << "ordered roundtrip mismatch\n";
+        for (const auto& value : expected) std::cerr << "E " << value << '\n';
+        for (const auto& value : actual) std::cerr << "A " << value << '\n';
+    }
+    IOX_CHECK_EQ(expected, actual);
 }
 
 #include "iox/test/TestMain.h"

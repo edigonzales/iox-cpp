@@ -30,20 +30,26 @@ int main(int argc, char* argv[]) {
 
     // Create reader
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(data.data(), data.size()));
+    reader.feed(iox::ByteView(data));
     reader.finish();
 
-    std::cout << "XTF version: " << iox::xtf::toString(reader.detectedVersion()) << "\n\n";
+    std::cout << "XTF version: "
+              << (reader.detectedVersion()
+                      ? iox::xtf::toString(*reader.detectedVersion())
+                      : "unknown")
+              << "\n\n";
 
     // Read events
     int count = 0;
     while (true) {
         auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-        if (outcome.status == iox::ReadOutcome::Status::NeedInput) break;
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        if (outcome.progress == iox::ReaderProgress::NeedInput) break;
         if (outcome.event) {
             ++count;
-            std::cout << "[" << count << "] " << iox::eventTypeName(*outcome.event) << "\n";
+            std::cout << "[" << count << "] "
+                      << iox::eventKindName(iox::eventKind(*outcome.event))
+                      << "\n";
         }
     }
 

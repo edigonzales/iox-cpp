@@ -48,6 +48,21 @@ std::string findAttr(const std::vector<std::pair<std::string_view, std::string_v
     return "";
 }
 
+Consistency parseConsistency(std::string_view value) {
+    if (value == "COMPLETE" || value == "complete" || value.empty()) return Consistency::Complete;
+    if (value == "INCOMPLETE" || value == "incomplete") return Consistency::Incomplete;
+    if (value == "INCONSISTENT" || value == "inconsistent") return Consistency::Inconsistent;
+    if (value == "ADAPTED" || value == "adapted") return Consistency::Adapted;
+    return Consistency::Unspecified;
+}
+
+ObjectOperation parseOperation(std::string_view value) {
+    if (value == "INSERT" || value == "insert" || value.empty()) return ObjectOperation::Insert;
+    if (value == "UPDATE" || value == "update") return ObjectOperation::Update;
+    if (value == "DELETE" || value == "delete") return ObjectOperation::Delete;
+    return ObjectOperation::None;
+}
+
 } // anonymous namespace
 
 // ============================================================================
@@ -78,14 +93,13 @@ struct Xtf23Dialect::Impl {
         std::string textBuffer;
         std::string operation;
         bool hasChildStructure = false;
+        ReferenceInfo reference;
+        bool isReference = false;
     };
     std::stack<ElementState> stack;
 
     StartBasketEvent currentBasket;
 
-    // Stored TID for the current object (set on start, used on end)
-    std::string currentTid;
-    std::string currentOperation;
 };
 
 // ============================================================================
@@ -117,16 +131,15 @@ void Xtf23Dialect::onStartElement(
         state.type = ElemType::Basket;
 
         StartBasketEvent sb;
-        sb.bid = findAttr(attrs, "BID");
-        sb.consistency = findAttr(attrs, "CONSISTENCY");
-        if (sb.consistency.empty()) sb.consistency = "complete";
-        sb.operation = findAttr(attrs, "OPERATION");
-        if (sb.operation.empty()) sb.operation = "insert";
-        auto oidStr = findAttr(attrs, "OID_DOMAIN");
-        if (!oidStr.empty()) {
-            try { sb.oidDomain = std::stoi(oidStr); } catch (...) {}
-        }
-        sb.basketType = IomName(local);
+        sb.basket.basketId = findAttr(attrs, "BID");
+        sb.basket.consistency = parseConsistency(findAttr(attrs, "CONSISTENCY"));
+        const auto operation = parseOperation(findAttr(attrs, "OPERATION"));
+        sb.basket.kind = operation == ObjectOperation::Update
+                             ? BasketKind::Update
+                             : operation == ObjectOperation::Insert
+                                   ? BasketKind::Initial
+                                   : BasketKind::Unspecified;
+        sb.basket.topic = IomName(local);
         impl_->currentBasket = sb;
         impl_->cb.emitEvent(sb);
         impl_->stack.push(std::move(state));
@@ -137,14 +150,15 @@ void Xtf23Dialect::onStartElement(
     std::string tid = findAttr(attrs, "TID");
     if (!tid.empty()) {
         state.type = ElemType::Object;
-        state.object = IomObject(IomName(local));
-        impl_->currentTid = tid;
-        impl_->currentOperation = findAttr(attrs, "OPERATION");
-        if (impl_->currentOperation.empty()) impl_->currentOperation = "insert";
+        state.object = IomObject(IomName(local), tid);
+        state.object.setOperation(parseOperation(findAttr(attrs, "OPERATION")));
+        state.object.setConsistency(parseConsistency(findAttr(attrs, "CONSISTENCY")));
         // Capture object-level BID if present
         std::string objBid = findAttr(attrs, "BID");
         if (!objBid.empty()) {
-            state.object.setBid(objBid);
+            ReferenceInfo reference;
+            reference.targetBasketId = std::move(objBid);
+            state.object.setReference(std::move(reference));
         }
         impl_->stack.push(std::move(state));
         return;
@@ -157,25 +171,22 @@ void Xtf23Dialect::onStartElement(
         if (parent.type == ElemType::Object || parent.type == ElemType::Structure) {
             // Attribute of the parent object/structure
             state.type = ElemType::Attribute;
-            // Check if attribute already exists (repeated values)
-            auto* existing = const_cast<IomAttribute*>(
-                parent.object.findAttribute(local));
-            if (existing) {
-                // Append: this is a repeated value for an existing attribute
-                state.iliName = local;
-                state.textBuffer.clear();
-                impl_->stack.push(std::move(state));
-                return;
-            }
-            // Pre-create the attribute entry (will be filled on end)
-            auto& attr = parent.object.setAttribute(IomName(local));
             std::string ref = findAttr(attrs, "REF");
-            if (!ref.empty()) attr.ref = ref;
+            if (!ref.empty()) {
+                state.reference.targetOid = std::move(ref);
+                state.isReference = true;
+            }
             std::string bid = findAttr(attrs, "BID");
-            if (!bid.empty()) attr.bid = bid;
+            if (!bid.empty()) {
+                state.reference.targetBasketId = std::move(bid);
+                state.isReference = true;
+            }
             std::string orderPos = findAttr(attrs, "ORDER_POS");
             if (!orderPos.empty()) {
-                try { attr.orderPos = std::stoll(orderPos); } catch (...) {}
+                try {
+                    state.reference.orderPosition = std::stoull(orderPos);
+                    state.isReference = true;
+                } catch (...) {}
             }
             impl_->stack.push(std::move(state));
             return;
@@ -209,16 +220,12 @@ void Xtf23Dialect::onEndElement(std::string_view /*name*/) {
 
     switch (state.type) {
     case ElemType::Basket: {
-        EndBasketEvent eb;
-        eb.bid = impl_->currentBasket.bid;
-        impl_->cb.emitEvent(eb);
+        impl_->cb.emitEvent(EndBasketEvent{});
         break;
     }
     case ElemType::Object: {
         ObjectEvent objEvent;
         objEvent.object = std::move(state.object);
-        objEvent.objectId = impl_->currentTid;
-        objEvent.operation = impl_->currentOperation;
         impl_->cb.emitEvent(objEvent);
         break;
     }
@@ -228,10 +235,16 @@ void Xtf23Dialect::onEndElement(std::string_view /*name*/) {
         if (!impl_->stack.empty()) {
             auto& parent = impl_->stack.top();
             if (parent.type == ElemType::Object || parent.type == ElemType::Structure) {
-                auto* attr = const_cast<IomAttribute*>(
-                    parent.object.findAttribute(state.iliName));
-                if (attr && !state.hasChildStructure && !state.textBuffer.empty()) {
-                    attr->values.push_back(IomValue::text(state.textBuffer));
+                if (!state.hasChildStructure) {
+                    if (state.isReference) {
+                        IomObject reference(IomName(state.iliName));
+                        reference.setReference(std::move(state.reference));
+                        parent.object.appendObject(IomName(state.iliName),
+                                                   std::move(reference));
+                    } else {
+                        parent.object.appendPrimitive(IomName(state.iliName),
+                                                      std::move(state.textBuffer));
+                    }
                 }
             }
         }
@@ -249,21 +262,15 @@ void Xtf23Dialect::onEndElement(std::string_view /*name*/) {
                 if (!impl_->stack.empty()) {
                     auto& grandparent = impl_->stack.top();
                     if (grandparent.type == ElemType::Object || grandparent.type == ElemType::Structure) {
-                        auto* attr = const_cast<IomAttribute*>(
-                            grandparent.object.findAttribute(parentIliName));
-                        if (attr) {
-                            attr->values.push_back(state.object);
-                        }
+                        grandparent.object.appendObject(IomName(parentIliName),
+                                                        std::move(state.object));
                     }
                 }
 
                 impl_->stack.push(std::move(parentState));
             } else if (parent.type == ElemType::Object || parent.type == ElemType::Structure) {
-                auto* attr = const_cast<IomAttribute*>(
-                    parent.object.findAttribute(state.iliName));
-                if (attr) {
-                    attr->values.push_back(state.object);
-                }
+                parent.object.appendObject(IomName(state.iliName),
+                                           std::move(state.object));
             }
         }
         break;

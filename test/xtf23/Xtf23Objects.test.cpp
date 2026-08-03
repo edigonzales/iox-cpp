@@ -1,291 +1,158 @@
-#include "iox/xtf/XtfReader.h"
-#include "iox/xtf/XtfWriter.h"
-#include "iox/xtf/XtfVersion.h"
 #include "iox/Events.h"
 #include "iox/Writer.h"
+#include "iox/xtf/XtfReader.h"
+#include "iox/xtf/XtfWriter.h"
 #include "iox/test/Test.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
-// ============================================================================
-// Helpers
-// ============================================================================
+namespace {
 
-static std::string writeXtf(const std::vector<iox::IoxEvent>& events,
-                             iox::xtf::XtfVersion version) {
+iox::StartTransferEvent transfer() {
+    iox::StartTransferEvent result;
+    result.header.version = iox::XtfVersion::V23;
+    result.header.sender = "TestSender";
+    return result;
+}
+
+iox::StartBasketEvent basket(std::string id,
+                             iox::Consistency consistency =
+                                 iox::Consistency::Unspecified) {
+    iox::StartBasketEvent result;
+    result.basket.topic = iox::IomName("TestModel.TopicA.DataBasket");
+    result.basket.basketId = std::move(id);
+    result.basket.consistency = consistency;
+    result.basket.kind = iox::BasketKind::Full;
+    return result;
+}
+
+iox::ObjectEvent object(std::string id, std::string value) {
+    iox::ObjectEvent result;
+    result.object = iox::IomObject(
+        iox::IomName("TestModel.TopicA.TestClass"), std::move(id));
+    result.object.setOperation(iox::ObjectOperation::Insert);
+    result.object.setPrimitive(iox::IomName("Name"), std::move(value));
+    return result;
+}
+
+std::string write(const std::vector<iox::IoxEvent>& events) {
     auto sink = std::make_shared<iox::StringOutputSink>();
-    iox::xtf::XtfWriterOptions opts;
-    opts.version = version;
-    opts.pretty = false;
-    opts.sender = "TestSender";
-    opts.software = "iox-test";
-
-    iox::xtf::XtfWriter writer(sink, opts);
-    for (const auto& e : events) writer.write(e);
+    iox::xtf::XtfWriterOptions options;
+    options.version = iox::XtfVersion::V23;
+    options.pretty = false;
+    iox::xtf::XtfWriter writer(sink, options);
+    for (const auto& event : events) writer.write(event);
     writer.close();
     return sink->str();
 }
 
-static std::vector<iox::IoxEvent> readXtf(const std::string& data) {
+std::vector<iox::IoxEvent> read(const std::string& input,
+                                std::size_t chunkSize = 0) {
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(data.data(), data.size()));
+    if (chunkSize == 0) {
+        reader.feed(iox::ByteView(input));
+    } else {
+        for (std::size_t offset = 0; offset < input.size(); offset += chunkSize) {
+            const auto count = std::min(chunkSize, input.size() - offset);
+            reader.feed(iox::ByteView(
+                reinterpret_cast<const std::uint8_t*>(input.data() + offset),
+                count));
+        }
+    }
     reader.finish();
-
-    std::vector<iox::IoxEvent> events;
+    std::vector<iox::IoxEvent> result;
     while (true) {
         auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-        if (outcome.status == iox::ReadOutcome::Status::NeedInput) break;
-        if (outcome.event) events.push_back(std::move(*outcome.event));
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        IOX_CHECK_EQ(iox::ReaderProgress::Event, outcome.progress);
+        result.push_back(std::move(*outcome.event));
     }
-    return events;
+    return result;
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
+std::vector<iox::IoxEvent> oneObjectEvents(iox::ObjectEvent value) {
+    return {transfer(), basket("BID001"), std::move(value),
+            iox::EndBasketEvent{}, iox::EndTransferEvent{}};
+}
+
+} // namespace
 
 IOX_TEST(xtf23_simple_object_roundtrip) {
-    // Build a complete transfer with one object
-    std::vector<iox::IoxEvent> events;
-
-    iox::StartTransferEvent st;
-    st.sender = "TestSender";
-    st.version = 23;
-    events.push_back(st);
-
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("TestModel.TopicA.DataBasket");
-    sb.bid = "BID001";
-    sb.consistency = "complete";
-    sb.operation = "insert";
-    events.push_back(sb);
-
-    iox::ObjectEvent obj;
-    obj.operation = "insert";
-    obj.objectId = "TID001";
-    obj.object = iox::IomObject(iox::IomName("TestModel.TopicA.MyClass"));
-    obj.object.setPrimitive("Name", iox::IomValue::text("test-value"));
-    obj.object.setPrimitive("Count", iox::IomValue::integer(42));
-    events.push_back(obj);
-
-    iox::EndBasketEvent eb;
-    eb.bid = "BID001";
-    events.push_back(eb);
-
-    iox::EndTransferEvent et;
-    events.push_back(et);
-
-    // Write then read
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf23);
-    auto parsed = readXtf(xml);
-
-    // Should have events: StartTransfer, StartBasket, Object, EndBasket, EndTransfer
+    auto value = object("TID001", "test-value");
+    value.object.setPrimitive(iox::IomName("Count"), "00042");
+    const auto parsed = read(write(oneObjectEvents(value)));
     IOX_CHECK_EQ(static_cast<std::size_t>(5), parsed.size());
-    IOX_CHECK(std::holds_alternative<iox::StartTransferEvent>(parsed[0]));
-    IOX_CHECK(std::holds_alternative<iox::StartBasketEvent>(parsed[1]));
-    IOX_CHECK(std::holds_alternative<iox::ObjectEvent>(parsed[2]));
-    IOX_CHECK(std::holds_alternative<iox::EndBasketEvent>(parsed[3]));
-    IOX_CHECK(std::holds_alternative<iox::EndTransferEvent>(parsed[4]));
-
-    // Check the object event
-    auto& objEvent = std::get<iox::ObjectEvent>(parsed[2]);
-    IOX_CHECK_EQ(std::string("TID001"), objEvent.objectId);
-    IOX_CHECK_EQ(std::string("insert"), objEvent.operation);
+    const auto& result = std::get<iox::ObjectEvent>(parsed[2]).object;
+    IOX_CHECK_EQ(std::string("TID001"), *result.oid());
+    IOX_CHECK_EQ(iox::ObjectOperation::Insert, result.operation());
+    IOX_CHECK_EQ(std::string_view("test-value"), *result.primitive("Name"));
+    IOX_CHECK_EQ(std::string_view("00042"), *result.primitive("Count"));
 }
 
 IOX_TEST(xtf23_multiple_objects) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st;
-    st.version = 23;
-    events.push_back(st);
-
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.B");
-    sb.bid = "B1";
-    events.push_back(sb);
-
-    for (int i = 0; i < 3; ++i) {
-        iox::ObjectEvent obj;
-        obj.operation = "insert";
-        obj.objectId = "TID" + std::to_string(i);
-        obj.object = iox::IomObject(iox::IomName("M.T.C"));
-        obj.object.setPrimitive("idx", iox::IomValue::integer(i));
-        events.push_back(obj);
+    std::vector<iox::IoxEvent> events{transfer(), basket("B1")};
+    for (int i = 0; i < 10; ++i) {
+        events.push_back(object("TID" + std::to_string(i),
+                                std::to_string(i)));
     }
-
-    iox::EndBasketEvent eb;
-    eb.bid = "B1";
-    events.push_back(eb);
-
-    iox::EndTransferEvent et;
-    events.push_back(et);
-
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf23);
-    auto parsed = readXtf(xml);
-
-    // 1 + 1 + 3 + 1 + 1 = 7 events
-    IOX_CHECK_EQ(static_cast<std::size_t>(7), parsed.size());
-
-    int objCount = 0;
-    for (const auto& e : parsed) {
-        if (std::holds_alternative<iox::ObjectEvent>(e)) ++objCount;
+    events.push_back(iox::EndBasketEvent{});
+    events.push_back(iox::EndTransferEvent{});
+    const auto parsed = read(write(events));
+    IOX_CHECK_EQ(static_cast<std::size_t>(14), parsed.size());
+    for (int i = 0; i < 10; ++i) {
+        const auto& value = std::get<iox::ObjectEvent>(parsed[2U + i]).object;
+        IOX_CHECK_EQ("TID" + std::to_string(i), *value.oid());
     }
-    IOX_CHECK_EQ(3, objCount);
 }
 
 IOX_TEST(xtf23_object_with_structure_attribute) {
-    std::vector<iox::IoxEvent> events;
+    auto value = object("TID1", "Test");
+    iox::IomObject address(iox::IomName("TestModel.TopicA.Address"));
+    address.setPrimitive(iox::IomName("Street"), "Main St");
+    address.setPrimitive(iox::IomName("Number"), "10");
+    value.object.setObject(iox::IomName("Address"), address);
 
-    iox::StartTransferEvent st;
-    st.version = 23;
-    events.push_back(st);
-
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.B");
-    sb.bid = "B1";
-    events.push_back(sb);
-
-    iox::ObjectEvent obj;
-    obj.operation = "insert";
-    obj.objectId = "TID1";
-    obj.object = iox::IomObject(iox::IomName("M.T.Main"));
-    // Add a structure attribute
-    iox::IomObject addr(iox::IomName("M.T.Address"));
-    addr.setPrimitive("Street", iox::IomValue::text("Main St"));
-    addr.setPrimitive("Number", iox::IomValue::integer(10));
-    obj.object.setStructure("Address", addr);
-    obj.object.setPrimitive("Name", iox::IomValue::text("Test"));
-    events.push_back(obj);
-
-    iox::EndBasketEvent eb;
-    eb.bid = "B1";
-    events.push_back(eb);
-    iox::EndTransferEvent et;
-    events.push_back(et);
-
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf23);
-    auto parsed = readXtf(xml);
-
-    // Should have at least the Object event
-    bool foundObj = false;
-    for (const auto& e : parsed) {
-        if (auto* o = std::get_if<iox::ObjectEvent>(&e)) {
-            foundObj = true;
-            IOX_CHECK_EQ(std::string("TID1"), o->objectId);
-            break;
-        }
-    }
-    IOX_CHECK(foundObj);
+    const auto parsed = read(write(oneObjectEvents(value)));
+    const auto result =
+        std::get<iox::ObjectEvent>(parsed[2]).object.object("Address");
+    IOX_CHECK(result.has_value());
+    IOX_CHECK_EQ(std::string_view("Main St"), *result->primitive("Street"));
+    IOX_CHECK_EQ(std::string_view("10"), *result->primitive("Number"));
 }
 
 IOX_TEST(xtf23_basket_with_consistency) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st;
-    st.version = 23;
-    events.push_back(st);
-
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.B");
-    sb.bid = "B_INCOMPLETE";
-    sb.consistency = "incomplete";
-    sb.operation = "update";
-    events.push_back(sb);
-
-    iox::EndBasketEvent eb;
-    eb.bid = "B_INCOMPLETE";
-    events.push_back(eb);
-    iox::EndTransferEvent et;
-    events.push_back(et);
-
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf23);
-    auto parsed = readXtf(xml);
-
-    IOX_CHECK_EQ(static_cast<std::size_t>(4), parsed.size());
-    auto& basketEvent = std::get<iox::StartBasketEvent>(parsed[1]);
-    IOX_CHECK_EQ(std::string("B_INCOMPLETE"), basketEvent.bid);
+    const auto parsed = read(write(
+        {transfer(), basket("B_INCOMPLETE", iox::Consistency::Incomplete),
+         iox::EndBasketEvent{}, iox::EndTransferEvent{}}));
+    const auto& metadata = std::get<iox::StartBasketEvent>(parsed[1]).basket;
+    IOX_CHECK_EQ(std::string("B_INCOMPLETE"), metadata.basketId);
+    IOX_CHECK_EQ(iox::Consistency::Incomplete, metadata.consistency);
 }
 
 IOX_TEST(xtf23_multiple_baskets) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st;
-    st.version = 23;
-    events.push_back(st);
-
-    // Basket 1
-    iox::StartBasketEvent sb1;
-    sb1.basketType = iox::IomName("M.T.B");
-    sb1.bid = "B1";
-    events.push_back(sb1);
-    iox::EndBasketEvent eb1;
-    eb1.bid = "B1";
-    events.push_back(eb1);
-
-    // Basket 2
-    iox::StartBasketEvent sb2;
-    sb2.basketType = iox::IomName("M.T.B");
-    sb2.bid = "B2";
-    events.push_back(sb2);
-    iox::EndBasketEvent eb2;
-    eb2.bid = "B2";
-    events.push_back(eb2);
-
-    iox::EndTransferEvent et;
-    events.push_back(et);
-
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf23);
-    auto parsed = readXtf(xml);
-
-    // ST + SB1 + EB1 + SB2 + EB2 + ET = 6
+    const auto parsed = read(write(
+        {transfer(), basket("B1"), iox::EndBasketEvent{}, basket("B2"),
+         iox::EndBasketEvent{}, iox::EndTransferEvent{}}));
     IOX_CHECK_EQ(static_cast<std::size_t>(6), parsed.size());
+    IOX_CHECK_EQ(std::string("B1"),
+                 std::get<iox::StartBasketEvent>(parsed[1]).basket.basketId);
+    IOX_CHECK_EQ(std::string("B2"),
+                 std::get<iox::StartBasketEvent>(parsed[3]).basket.basketId);
 }
 
 IOX_TEST(xtf23_chunked_read) {
-    // Write a simple document, then read in 3-byte chunks
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st;
-    st.version = 23;
-    events.push_back(st);
-
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.B");
-    sb.bid = "B1";
-    events.push_back(sb);
-
-    iox::ObjectEvent obj;
-    obj.operation = "insert";
-    obj.objectId = "TID1";
-    obj.object = iox::IomObject(iox::IomName("M.T.C"));
-    obj.object.setPrimitive("val", iox::IomValue::text("chunk-test"));
-    events.push_back(obj);
-
-    iox::EndBasketEvent eb;
-    eb.bid = "B1";
-    events.push_back(eb);
-
-    iox::EndTransferEvent et;
-    events.push_back(et);
-
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf23);
-
-    // Read in 3-byte chunks
-    iox::xtf::XtfReader reader;
-    for (std::size_t off = 0; off < xml.size(); off += 3) {
-        auto n = std::min(std::size_t(3), xml.size() - off);
-        reader.feed(iox::ByteView(xml.data() + off, n));
-    }
-    reader.finish();
-
-    int count = 0;
-    while (true) {
-        auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-        if (outcome.status == iox::ReadOutcome::Status::NeedInput) break;
-        if (outcome.event) ++count;
-    }
-    IOX_CHECK_EQ(5, count);
+    const auto xml = write(oneObjectEvents(object("TID1", "chunk-test")));
+    const auto whole = read(xml);
+    const auto oneByte = read(xml, 1);
+    const auto sevenBytes = read(xml, 7);
+    IOX_CHECK_EQ(whole.size(), oneByte.size());
+    IOX_CHECK_EQ(whole.size(), sevenBytes.size());
+    IOX_CHECK_EQ(std::string_view("chunk-test"),
+        *std::get<iox::ObjectEvent>(oneByte[2]).object.primitive("Name"));
 }
 
 #include "iox/test/TestMain.h"

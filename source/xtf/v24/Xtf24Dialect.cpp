@@ -71,6 +71,23 @@ std::string findAttr(const std::vector<std::pair<std::string_view, std::string_v
     return "";
 }
 
+Consistency parseConsistency(std::string_view value) {
+    const auto lower = lowerAscii(value);
+    if (lower.empty() || lower == "complete") return Consistency::Complete;
+    if (lower == "incomplete") return Consistency::Incomplete;
+    if (lower == "inconsistent") return Consistency::Inconsistent;
+    if (lower == "adapted") return Consistency::Adapted;
+    return Consistency::Unspecified;
+}
+
+ObjectOperation parseOperation(std::string_view value) {
+    const auto lower = lowerAscii(value);
+    if (lower.empty() || lower == "insert") return ObjectOperation::Insert;
+    if (lower == "update") return ObjectOperation::Update;
+    if (lower == "delete") return ObjectOperation::Delete;
+    return ObjectOperation::None;
+}
+
 } // anonymous namespace
 
 // ============================================================================
@@ -98,21 +115,20 @@ struct Xtf24Dialect::Impl {
         std::string name;
         std::string iliName;
         IomObject object;
-    std::string textBuffer;
-    std::string operation;
-    bool hasChildStructure = false;
-    bool attachToPolylineSegments = false;
-    bool attachToMultiMember = false;
-    bool attachToCustomLineMembers = false;
-    std::string attachAttribute;
+        std::string textBuffer;
+        std::string operation;
+        bool hasChildStructure = false;
+        bool attachToPolylineSegments = false;
+        bool attachToMultiMember = false;
+        bool attachToCustomLineMembers = false;
+        std::string attachAttribute;
+        ReferenceInfo reference;
+        bool isReference = false;
     };
     std::stack<ElementState> stack;
 
     StartBasketEvent currentBasket;
 
-    // Stored TID for the current object (set on start, used on end)
-    std::string currentTid;
-    std::string currentOperation;
 };
 
 // ============================================================================
@@ -144,16 +160,15 @@ void Xtf24Dialect::onStartElement(
         state.type = ElemType::Basket;
 
         StartBasketEvent sb;
-        sb.bid = findAttr(attrs, "BID");
-        sb.consistency = findAttr(attrs, "CONSISTENCY");
-        if (sb.consistency.empty()) sb.consistency = "complete";
-        sb.operation = findAttr(attrs, "OPERATION");
-        if (sb.operation.empty()) sb.operation = "insert";
-        auto oidStr = findAttr(attrs, "OID_DOMAIN");
-        if (!oidStr.empty()) {
-            try { sb.oidDomain = std::stoi(oidStr); } catch (...) {}
-        }
-        sb.basketType = iomNameFromXml(name);
+        sb.basket.basketId = findAttr(attrs, "BID");
+        sb.basket.consistency = parseConsistency(findAttr(attrs, "CONSISTENCY"));
+        const auto operation = parseOperation(findAttr(attrs, "OPERATION"));
+        sb.basket.kind = operation == ObjectOperation::Update
+                             ? BasketKind::Update
+                             : operation == ObjectOperation::Insert
+                                   ? BasketKind::Initial
+                                   : BasketKind::Unspecified;
+        sb.basket.topic = iomNameFromXml(name);
         impl_->currentBasket = sb;
         impl_->cb.emitEvent(sb);
         impl_->stack.push(std::move(state));
@@ -164,12 +179,15 @@ void Xtf24Dialect::onStartElement(
     std::string tid = findAttr(attrs, "TID");
     if (!tid.empty()) {
         state.type = ElemType::Object;
-        state.object = IomObject(iomNameFromXml(name));
+        state.object = IomObject(iomNameFromXml(name), tid);
         const auto objectBid = findAttr(attrs, "BID");
-        if (!objectBid.empty()) state.object.setBid(objectBid);
-        impl_->currentTid = tid;
-        impl_->currentOperation = findAttr(attrs, "OPERATION");
-        if (impl_->currentOperation.empty()) impl_->currentOperation = "insert";
+        if (!objectBid.empty()) {
+            ReferenceInfo reference;
+            reference.targetBasketId = objectBid;
+            state.object.setReference(std::move(reference));
+        }
+        state.object.setOperation(parseOperation(findAttr(attrs, "OPERATION")));
+        state.object.setConsistency(parseConsistency(findAttr(attrs, "CONSISTENCY")));
         impl_->stack.push(std::move(state));
         return;
     }
@@ -179,7 +197,7 @@ void Xtf24Dialect::onStartElement(
         auto& parent = impl_->stack.top();
 
         if (parent.type == ElemType::Structure) {
-            const auto parentTag = lowerAscii(parent.object.tag().iliName());
+            const auto parentTag = lowerAscii(parent.object.tag().interlisName());
             const auto childTag = lowerAscii(local);
             const auto expandedSeparator = name.find('\xFF');
             const bool geometryElement = expandedSeparator != std::string_view::npos &&
@@ -190,11 +208,6 @@ void Xtf24Dialect::onStartElement(
             // IOM sequence -> SEGMENTS -> segment tree.
             if (parentTag == "polyline" &&
                 (childTag == "coord" || childTag == "arc" || geometryElement)) {
-                auto* sequence = const_cast<IomAttribute*>(
-                    parent.object.findAttribute("sequence"));
-                if (!sequence) sequence = &parent.object.setAttribute(IomName("sequence"));
-                IomObject segments(IomName("SEGMENTS"));
-                sequence->values.push_back(std::move(segments));
                 state.type = ElemType::Structure;
                 state.object = IomObject(iomNameFromXml(name));
                 state.attachToPolylineSegments = true;
@@ -206,9 +219,6 @@ void Xtf24Dialect::onStartElement(
             // segment objects instead of dropping or degrading them.
             if (parentTag == "orientablecurve" &&
                 (childTag == "coord" || childTag == "arc" || geometryElement)) {
-                auto* members = const_cast<IomAttribute*>(
-                    parent.object.findAttribute("segment"));
-                if (!members) members = &parent.object.setAttribute(IomName("segment"));
                 state.type = ElemType::Structure;
                 state.object = IomObject(iomNameFromXml(name));
                 state.attachToCustomLineMembers = true;
@@ -222,9 +232,6 @@ void Xtf24Dialect::onStartElement(
             if (parentTag == "multisurface" && childTag == "surface") multiAttribute = "surface";
             if (parentTag == "multiarea" && childTag == "area") multiAttribute = "area";
             if (multiAttribute) {
-                auto* members = const_cast<IomAttribute*>(
-                    parent.object.findAttribute(multiAttribute));
-                if (!members) members = &parent.object.setAttribute(IomName(multiAttribute));
                 state.type = ElemType::Structure;
                 state.object = IomObject(iomNameFromXml(name));
                 state.attachToMultiMember = true;
@@ -237,24 +244,22 @@ void Xtf24Dialect::onStartElement(
         if (parent.type == ElemType::Object || parent.type == ElemType::Structure) {
             // Attribute of the parent object/structure
             state.type = ElemType::Attribute;
-            // Check if attribute already exists (repeated values)
-            auto* existing = const_cast<IomAttribute*>(
-                parent.object.findAttribute(local));
-            if (existing) {
-                state.iliName = local;
-                state.textBuffer.clear();
-                impl_->stack.push(std::move(state));
-                return;
-            }
-            // Pre-create the attribute entry (will be filled on end)
-            auto& attr = parent.object.setAttribute(iomNameFromXml(name));
             std::string ref = findAttr(attrs, "REF");
-            if (!ref.empty()) attr.ref = ref;
+            if (!ref.empty()) {
+                state.reference.targetOid = std::move(ref);
+                state.isReference = true;
+            }
             std::string bid = findAttr(attrs, "BID");
-            if (!bid.empty()) attr.bid = bid;
+            if (!bid.empty()) {
+                state.reference.targetBasketId = std::move(bid);
+                state.isReference = true;
+            }
             std::string orderPos = findAttr(attrs, "ORDER_POS");
             if (!orderPos.empty()) {
-                try { attr.orderPos = std::stoll(orderPos); } catch (...) {}
+                try {
+                    state.reference.orderPosition = std::stoull(orderPos);
+                    state.isReference = true;
+                } catch (...) {}
             }
             impl_->stack.push(std::move(state));
             return;
@@ -288,16 +293,12 @@ void Xtf24Dialect::onEndElement(std::string_view /*name*/) {
 
     switch (state.type) {
     case ElemType::Basket: {
-        EndBasketEvent eb;
-        eb.bid = impl_->currentBasket.bid;
-        impl_->cb.emitEvent(eb);
+        impl_->cb.emitEvent(EndBasketEvent{});
         break;
     }
     case ElemType::Object: {
         ObjectEvent objEvent;
         objEvent.object = std::move(state.object);
-        objEvent.objectId = impl_->currentTid;
-        objEvent.operation = impl_->currentOperation;
         impl_->cb.emitEvent(objEvent);
         break;
     }
@@ -307,10 +308,17 @@ void Xtf24Dialect::onEndElement(std::string_view /*name*/) {
         if (!impl_->stack.empty()) {
             auto& parent = impl_->stack.top();
             if (parent.type == ElemType::Object || parent.type == ElemType::Structure) {
-                auto* attr = const_cast<IomAttribute*>(
-                    parent.object.findAttribute(state.iliName));
-                if (attr && !state.hasChildStructure && !state.textBuffer.empty()) {
-                    attr->values.push_back(IomValue::text(state.textBuffer));
+                if (!state.hasChildStructure) {
+                    const auto attributeName = iomNameFromXml(state.name);
+                    if (state.isReference) {
+                        IomObject reference(attributeName);
+                        reference.setReference(std::move(state.reference));
+                        parent.object.appendObject(attributeName,
+                                                   std::move(reference));
+                    } else {
+                        parent.object.appendPrimitive(attributeName,
+                                                      std::move(state.textBuffer));
+                    }
                 }
             }
         }
@@ -320,26 +328,28 @@ void Xtf24Dialect::onEndElement(std::string_view /*name*/) {
         if (!impl_->stack.empty()) {
             auto& parent = impl_->stack.top();
             if (state.attachToPolylineSegments && parent.type == ElemType::Structure) {
-                auto* sequence = const_cast<IomAttribute*>(
-                    parent.object.findAttribute("sequence"));
-                if (sequence && !sequence->values.empty()) {
-                    if (auto* segments = std::get_if<IomObject>(&sequence->values.back())) {
-                        auto& members = segments->setAttribute(IomName("segment"));
-                        members.values.push_back(std::move(state.object));
-                    }
+                IomObject segments(IomName("SEGMENTS"));
+                const auto sequenceCount = parent.object.valueCount("sequence");
+                if (sequenceCount != 0) {
+                    segments = *parent.object.object("sequence", sequenceCount - 1);
+                }
+                segments.appendObject(IomName("segment"), std::move(state.object));
+                if (sequenceCount == 0) {
+                    parent.object.appendObject(IomName("sequence"), std::move(segments));
+                } else {
+                    parent.object.replaceValue("sequence", sequenceCount - 1,
+                                               IomValue::object(std::move(segments)));
                 }
                 break;
             }
             if (state.attachToMultiMember && parent.type == ElemType::Structure) {
-                auto* members = const_cast<IomAttribute*>(
-                    parent.object.findAttribute(state.attachAttribute));
-                if (members) members->values.push_back(std::move(state.object));
+                parent.object.appendObject(IomName(state.attachAttribute),
+                                           std::move(state.object));
                 break;
             }
             if (state.attachToCustomLineMembers && parent.type == ElemType::Structure) {
-                auto* members = const_cast<IomAttribute*>(
-                    parent.object.findAttribute("segment"));
-                if (members) members->values.push_back(std::move(state.object));
+                parent.object.appendObject(IomName("segment"),
+                                           std::move(state.object));
                 break;
             }
             if (parent.type == ElemType::Attribute) {
@@ -351,21 +361,15 @@ void Xtf24Dialect::onEndElement(std::string_view /*name*/) {
                 if (!impl_->stack.empty()) {
                     auto& grandparent = impl_->stack.top();
                     if (grandparent.type == ElemType::Object || grandparent.type == ElemType::Structure) {
-                        auto* attr = const_cast<IomAttribute*>(
-                            grandparent.object.findAttribute(parentIliName));
-                        if (attr) {
-                            attr->values.push_back(state.object);
-                        }
+                        grandparent.object.appendObject(IomName(parentIliName),
+                                                        std::move(state.object));
                     }
                 }
 
                 impl_->stack.push(std::move(parentState));
             } else if (parent.type == ElemType::Object || parent.type == ElemType::Structure) {
-                auto* attr = const_cast<IomAttribute*>(
-                    parent.object.findAttribute(state.iliName));
-                if (attr) {
-                    attr->values.push_back(state.object);
-                }
+                parent.object.appendObject(IomName(state.iliName),
+                                           std::move(state.object));
             }
         }
         break;

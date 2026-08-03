@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(iox-cpp VERSION 0.1.0 LANGUAGES C CXX)
+project(iox-cpp VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,6 +19,7 @@ include(IoxFuzzing)
 # --- iox-core -----------------------------------------------------------
 add_library(iox-core STATIC
     source/core/Basket.cpp
+    source/core/Diagnostic.cpp
     source/core/Version.cpp
     source/core/IomObject.cpp
     source/core/IomValue.cpp
@@ -34,6 +35,8 @@ target_include_directories(iox-core
 iox_set_warnings(iox-core)
 
 # --- iox-json ------------------------------------------------------------
+iox_fetch_yyjson()
+
 add_library(iox-json STATIC
     source/json/JsonEventReader.cpp
     source/json/JsonEventWriter.cpp
@@ -45,7 +48,7 @@ target_include_directories(iox-json
         $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(iox-json PUBLIC iox-core)
+target_link_libraries(iox-json PUBLIC iox-core PRIVATE yyjson)
 iox_set_warnings(iox-json)
 
 # --- iox-xml (private Expat dependency) ---------------------------------

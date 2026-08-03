@@ -1,373 +1,182 @@
-/// Association conformance tests (model-free, ili:-prefixed format).
-/// Covers the same patterns as iox-ili Xtf23Reader/associations/
-/// but using our canonical XTF 2.3 encoding.
-
-#include "iox/xtf/XtfReader.h"
-#include "iox/xtf/XtfWriter.h"
-#include "iox/xtf/XtfVersion.h"
 #include "iox/Events.h"
 #include "iox/Writer.h"
+#include "iox/xtf/XtfReader.h"
+#include "iox/xtf/XtfWriter.h"
 #include "iox/test/Test.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
-// ============================================================================
-// Helpers
-// ============================================================================
+namespace {
 
-static std::string writeXtf23(const std::vector<iox::IoxEvent>& events) {
-    auto sink = std::make_shared<iox::StringOutputSink>();
-    iox::xtf::XtfWriterOptions opts;
-    opts.version = iox::xtf::XtfVersion::Xtf23;
-    opts.pretty = false;
-    opts.sender = "Test";
-    opts.software = "iox-test";
-    iox::xtf::XtfWriter writer(sink, opts);
-    for (const auto& e : events) writer.write(e);
-    writer.close();
-    return sink->str();
+iox::StartTransferEvent transfer() {
+    iox::StartTransferEvent result;
+    result.header.version = iox::XtfVersion::V23;
+    result.header.sender = "association-test";
+    return result;
 }
 
-static std::vector<iox::IoxEvent> readXtf(const std::string& data) {
+iox::StartBasketEvent basket(std::string topic = "M.T.Data",
+                             std::string id = "B1") {
+    iox::StartBasketEvent result;
+    result.basket.topic = iox::IomName(std::move(topic));
+    result.basket.basketId = std::move(id);
+    return result;
+}
+
+iox::ObjectEvent object(std::string tag, std::string oid,
+                        iox::ObjectOperation operation =
+                            iox::ObjectOperation::Insert) {
+    iox::ObjectEvent result;
+    result.object = iox::IomObject(iox::IomName(std::move(tag)),
+                                   std::move(oid));
+    result.object.setOperation(operation);
+    return result;
+}
+
+iox::IomObject reference(std::string targetOid,
+                         std::optional<std::string> targetBasket = std::nullopt,
+                         std::optional<std::uint64_t> order = std::nullopt) {
+    iox::IomObject result(iox::IomName("REFERENCE"));
+    result.setReference(
+        {std::move(targetOid), std::move(targetBasket), order});
+    return result;
+}
+
+std::vector<iox::IoxEvent> roundtrip(
+    const std::vector<iox::IoxEvent>& events) {
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::xtf::XtfWriterOptions options;
+    options.version = iox::XtfVersion::V23;
+    options.pretty = false;
+    iox::xtf::XtfWriter writer(sink, options);
+    for (const auto& event : events) writer.write(event);
+    writer.close();
+
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(data.data(), data.size()));
+    reader.feed(iox::ByteView(sink->str()));
     reader.finish();
-    std::vector<iox::IoxEvent> events;
+    std::vector<iox::IoxEvent> result;
     while (true) {
         auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-        if (outcome.status == iox::ReadOutcome::Status::NeedInput) break;
-        if (outcome.event) events.push_back(std::move(*outcome.event));
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        IOX_CHECK_EQ(iox::ReaderProgress::Event, outcome.progress);
+        result.push_back(std::move(*outcome.event));
     }
-    return events;
+    return result;
 }
 
-// ============================================================================
-// Embedded 1:1 Association (REF on attribute)
-// ============================================================================
+const iox::IomObject& parsedObject(const std::vector<iox::IoxEvent>& events,
+                                   std::size_t index = 2) {
+    return std::get<iox::ObjectEvent>(events[index]).object;
+}
+
+} // namespace
 
 IOX_TEST(association_embedded_1to1_ref) {
-    // ClassA has a reference to ClassB via REF attribute
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("TestModel.TopicA.Data");
-    sb.bid = "B1"; events.push_back(sb);
-
-    // Object B (the target)
-    iox::ObjectEvent objB;
-    objB.operation = "insert";
-    objB.objectId = "TID_B";
-    objB.object = iox::IomObject(iox::IomName("TestModel.TopicA.ClassB"));
-    objB.object.setPrimitive("Name", iox::IomValue::text("TargetB"));
-    events.push_back(objB);
-
-    // Object A (references B)
-    iox::ObjectEvent objA;
-    objA.operation = "insert";
-    objA.objectId = "TID_A";
-    objA.object = iox::IomObject(iox::IomName("TestModel.TopicA.ClassA"));
-    objA.object.setPrimitive("NameA", iox::IomValue::text("SourceA"));
-    // Reference to B via REF
-    auto& refAttr = objA.object.setAttribute(iox::IomName("RefToB"));
-    refAttr.ref = "TID_B";
-    refAttr.values.push_back(iox::IomValue::text("TargetB")); // display value
-    events.push_back(objA);
-
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf23(events);
-    auto parsed = readXtf(xml);
-
-    // Should have 6 events: ST + SB + 2xObject + EB + ET
-    IOX_CHECK_EQ(static_cast<std::size_t>(6), parsed.size());
-
-    // Find object A and verify its REF
-    bool foundRef = false;
-    for (auto& e : parsed) {
-        if (auto* obj = std::get_if<iox::ObjectEvent>(&e)) {
-            for (std::size_t i = 0; i < obj->object.attributeCount(); ++i) {
-                const auto& a = obj->object.attributeAt(i);
-                if (a.ref && *a.ref == "TID_B") {
-                    foundRef = true;
-                }
-            }
-        }
-    }
-    IOX_CHECK(foundRef);
+    auto target = object("M.T.ClassB", "TID_B");
+    target.object.setPrimitive(iox::IomName("Name"), "TargetB");
+    auto source = object("M.T.ClassA", "TID_A");
+    source.object.setObject(iox::IomName("RefToB"), reference("TID_B"));
+    const auto parsed = roundtrip(
+        {transfer(), basket(), target, source, iox::EndBasketEvent{},
+         iox::EndTransferEvent{}});
+    const auto ref = parsedObject(parsed, 3).object("RefToB");
+    IOX_CHECK(ref.has_value());
+    IOX_CHECK_EQ(std::string("TID_B"), *ref->reference().targetOid);
 }
-
-// ============================================================================
-// Embedded 1:N Association (multiple REFs)
-// ============================================================================
 
 IOX_TEST(association_embedded_1toN_refs) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.Data"); sb.bid = "B1"; events.push_back(sb);
-
-    // Object A references multiple B's
-    iox::ObjectEvent objA;
-    objA.operation = "insert";
-    objA.objectId = "TID_A";
-    objA.object = iox::IomObject(iox::IomName("M.T.ClassA"));
-    auto& multiRef = objA.object.setAttribute(iox::IomName("RefsToB"));
-    multiRef.ref = "TID_B1";
-    multiRef.values.push_back(iox::IomValue::text("B1"));
-    // Add second value with different REF
-    multiRef.values.push_back(iox::IomValue::text("B2"));
-    events.push_back(objA);
-
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf23(events);
-    auto parsed = readXtf(xml);
-
-    // Find the multi-valued REF attribute
-    bool foundMulti = false;
-    for (auto& e : parsed) {
-        if (auto* obj = std::get_if<iox::ObjectEvent>(&e)) {
-            for (std::size_t i = 0; i < obj->object.attributeCount(); ++i) {
-                const auto& a = obj->object.attributeAt(i);
-                if (a.values.size() >= 2) foundMulti = true;
-            }
-        }
-    }
-    IOX_CHECK(foundMulti);
+    auto source = object("M.T.ClassA", "TID_A");
+    source.object.appendObject(iox::IomName("RefsToB"),
+                               reference("TID_B1"));
+    source.object.appendObject(iox::IomName("RefsToB"),
+                               reference("TID_B2"));
+    const auto parsed = roundtrip(
+        {transfer(), basket(), source, iox::EndBasketEvent{},
+         iox::EndTransferEvent{}});
+    const auto& result = parsedObject(parsed);
+    IOX_CHECK_EQ(static_cast<std::size_t>(2), result.valueCount("RefsToB"));
+    IOX_CHECK_EQ(std::string("TID_B2"),
+        *result.object("RefsToB", 1)->reference().targetOid);
 }
-
-// ============================================================================
-// ORDER_POS on reference
-// ============================================================================
 
 IOX_TEST(association_order_pos) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.Data"); sb.bid = "B1"; events.push_back(sb);
-
-    iox::ObjectEvent objA;
-    objA.operation = "insert";
-    objA.objectId = "TID_A";
-    objA.object = iox::IomObject(iox::IomName("M.T.ClassA"));
-    // REF with ORDER_POS
-    auto& refAttr = objA.object.setAttribute(iox::IomName("OrderedRefs"));
-    refAttr.ref = "TID_B1";
-    refAttr.orderPos = 1;
-    refAttr.values.push_back(iox::IomValue::text("first"));
-    events.push_back(objA);
-
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf23(events);
-    auto parsed = readXtf(xml);
-
-    bool foundOrderPos = false;
-    for (auto& e : parsed) {
-        if (auto* obj = std::get_if<iox::ObjectEvent>(&e)) {
-            for (std::size_t i = 0; i < obj->object.attributeCount(); ++i) {
-                const auto& a = obj->object.attributeAt(i);
-                if (a.orderPos && *a.orderPos == 1) foundOrderPos = true;
-            }
-        }
-    }
-    IOX_CHECK(foundOrderPos);
+    auto source = object("M.T.ClassA", "TID_A");
+    source.object.setObject(iox::IomName("OrderedRefs"),
+                            reference("TID_B1", std::nullopt, 1U));
+    const auto parsed = roundtrip(
+        {transfer(), basket(), source, iox::EndBasketEvent{},
+         iox::EndTransferEvent{}});
+    const auto ref = parsedObject(parsed).object("OrderedRefs");
+    IOX_CHECK(ref.has_value());
+    IOX_CHECK_EQ(std::uint64_t{1}, *ref->reference().orderPosition);
 }
-
-// ============================================================================
-// Association class with own attributes
-// ============================================================================
 
 IOX_TEST(association_with_attributes) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.Data"); sb.bid = "B1"; events.push_back(sb);
-
-    // Association object with own attributes + REFs to both ends
-    iox::ObjectEvent assoc;
-    assoc.operation = "insert";
-    assoc.objectId = "TID_ASSOC";
-    assoc.object = iox::IomObject(iox::IomName("M.T.AssocClass"));
-    assoc.object.setPrimitive("AssocAttr", iox::IomValue::text("link-data"));
-
-    auto& refA = assoc.object.setAttribute(iox::IomName("RoleA"));
-    refA.ref = "TID_A";
-    refA.values.push_back(iox::IomValue::text("A"));
-
-    auto& refB = assoc.object.setAttribute(iox::IomName("RoleB"));
-    refB.ref = "TID_B";
-    refB.values.push_back(iox::IomValue::text("B"));
-
-    events.push_back(assoc);
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf23(events);
-    auto parsed = readXtf(xml);
-
-    IOX_CHECK_EQ(static_cast<std::size_t>(5), parsed.size());
-    auto& objEvent = std::get<iox::ObjectEvent>(parsed[2]);
-    IOX_CHECK_EQ(std::string("TID_ASSOC"), objEvent.objectId);
-
-    // Should have both REF attributes and the AssocAttr
-    int refCount = 0;
-    bool hasAssocAttr = false;
-    for (std::size_t i = 0; i < objEvent.object.attributeCount(); ++i) {
-        const auto& a = objEvent.object.attributeAt(i);
-        if (a.ref) ++refCount;
-        if (a.name.iliName() == "AssocAttr") hasAssocAttr = true;
-    }
-    IOX_CHECK_EQ(2, refCount);
-    IOX_CHECK(hasAssocAttr);
+    auto association = object("M.T.AssocClass", "TID_ASSOC");
+    association.object.setPrimitive(iox::IomName("AssocAttr"), "link-data");
+    association.object.setObject(iox::IomName("RoleA"), reference("TID_A"));
+    association.object.setObject(iox::IomName("RoleB"), reference("TID_B"));
+    const auto parsed = roundtrip(
+        {transfer(), basket(), association, iox::EndBasketEvent{},
+         iox::EndTransferEvent{}});
+    const auto& result = parsedObject(parsed);
+    IOX_CHECK_EQ(std::string("TID_ASSOC"), *result.oid());
+    IOX_CHECK_EQ(std::string_view("link-data"),
+                 *result.primitive("AssocAttr"));
+    IOX_CHECK(result.object("RoleA")->isReference());
+    IOX_CHECK(result.object("RoleB")->isReference());
 }
-
-// ============================================================================
-// Delete with REF
-// ============================================================================
 
 IOX_TEST(association_delete_with_ref) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.Data"); sb.bid = "B1"; events.push_back(sb);
-
-    iox::ObjectEvent obj;
-    obj.operation = "delete";
-    obj.objectId = "TID_DEL";
-    obj.object = iox::IomObject(iox::IomName("M.T.ClassA"));
-    auto& refAttr = obj.object.setAttribute(iox::IomName("RefToB"));
-    refAttr.ref = "TID_B";
-    events.push_back(obj);
-
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf23(events);
-    auto parsed = readXtf(xml);
-
-    IOX_CHECK_EQ(static_cast<std::size_t>(5), parsed.size());
-    auto& objEvent = std::get<iox::ObjectEvent>(parsed[2]);
-    IOX_CHECK_EQ(std::string("delete"), objEvent.operation);
+    auto deleted = object("M.T.ClassA", "TID_DEL",
+                          iox::ObjectOperation::Delete);
+    deleted.object.setObject(iox::IomName("RefToB"), reference("TID_B"));
+    const auto parsed = roundtrip(
+        {transfer(), basket(), deleted, iox::EndBasketEvent{},
+         iox::EndTransferEvent{}});
+    IOX_CHECK_EQ(iox::ObjectOperation::Delete,
+                 parsedObject(parsed).operation());
 }
-
-// ============================================================================
-// Standalone association (separate basket for link objects)
-// ============================================================================
 
 IOX_TEST(association_standalone) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-
-    // Basket 1: data objects
-    iox::StartBasketEvent sb1;
-    sb1.basketType = iox::IomName("M.T.Data"); sb1.bid = "B1"; events.push_back(sb1);
-    iox::ObjectEvent objA;
-    objA.operation = "insert"; objA.objectId = "A1";
-    objA.object = iox::IomObject(iox::IomName("M.T.ClassA"));
-    objA.object.setPrimitive("Name", iox::IomValue::text("A"));
-    events.push_back(objA);
-    iox::EndBasketEvent eb1; eb1.bid = "B1"; events.push_back(eb1);
-
-    // Basket 2: link objects (standalone association)
-    iox::StartBasketEvent sb2;
-    sb2.basketType = iox::IomName("M.T.Links"); sb2.bid = "B2"; events.push_back(sb2);
-    iox::ObjectEvent link;
-    link.operation = "insert"; link.objectId = "L1";
-    link.object = iox::IomObject(iox::IomName("M.T.ABLink"));
-    auto& rA = link.object.setAttribute(iox::IomName("RoleA"));
-    rA.ref = "A1"; rA.values.push_back(iox::IomValue::text("A"));
-    auto& rB = link.object.setAttribute(iox::IomName("RoleB"));
-    rB.ref = "B1"; rB.values.push_back(iox::IomValue::text("B"));
-    events.push_back(link);
-    iox::EndBasketEvent eb2; eb2.bid = "B2"; events.push_back(eb2);
-
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf23(events);
-    auto parsed = readXtf(xml);
-
-    // ST + SB1 + ObjectA + EB1 + SB2 + Link + EB2 + ET = 8
+    auto first = object("M.T.ClassA", "A1");
+    first.object.setPrimitive(iox::IomName("Name"), "A");
+    auto link = object("M.T.ABLink", "L1");
+    link.object.setObject(iox::IomName("RoleA"), reference("A1"));
+    link.object.setObject(iox::IomName("RoleB"), reference("B1"));
+    const auto parsed = roundtrip(
+        {transfer(), basket("M.T.Data", "B1"), first,
+         iox::EndBasketEvent{}, basket("M.T.Links", "B2"), link,
+         iox::EndBasketEvent{}, iox::EndTransferEvent{}});
     IOX_CHECK_EQ(static_cast<std::size_t>(8), parsed.size());
-
-    int basketCount = 0;
-    for (auto& e : parsed) {
-        if (std::holds_alternative<iox::StartBasketEvent>(e)) ++basketCount;
-    }
-    IOX_CHECK_EQ(2, basketCount);
+    IOX_CHECK_EQ(std::string("L1"), *parsedObject(parsed, 5).oid());
 }
-
-// ============================================================================
-// Object with BID (Basket ID reference on object)
-// ============================================================================
 
 IOX_TEST(association_object_with_bid) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.Data"); sb.bid = "B_MAIN"; events.push_back(sb);
-
-    iox::ObjectEvent obj;
-    obj.operation = "insert";
-    obj.objectId = "TID_1";
-    obj.object = iox::IomObject(iox::IomName("M.T.ClassX"));
-    obj.object.setPrimitive("Val", iox::IomValue::text("x"));
-    // Object-level BID (basket reference)
-    obj.object.setBid("B_MAIN");
-    events.push_back(obj);
-
-    iox::EndBasketEvent eb; eb.bid = "B_MAIN"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf23(events);
-    auto parsed = readXtf(xml);
-
-    IOX_CHECK_EQ(static_cast<std::size_t>(5), parsed.size());
-    auto& objEvent = std::get<iox::ObjectEvent>(parsed[2]);
-    IOX_CHECK(objEvent.object.bid().has_value());
-    IOX_CHECK_EQ(std::string("B_MAIN"), *objEvent.object.bid());
+    auto value = object("M.T.ClassX", "TID_1");
+    value.object.setReference({std::nullopt, "B_MAIN", std::nullopt});
+    const auto parsed = roundtrip(
+        {transfer(), basket("M.T.Data", "B_MAIN"), value,
+         iox::EndBasketEvent{}, iox::EndTransferEvent{}});
+    IOX_CHECK_EQ(std::string("B_MAIN"),
+                 *parsedObject(parsed).reference().targetBasketId);
 }
 
-// ============================================================================
-// Same target class (both roles ref same class)
-// ============================================================================
-
 IOX_TEST(association_same_target_class) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.Data"); sb.bid = "B1"; events.push_back(sb);
-
-    // Parent object references two children of same class
-    iox::ObjectEvent parent;
-    parent.operation = "insert";
-    parent.objectId = "P1";
-    parent.object = iox::IomObject(iox::IomName("M.T.Parent"));
-    auto& child1 = parent.object.setAttribute(iox::IomName("Child1"));
-    child1.ref = "C1"; child1.values.push_back(iox::IomValue::text("C1"));
-    auto& child2 = parent.object.setAttribute(iox::IomName("Child2"));
-    child2.ref = "C2"; child2.values.push_back(iox::IomValue::text("C2"));
-    events.push_back(parent);
-
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf23(events);
-    auto parsed = readXtf(xml);
-
-    auto& objEvent = std::get<iox::ObjectEvent>(parsed[2]);
-    auto* c1 = objEvent.object.findAttribute("Child1");
-    auto* c2 = objEvent.object.findAttribute("Child2");
-    IOX_CHECK(c1 != nullptr);
-    IOX_CHECK(c2 != nullptr);
-    IOX_CHECK(c1->ref.has_value());
-    IOX_CHECK(c2->ref.has_value());
+    auto parent = object("M.T.Parent", "P1");
+    parent.object.setObject(iox::IomName("Child1"), reference("C1"));
+    parent.object.setObject(iox::IomName("Child2"), reference("C2"));
+    const auto parsed = roundtrip(
+        {transfer(), basket(), parent, iox::EndBasketEvent{},
+         iox::EndTransferEvent{}});
+    IOX_CHECK_EQ(std::string("C1"),
+        *parsedObject(parsed).object("Child1")->reference().targetOid);
+    IOX_CHECK_EQ(std::string("C2"),
+        *parsedObject(parsed).object("Child2")->reference().targetOid);
 }
 
 #include "iox/test/TestMain.h"

@@ -29,32 +29,36 @@ int main(int argc, char* argv[]) {
 
     // Parse
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(data.data(), data.size()));
+    reader.feed(iox::ByteView(data));
     reader.finish();
 
     std::vector<iox::IoxEvent> events;
     while (true) {
         auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-        if (outcome.status == iox::ReadOutcome::Status::NeedInput) break;
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        if (outcome.progress == iox::ReaderProgress::NeedInput) break;
         if (outcome.event) events.push_back(std::move(*outcome.event));
     }
 
     std::cout << "Read " << events.size() << " events\n";
-    std::cout << "XTF version: " << iox::xtf::toString(reader.detectedVersion()) << "\n";
+    std::cout << "XTF version: "
+              << (reader.detectedVersion()
+                      ? iox::xtf::toString(*reader.detectedVersion())
+                      : "unknown")
+              << "\n";
 
     // Determine version
     bool is24 = false;
     if (!events.empty()) {
         if (auto* st = std::get_if<iox::StartTransferEvent>(&events[0])) {
-            is24 = st->version && *st->version == 24;
+            is24 = st->header.version == iox::XtfVersion::V24;
         }
     }
 
     // Write output
     auto sink = std::make_shared<iox::StringOutputSink>();
     iox::xtf::XtfWriterOptions opts;
-    opts.version = is24 ? iox::xtf::XtfVersion::Xtf24 : iox::xtf::XtfVersion::Xtf23;
+    opts.version = is24 ? iox::xtf::XtfVersion::V24 : iox::xtf::XtfVersion::V23;
     opts.pretty = true;
     iox::xtf::XtfWriter writer(sink, opts);
 

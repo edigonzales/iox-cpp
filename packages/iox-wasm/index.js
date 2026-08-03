@@ -16,7 +16,7 @@ const EVENT_TYPES = new Set([
 
 export class IoxError extends Error {
   /** @param {string} message @param {string} [code] @param {Diagnostic[]} [diagnostics] */
-  constructor(message, code = 'internal_error', diagnostics = []) {
+  constructor(message, code = 'internal.error', diagnostics = []) {
     super(message);
     this.name = 'IoxError';
     this.code = code;
@@ -41,7 +41,7 @@ function optionsJson(options) {
 function allocateCString(native, value) {
   const bytes = textEncoder.encode(value);
   const pointer = native._iox_alloc(bytes.length + 1);
-  if (!pointer) throw new IoxError('Unable to allocate WASM input buffer', 'internal_error');
+  if (!pointer) throw new IoxError('Unable to allocate WASM input buffer', 'internal.error');
   native.HEAPU8.set(bytes, pointer);
   native.HEAPU8[pointer + bytes.length] = 0;
   return { pointer, size: bytes.length };
@@ -59,7 +59,7 @@ function withCString(native, value, callback) {
 function allocateBytes(native, bytes) {
   if (bytes.length === 0) return 0;
   const pointer = native._iox_alloc(bytes.length);
-  if (!pointer) throw new IoxError('Unable to allocate WASM input buffer', 'internal_error');
+  if (!pointer) throw new IoxError('Unable to allocate WASM input buffer', 'internal.error');
   native.HEAPU8.set(bytes, pointer);
   return pointer;
 }
@@ -68,7 +68,7 @@ function parseResult(native, resultPointer, callStatus) {
   const handle = resultPointer ? native.HEAP32[resultPointer >> 2] : 0;
   try {
     if (!handle) {
-      throw new IoxError(`C ABI call failed with status ${callStatus}`, 'internal_error');
+      throw new IoxError(`C ABI call failed with status ${callStatus}`, 'internal.error');
     }
     const jsonPointer = native._iox_result_json(handle);
     const json = jsonPointer ? JSON.parse(native.UTF8ToString(jsonPointer)) : {};
@@ -87,7 +87,7 @@ function parseResult(native, resultPointer, callStatus) {
 function callResult(mod, call) {
   const native = mod._native;
   const resultPointer = native._iox_alloc(4);
-  if (!resultPointer) throw new IoxError('Unable to allocate result pointer', 'internal_error');
+  if (!resultPointer) throw new IoxError('Unable to allocate result pointer', 'internal.error');
   native.HEAP32[resultPointer >> 2] = 0;
   try {
     const callStatus = call(resultPointer);
@@ -101,7 +101,7 @@ function throwResultError(result) {
   const error = result.json?.error ?? {};
   throw new IoxError(
     error.message ?? `C ABI operation failed with status ${result.status}`,
-    error.code ?? 'internal_error',
+    error.code ?? 'internal.error',
     result.json?.diagnostics ?? []
   );
 }
@@ -113,8 +113,8 @@ function addDiagnostics(target, result) {
 function resultEvent(result) {
   if (result.status !== 1 || !result.json?.event) return null;
   const event = result.json.event;
-  if (!EVENT_TYPES.has(event.event)) {
-    throw new IoxError('Unknown event discriminator returned by ABI', 'json.parse_error');
+  if (event.schema !== 'iox-event/2' || !EVENT_TYPES.has(event.event)) {
+    throw new IoxError('Invalid event returned by ABI', 'json.malformed');
   }
   return event;
 }
@@ -127,7 +127,7 @@ function createHandle(mod, kind, format, options) {
       const handle = kind === 'reader'
         ? native._iox_reader_create(formatAllocation.pointer, optionsAllocation.pointer)
         : native._iox_writer_create(formatAllocation.pointer, optionsAllocation.pointer);
-      if (!handle) throw new IoxError(`Unable to create ${kind}`, 'invalid_argument');
+      if (!handle) throw new IoxError(`Unable to create ${kind}`, 'api.invalid_argument');
       return handle;
     }));
 }
@@ -145,7 +145,7 @@ function readerFeed(mod, handle, bytes) {
   const pointer = allocateBytes(native, bytes);
   try {
     const status = native._iox_reader_feed(handle, pointer, bytes.length);
-    if (status < 0) throw new IoxError('Reader feed failed', 'internal_error');
+    if (status < 0) throw new IoxError('Reader feed failed', 'internal.error');
   } finally {
     if (pointer) native._iox_free(pointer);
   }
@@ -153,7 +153,7 @@ function readerFeed(mod, handle, bytes) {
 
 function readerFinish(mod, handle) {
   const status = mod._native._iox_reader_finish(handle);
-  if (status < 0) throw new IoxError('Reader finish failed', 'internal_error');
+  if (status < 0) throw new IoxError('Reader finish failed', 'internal.error');
 }
 
 function drainReader(mod, handle, diagnostics, allowEnd = false) {
@@ -175,14 +175,15 @@ function drainReader(mod, handle, diagnostics, allowEnd = false) {
       if (!allowEnd) return events;
       return events;
     }
-    throw new IoxError('Unexpected reader status', 'internal_error', diagnostics);
+    throw new IoxError('Unexpected reader status', 'internal.error', diagnostics);
   }
 }
 
 function writerWrite(mod, handle, event) {
   const native = mod._native;
-  if (!event || typeof event !== 'object' || !EVENT_TYPES.has(event.event)) {
-    throw new TypeError('event must be an object with a supported event discriminator');
+  if (!event || typeof event !== 'object' || event.schema !== 'iox-event/2' ||
+      !EVENT_TYPES.has(event.event)) {
+    throw new TypeError('event must conform to iox-event/2');
   }
   const serialized = textEncoder.encode(`${JSON.stringify(event)}\n`);
   const pointer = allocateBytes(native, serialized);
@@ -317,14 +318,14 @@ export class IncrementalXtfReader {
   }
 
   feed(chunk) {
-    if (this._closed || this._finished) throw new IoxError('Reader is closed', 'invalid_state');
+    if (this._closed || this._finished) throw new IoxError('Reader is closed', 'api.invalid_state');
     const bytes = inputBytes(chunk);
     readerFeed(this._mod, this._handle, bytes);
     return drainReader(this._mod, this._handle, this._diagnostics);
   }
 
   finish() {
-    if (this._closed) throw new IoxError('Reader is closed', 'invalid_state');
+    if (this._closed) throw new IoxError('Reader is closed', 'api.invalid_state');
     if (this._finished) return [];
     readerFinish(this._mod, this._handle);
     this._finished = true;
@@ -356,13 +357,13 @@ export class XtfWriter {
   }
 
   write(event) {
-    if (this._closed || this._finished) throw new IoxError('Writer is closed', 'invalid_state');
+    if (this._closed || this._finished) throw new IoxError('Writer is closed', 'api.invalid_state');
     writerWrite(this._mod, this._handle, event);
     this._chunks.push(writerTakeOutput(this._mod, this._handle, this._diagnostics));
   }
 
   finish() {
-    if (this._closed) throw new IoxError('Writer is closed', 'invalid_state');
+    if (this._closed) throw new IoxError('Writer is closed', 'api.invalid_state');
     if (this._finished) return this._joinChunks();
     const result = callResult(this._mod, (out) =>
       this._mod._native._iox_writer_finish(this._handle, out));

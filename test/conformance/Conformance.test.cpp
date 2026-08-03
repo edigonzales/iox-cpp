@@ -10,6 +10,8 @@
 #include "iox/test/Test.h"
 
 #include <memory>
+#include <cctype>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <fstream>
@@ -33,14 +35,14 @@ static std::string readFixture(const std::string& path) {
 
 static std::vector<iox::IoxEvent> parseXtf(const std::string& data) {
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(data.data(), data.size()));
+    reader.feed(iox::ByteView(data));
     reader.finish();
 
     std::vector<iox::IoxEvent> events;
     while (true) {
         auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-        if (outcome.status == iox::ReadOutcome::Status::NeedInput) break;
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        if (outcome.progress == iox::ReaderProgress::NeedInput) break;
         if (outcome.event) events.push_back(std::move(*outcome.event));
     }
     return events;
@@ -48,9 +50,14 @@ static std::vector<iox::IoxEvent> parseXtf(const std::string& data) {
 
 static int countEventType(const std::vector<iox::IoxEvent>& events,
                            const char* typeName) {
+    std::string expected(typeName);
+    if (!expected.empty()) {
+        expected[0] = static_cast<char>(
+            std::tolower(static_cast<unsigned char>(expected[0])));
+    }
     int count = 0;
     for (const auto& e : events) {
-        if (iox::eventTypeName(e) == std::string(typeName)) ++count;
+        if (iox::eventKindName(iox::eventKind(e)) == expected) ++count;
     }
     return count;
 }
@@ -98,15 +105,15 @@ IOX_TEST(conformance_xtf23_empty_transfer) {
 IOX_TEST(conformance_xtf23_malformed_xml) {
     // Malformed XML should be rejected
     iox::xtf::XtfReader reader;
-    const char* malformed = "<ili:TRANSFER><ili:HEADERSECTION>";
-    reader.feed(iox::ByteView(malformed, std::strlen(malformed)));
+    const std::string malformed = "<ili:TRANSFER><ili:HEADERSECTION>";
+    reader.feed(iox::ByteView(malformed));
     reader.finish();
 
     auto diags = reader.takeDiagnostics();
     // Should have at least one fatal diagnostic
     bool hasFatal = false;
     for (const auto& d : diags) {
-        if (d.severity == iox::Diagnostic::Severity::Fatal) hasFatal = true;
+        if (d.severity == iox::DiagnosticSeverity::Fatal) hasFatal = true;
     }
     IOX_CHECK(hasFatal);
 }
@@ -115,13 +122,13 @@ IOX_TEST(conformance_xtf23_wrong_root) {
     // Wrong root element
     std::string xml = "<?xml version=\"1.0\"?><NOT_TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\"><ili:HEADERSECTION/></NOT_TRANSFER>";
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(xml.data(), xml.size()));
+    reader.feed(iox::ByteView(xml));
     reader.finish();
 
     auto diags = reader.takeDiagnostics();
     bool hasFatal = false;
     for (const auto& d : diags) {
-        if (d.severity == iox::Diagnostic::Severity::Fatal) hasFatal = true;
+        if (d.severity == iox::DiagnosticSeverity::Fatal) hasFatal = true;
     }
     IOX_CHECK(hasFatal);
 }
@@ -229,10 +236,15 @@ IOX_TEST(conformance_xtf23_coord) {
     for (auto& e : events) {
         if (auto* obj = std::get_if<iox::ObjectEvent>(&e)) {
             for (std::size_t i = 0; i < obj->object.attributeCount(); ++i) {
-                const auto& a = obj->object.attributeAt(i);
-                for (const auto& v : a.values) {
-                    if (auto* sub = std::get_if<iox::IomObject>(&v)) {
-                        if (sub->tag().iliName() == "COORD") hasCoord = true;
+                const auto& name = obj->object.attributeName(i);
+                for (std::size_t valueIndex = 0;
+                     valueIndex < obj->object.valueCount(name.interlisName());
+                     ++valueIndex) {
+                    const auto& value =
+                        obj->object.value(name.interlisName(), valueIndex);
+                    if (value.isObject() &&
+                        value.object().tag().interlisName() == "COORD") {
+                        hasCoord = true;
                     }
                 }
             }
@@ -249,14 +261,17 @@ IOX_TEST(conformance_xtf23_surface_preserves_arc_segments) {
     bool hasSurface = false;
     std::function<void(const iox::IomObject&)> inspect =
         [&](const iox::IomObject& value) {
-            if (value.tag().iliName() == "SURFACE") hasSurface = true;
-            if (value.tag().iliName() == "ARC") hasArc = true;
+            if (value.tag().interlisName() == "SURFACE") hasSurface = true;
+            if (value.tag().interlisName() == "ARC") hasArc = true;
             for (std::size_t i = 0; i < value.attributeCount(); ++i) {
-                if (value.attributeAt(i).name.iliName() == "ARC") hasArc = true;
-                for (const auto& nestedValue : value.attributeAt(i).values) {
-                    if (const auto* nested = std::get_if<iox::IomObject>(&nestedValue)) {
-                        inspect(*nested);
-                    }
+                const auto& name = value.attributeName(i);
+                if (name.interlisName() == "ARC") hasArc = true;
+                for (std::size_t valueIndex = 0;
+                     valueIndex < value.valueCount(name.interlisName());
+                     ++valueIndex) {
+                    const auto& nestedValue =
+                        value.value(name.interlisName(), valueIndex);
+                    if (nestedValue.isObject()) inspect(nestedValue.object());
                 }
             }
         };
@@ -325,13 +340,13 @@ IOX_TEST(conformance_xtf23_dtd_rejected) {
         "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
         "</ili:TRANSFER>";
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(xml.data(), xml.size()));
+    reader.feed(iox::ByteView(xml));
     reader.finish();
 
     auto diags = reader.takeDiagnostics();
     bool hasFatal = false;
     for (const auto& d : diags) {
-        if (d.severity == iox::Diagnostic::Severity::Fatal) hasFatal = true;
+        if (d.severity == iox::DiagnosticSeverity::Fatal) hasFatal = true;
     }
     IOX_CHECK(hasFatal);
 }
@@ -344,13 +359,13 @@ IOX_TEST(conformance_xtf23_wrong_spelled_end_transfer) {
         "<ili:HEADERSECTION><ili:SENDER>T</ili:SENDER><ili:SOFTWARE>X</ili:SOFTWARE></ili:HEADERSECTION>"
         "</ili:TRASNFER>";
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(xml.data(), xml.size()));
+    reader.feed(iox::ByteView(xml));
     reader.finish();
 
     auto diags = reader.takeDiagnostics();
     bool hasFatal = false;
     for (const auto& d : diags) {
-        if (d.severity == iox::Diagnostic::Severity::Fatal) hasFatal = true;
+        if (d.severity == iox::DiagnosticSeverity::Fatal) hasFatal = true;
     }
     // Mismatched end tag should be fatal
     IOX_CHECK(hasFatal);
@@ -373,13 +388,15 @@ IOX_TEST(conformance_xtf23_wrong_case_transfer) {
 IOX_TEST(conformance_xtf23_truncated) {
     // Truncated XML
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView("<?xml version=\"1.0\"?><ili:TRANSFER", 35));
+    const std::string truncated =
+        "<?xml version=\"1.0\"?><ili:TRANSFER";
+    reader.feed(iox::ByteView(truncated));
     reader.finish();
 
     auto diags = reader.takeDiagnostics();
     bool hasFatal = false;
     for (const auto& d : diags) {
-        if (d.severity == iox::Diagnostic::Severity::Fatal) hasFatal = true;
+        if (d.severity == iox::DiagnosticSeverity::Fatal) hasFatal = true;
     }
     IOX_CHECK(hasFatal);
 }
@@ -393,7 +410,7 @@ IOX_TEST(conformance_xtf23_text_between_elements) {
         "<ili:HEADERSECTION><ili:SENDER>T</ili:SENDER><ili:SOFTWARE>X</ili:SOFTWARE></ili:HEADERSECTION>"
         "</ili:TRANSFER>";
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(xml.data(), xml.size()));
+    reader.feed(iox::ByteView(xml));
     reader.finish();
 
     auto diags = reader.takeDiagnostics();
@@ -411,7 +428,7 @@ IOX_TEST(conformance_xtf23_nested_transfer) {
         "</ili:TRANSFER>"
         "</ili:TRANSFER>";
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(xml.data(), xml.size()));
+    reader.feed(iox::ByteView(xml));
     reader.finish();
 
     auto diags = reader.takeDiagnostics();
@@ -434,7 +451,8 @@ IOX_TEST(conformance_xtf23_basket_consistency) {
 
     for (auto& e : events) {
         if (auto* sb = std::get_if<iox::StartBasketEvent>(&e)) {
-            IOX_CHECK_EQ(std::string("incomplete"), sb->consistency);
+            IOX_CHECK_EQ(iox::Consistency::Incomplete,
+                         sb->basket.consistency);
         }
     }
 }
@@ -452,7 +470,7 @@ IOX_TEST(conformance_xtf23_basket_operation) {
 
     for (auto& e : events) {
         if (auto* sb = std::get_if<iox::StartBasketEvent>(&e)) {
-            IOX_CHECK_EQ(std::string("update"), sb->operation);
+            IOX_CHECK_EQ(iox::BasketKind::Update, sb->basket.kind);
         }
         if (auto* obj = std::get_if<iox::ObjectEvent>(&e)) {
             // OPERATION on object
@@ -482,7 +500,7 @@ IOX_TEST(conformance_xtf23_unicode_umlauts) {
     IOX_CHECK(!events.empty());
     IOX_CHECK(std::holds_alternative<iox::StartTransferEvent>(events[0]));
     auto& st = std::get<iox::StartTransferEvent>(events[0]);
-    IOX_CHECK_EQ(std::string("Prüfstelle"), st.sender);
+    IOX_CHECK_EQ(std::string("Prüfstelle"), st.header.sender);
 }
 
 // ============================================================================
@@ -499,7 +517,7 @@ IOX_TEST(conformance_xtf23_roundtrip_header) {
     // Write back and re-parse
     auto sink = std::make_shared<iox::StringOutputSink>();
     iox::xtf::XtfWriterOptions opts;
-    opts.version = iox::xtf::XtfVersion::Xtf23;
+    opts.version = iox::xtf::XtfVersion::V23;
     opts.pretty = false;
     iox::xtf::XtfWriter writer(sink, opts);
     for (const auto& e : events) writer.write(e);
@@ -521,7 +539,7 @@ IOX_TEST(conformance_xtf23_roundtrip_data) {
 
     auto sink = std::make_shared<iox::StringOutputSink>();
     iox::xtf::XtfWriterOptions opts;
-    opts.version = iox::xtf::XtfVersion::Xtf23;
+    opts.version = iox::xtf::XtfVersion::V23;
     opts.pretty = false;
     iox::xtf::XtfWriter writer(sink, opts);
     for (const auto& e : events) writer.write(e);
@@ -542,15 +560,16 @@ IOX_TEST(conformance_xtf23_chunked_valid_header) {
     // Feed 1 byte at a time
     iox::xtf::XtfReader reader;
     for (std::size_t i = 0; i < data.size(); ++i) {
-        reader.feed(iox::ByteView(data.data() + i, 1));
+        reader.feed(iox::ByteView(
+            reinterpret_cast<const std::uint8_t*>(data.data() + i), 1U));
     }
     reader.finish();
 
     int count = 0;
     while (true) {
         auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-        if (outcome.status == iox::ReadOutcome::Status::NeedInput) break;
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        if (outcome.progress == iox::ReaderProgress::NeedInput) break;
         if (outcome.event) ++count;
     }
     IOX_CHECK(count > 0);

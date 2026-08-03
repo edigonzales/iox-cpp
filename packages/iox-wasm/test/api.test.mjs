@@ -16,22 +16,42 @@ const fixture =
   '<ili:HEADERSECTION><ili:SENDER>Phase8</ili:SENDER></ili:HEADERSECTION>' +
   '</ili:TRANSFER>';
 
+const location = { sourceName: '', byteOffset: 0, line: 0, column: 0 };
+const name = (interlisName) => ({ interlisName, xml: null });
+
 const events = [
-  { event: 'startTransfer', sender: 'Phase8' },
-  { event: 'startBasket', basketType: 'M.T.B', bid: 'B1' },
   {
-    event: 'object', operation: 'insert', objectId: 'T1',
+    schema: 'iox-event/2', event: 'startTransfer',
+    header: { version: '2.3', sender: 'Phase8', models: [], oidSpaces: [], extensions: [] },
+  },
+  {
+    schema: 'iox-event/2', event: 'startBasket',
+    basket: {
+      topic: name('M.T'), basketId: 'B1', kind: 'full', consistency: 'complete',
+      domains: [], topics: [], extensions: [], location,
+    },
+  },
+  {
+    schema: 'iox-event/2', event: 'object',
     object: {
-      tag: 'M.T.C',
-      attrs: [
-        { name: 'First', value: 'one' },
-        { name: 'Repeated', values: ['two', 'three'] },
-        { name: 'Nested', value: { tag: 'M.T.S', attrs: [{ name: 'Value', value: 'four' }] } },
+      tag: name('M.T.C'), oid: 'T1', operation: 'insert', consistency: 'complete',
+      reference: null, location,
+      attributes: [
+        { name: name('First'), values: [{ kind: 'primitive', value: 'one' }] },
+        { name: name('Repeated'), values: [
+          { kind: 'primitive', value: 'two' }, { kind: 'primitive', value: 'three' },
+        ] },
+        { name: name('Nested'), values: [{ kind: 'object', value: {
+          tag: name('M.T.S'), operation: 'none', consistency: 'unspecified',
+          reference: null, location, attributes: [
+            { name: name('Value'), values: [{ kind: 'primitive', value: 'four' }] },
+          ],
+        } }] },
       ],
     },
   },
-  { event: 'endBasket', bid: 'B1' },
-  { event: 'endTransfer' },
+  { schema: 'iox-event/2', event: 'endBasket' },
+  { schema: 'iox-event/2', event: 'endTransfer' },
 ];
 
 test('idiomatic reader accepts string, bytes, ArrayBuffer, and iterator close', async () => {
@@ -41,7 +61,7 @@ test('idiomatic reader accepts string, bytes, ArrayBuffer, and iterator close', 
   for (const input of variants) {
     const reader = new XtfReader(mod, input);
     assert.deepEqual(reader.readAll().map((event) => event.event), ['startTransfer', 'endTransfer']);
-    assert.equal(reader.readAll()[0].sender, 'Phase8');
+    assert.equal(reader.readAll()[0].header.sender, 'Phase8');
     assert.deepEqual(reader.diagnostics(), []);
     for (const event of reader) {
       assert.ok(event.event);
@@ -75,13 +95,15 @@ test('writer and convenience functions preserve event semantics', async () => {
   const output = writeAll(mod, events, { version: '2.3', sender: 'IgnoredByEvent' });
   assert.ok(output.length > 0);
   const roundtrip = readAll(mod, output);
-  assert.equal(roundtrip[0].sender, 'Phase8');
+  assert.equal(roundtrip[0].header.sender, 'Phase8');
   assert.deepEqual(roundtrip.map((event) => event.event), events.map((event) => event.event));
-  assert.deepEqual(roundtrip[2].object.attrs.map((attribute) => attribute.name), [
-    'First', 'Repeated', 'Nested'
+  assert.deepEqual(roundtrip[2].object.attributes.map((attribute) => attribute.name.interlisName), [
+    'First', 'Repeated', 'Nested',
   ]);
-  assert.deepEqual(roundtrip[2].object.attrs[1].values, ['two', 'three']);
-  assert.equal(roundtrip[2].object.attrs[2].value.attrs[0].value, 'four');
+  assert.deepEqual(roundtrip[2].object.attributes[1].values.map((value) => value.value),
+    ['two', 'three']);
+  assert.equal(roundtrip[2].object.attributes[2].values[0].value
+    .attributes[0].values[0].value, 'four');
 
   const writer = new XtfWriter(mod, { version: '2.4' });
   writer.write(events[0]);

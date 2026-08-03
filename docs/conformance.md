@@ -15,6 +15,13 @@ All dependencies are pinned to immutable revisions. No floating branches.
 - **Version:** 3.1.64
 - **Pinned in:** `.emscripten-version`
 
+### yyjson
+- **Version:** 0.12.0
+- **Commit:** `8b4a38dc994a110abaec8a400615567bd996105f`
+- **Repository:** https://github.com/ibireme/yyjson
+- **License:** MIT
+- **Scope:** private implementation dependency of `iox-json` only
+
 ## Normative References
 
 ### INTERLIS 2.3 Reference Manual

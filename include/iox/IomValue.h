@@ -1,83 +1,41 @@
 #pragma once
 
+#include <memory>
 #include <string>
-#include <variant>
-#include <cstdint>
-#include <type_traits>
 
 namespace iox {
 
-/// Union of primitive INTERLIS transfer values.
-/// All numeric values are stored in their canonical types;
-/// the core never stores numeric values as strings.
+class IomObject;
+
 class IomValue final {
 public:
-    enum class Kind {
-        Null,
-        Text,
-        Integer,
-        Decimal,
-        Boolean
-    };
+    enum class Kind { Primitive, Object };
 
-    IomValue() noexcept : data_(NullTag{}) {}
+    static IomValue primitive(std::string value);
+    static IomValue object(IomObject value);
 
-    static IomValue text(std::string value) { return IomValue(std::move(value)); }
-    static IomValue primitive(std::string value) { return text(std::move(value)); }
-    static IomValue integer(std::int64_t value) { return IomValue(value); }
-    static IomValue decimal(double value) { return IomValue(value); }
-    static IomValue boolean(bool value) { return IomValue(value); }
-    static IomValue null() { return IomValue(); }
+    IomValue(const IomValue& other);
+    IomValue(IomValue&& other) noexcept;
+    IomValue& operator=(const IomValue& other);
+    IomValue& operator=(IomValue&& other) noexcept;
+    ~IomValue();
 
-    Kind kind() const noexcept {
-        return static_cast<Kind>(data_.index());
-    }
+    Kind kind() const noexcept;
+    bool isPrimitive() const noexcept;
+    bool isObject() const noexcept;
 
-    bool isNull() const noexcept { return kind() == Kind::Null; }
-    bool isPrimitive() const noexcept { return kind() != Kind::Null; }
+    const std::string& primitive() const;
+    const IomObject& object() const;
+    IomObject& object();
 
-    const std::string& asText() const {
-        return std::get<std::string>(data_);
-    }
-
-    const std::string& primitive() const { return asText(); }
-
-    std::int64_t asInteger() const {
-        return std::get<std::int64_t>(data_);
-    }
-
-    double asDecimal() const {
-        return std::get<double>(data_);
-    }
-
-    bool asBoolean() const {
-        return std::get<bool>(data_);
-    }
-
-    /// Return the value as its original string form for transfer.
-    /// Text values are returned verbatim; numeric values are
-    /// formatted to string.
-    std::string toTransferString() const;
-
-    bool operator==(const IomValue& o) const noexcept {
-        return data_ == o.data_;
-    }
-
-    bool operator!=(const IomValue& o) const noexcept {
-        return !(*this == o);
-    }
+    bool operator==(const IomValue& other) const;
+    bool operator!=(const IomValue& other) const { return !(*this == other); }
 
 private:
-    struct NullTag {
-        bool operator==(const NullTag&) const noexcept { return true; }
-    };
-    using Data = std::variant<NullTag, std::string, std::int64_t, double, bool>;
-    Data data_;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 
-    explicit IomValue(std::string s) : data_(std::move(s)) {}
-    explicit IomValue(std::int64_t i) : data_(i) {}
-    explicit IomValue(double d) : data_(d) {}
-    explicit IomValue(bool b) : data_(b) {}
+    explicit IomValue(std::unique_ptr<Impl> impl) noexcept;
 };
 
 } // namespace iox

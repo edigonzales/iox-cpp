@@ -1,119 +1,104 @@
-#include "iox/json/JsonEventReader.h"
-#include "iox/json/JsonEventWriter.h"
 #include "iox/Events.h"
 #include "iox/Writer.h"
-
+#include "iox/json/JsonEventReader.h"
+#include "iox/json/JsonEventWriter.h"
 #include "iox/test/Test.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
 
-// Helper: feed NDJSON in chunks of varying sizes and check we get
-// the expected number of events.
-static int countEventsChunked(const std::string& data, std::size_t chunkSize) {
-    iox::json::JsonEventReader reader;
+namespace {
 
-    for (std::size_t offset = 0; offset < data.size(); offset += chunkSize) {
-        auto count = chunkSize;
-        if (offset + count > data.size()) count = data.size() - offset;
-        reader.feed(iox::ByteView(data.data() + offset, count));
-    }
-    reader.finish();
-
-    int eventCount = 0;
-    while (true) {
-        auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-        if (outcome.status == iox::ReadOutcome::Status::NeedInput) {
-            // All data already fed and finished; shouldn't happen but break to avoid loop
-            break;
-        }
-        if (outcome.event) ++eventCount;
-    }
-    return eventCount;
-}
-
-// Build test NDJSON data
-static std::string buildTestData(int numObjects) {
+std::string buildEvents(int objectCount) {
     auto sink = std::make_shared<iox::StringOutputSink>();
     iox::json::JsonEventWriter writer(sink);
-
-    iox::StartTransferEvent st;
-    st.version = 23;
-    writer.write(st);
-
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.B");
-    sb.bid = "B1";
-    writer.write(sb);
-
-    for (int i = 0; i < numObjects; ++i) {
-        iox::ObjectEvent obj;
-        obj.operation = "insert";
-        obj.objectId = "TID" + std::to_string(i);
-        obj.object = iox::IomObject(iox::IomName("M.T.C"));
-        obj.object.setPrimitive("idx", iox::IomValue::integer(i));
-        writer.write(obj);
+    iox::StartTransferEvent start;
+    start.header.sender = "test";
+    writer.write(start);
+    iox::StartBasketEvent basket;
+    basket.basket.topic = iox::IomName("M.T");
+    basket.basket.basketId = "B1";
+    writer.write(basket);
+    for (int i = 0; i < objectCount; ++i) {
+        iox::ObjectEvent object;
+        object.object = iox::IomObject(iox::IomName("M.T.C"),
+                                       "T" + std::to_string(i));
+        object.object.setPrimitive(iox::IomName("idx"),
+                                   std::to_string(i));
+        writer.write(object);
     }
-
-    iox::EndBasketEvent eb;
-    eb.bid = "B1";
-    writer.write(eb);
-
-    iox::EndTransferEvent et;
-    writer.write(et);
-
+    writer.write(iox::EndBasketEvent{});
+    writer.write(iox::EndTransferEvent{});
     writer.close();
     return sink->str();
 }
 
-IOX_TEST(json_chunked_one_byte) {
-    auto data = buildTestData(5);
-    // Total events: StartTransfer + StartBasket + 5 Objects + EndBasket + EndTransfer = 9
-    int count = countEventsChunked(data, 1);
-    IOX_CHECK_EQ(9, count);
-}
-
-IOX_TEST(json_chunked_two_bytes) {
-    auto data = buildTestData(3);
-    // Total: 1 + 1 + 3 + 1 + 1 = 7
-    int count = countEventsChunked(data, 2);
-    IOX_CHECK_EQ(7, count);
-}
-
-IOX_TEST(json_chunked_whole) {
-    auto data = buildTestData(10);
-    // Total: 1 + 1 + 10 + 1 + 1 = 14
-    int count = countEventsChunked(data, data.size());
-    IOX_CHECK_EQ(14, count);
-}
-
-IOX_TEST(json_chunked_seven) {
-    auto data = buildTestData(4);
-    int count = countEventsChunked(data, 7);
-    IOX_CHECK_EQ(8, count);
-}
-
-IOX_TEST(json_invalid_input_empty) {
+int countChunked(const std::string& input, std::size_t chunkSize) {
     iox::json::JsonEventReader reader;
-    reader.feed(iox::ByteView("", 0));
+    for (std::size_t offset = 0; offset < input.size(); offset += chunkSize) {
+        const auto count = std::min(chunkSize, input.size() - offset);
+        reader.feed(iox::ByteView(
+            reinterpret_cast<const std::uint8_t*>(input.data() + offset),
+            count));
+    }
     reader.finish();
-
-    auto outcome = reader.next();
-    IOX_CHECK_EQ(iox::ReadOutcome::Status::End, outcome.status);
+    int count = 0;
+    while (true) {
+        const auto outcome = reader.next();
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        IOX_CHECK_EQ(iox::ReaderProgress::Event, outcome.progress);
+        ++count;
+    }
+    return count;
 }
 
-IOX_TEST(json_invalid_input_not_json) {
-    iox::json::JsonEventReader reader;
-    reader.feed(iox::ByteView("this is not json\n", 18));
-    reader.finish();
+} // namespace
 
-    // Should produce diagnostics, not crash
-    auto outcome = reader.next();
-    // The invalid line may produce an error diagnostic; subsequent
-    // lines may or may not be parsed.
-    (void)outcome;
+IOX_TEST(json_accepts_all_chunk_boundaries) {
+    const auto input = buildEvents(5);
+    IOX_CHECK_EQ(9, countChunked(input, 1));
+    IOX_CHECK_EQ(9, countChunked(input, 2));
+    IOX_CHECK_EQ(9, countChunked(input, 7));
+    IOX_CHECK_EQ(9, countChunked(input, input.size()));
+}
+
+IOX_TEST(json_empty_finished_stream_is_rejected) {
+    iox::json::JsonEventReader reader;
+    reader.feed(iox::ByteView{});
+    bool threw = false;
+    try {
+        reader.finish();
+    } catch (const iox::IoxError& error) {
+        threw = error.code() == iox::DiagnosticCode::InvalidEventOrder;
+    }
+    IOX_CHECK(threw);
+}
+
+IOX_TEST(json_line_limit_is_enforced) {
+    iox::json::JsonEventReader reader({8U, "events.ndjson"});
+    const std::string input = "{\"schema\":\"iox-event/2\"}\n";
+    bool threw = false;
+    try {
+        reader.feed(iox::ByteView(input));
+    } catch (const iox::IoxError& error) {
+        threw = error.code() == iox::DiagnosticCode::JsonMalformed;
+    }
+    IOX_CHECK(threw);
+}
+
+IOX_TEST(json_finish_rejects_truncated_line) {
+    iox::json::JsonEventReader reader;
+    const std::string input = "{\"schema\":";
+    reader.feed(iox::ByteView(input));
+    bool threw = false;
+    try {
+        reader.finish();
+    } catch (const iox::IoxError& error) {
+        threw = error.code() == iox::DiagnosticCode::JsonMalformed;
+    }
+    IOX_CHECK(threw);
 }
 
 #include "iox/test/TestMain.h"

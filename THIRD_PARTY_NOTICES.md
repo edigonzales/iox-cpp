@@ -10,6 +10,14 @@ for the full license text.
 
 Exact pinned version: see `docs/conformance.md`.
 
+## yyjson
+
+This product includes yyjson, developed by Yiyang Wu and contributors:
+https://github.com/ibireme/yyjson
+
+Licensed under the MIT License. See the yyjson source distribution for the
+full license text. Exact pinned version: see `docs/conformance.md`.
+
 ## Emscripten
 
 The WebAssembly build uses Emscripten (https://emscripten.org/),

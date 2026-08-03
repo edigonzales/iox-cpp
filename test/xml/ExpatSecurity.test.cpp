@@ -6,7 +6,10 @@
 static bool parse(const std::string& input, iox::xml::ExpatLimits limits = {}) {
     iox::xml::ExpatParser parser({}, limits);
     for (char c : input) {
-        if (!parser.feed(iox::ByteView(&c, 1))) return false;
+        if (!parser.feed(iox::ByteView(
+                reinterpret_cast<const std::uint8_t*>(&c), 1U))) {
+            return false;
+        }
     }
     return parser.finish();
 }

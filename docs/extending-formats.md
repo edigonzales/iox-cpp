@@ -146,9 +146,9 @@ IOX_TEST(my_format_roundtrip) {
    `ilic-core`, XML, or XTF.
 4. **Deterministic output.** Writers must produce identical output for identical
    input events and options.
-5. **Error reporting.** Use `Diagnostic` for non-fatal issues; fatal errors
-   should be reported through `ReadOutcome::Status::End` or by returning error
-   codes.
+5. **Error reporting.** Use `Diagnostic` for non-fatal issues and throw
+   `IoxError` for fatal parser, state, resource, and I/O failures. C boundaries
+   translate exceptions into stable status codes and result JSON.
 6. **No silent data loss.** Unknown or unexpected content must be preserved
    or explicitly diagnosed.
 

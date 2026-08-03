@@ -1,4 +1,4 @@
-/** TypeScript declarations for @interlis/iox-wasm. */
+/** TypeScript declarations for @interlis/iox-wasm 0.2. */
 
 export interface IoxModuleOptions {
   locateFile?: (path: string) => string;
@@ -9,86 +9,139 @@ export interface IoxModule {
   version(): string;
 }
 
-export type IomPrimitive = string | number | boolean | null;
+export interface XmlQualifiedName {
+  namespaceUri: string;
+  localName: string;
+  prefixHint: string;
+}
+
+export interface IomName {
+  interlisName: string;
+  xml: XmlQualifiedName | null;
+}
+
+export interface SourceLocation {
+  sourceName: string;
+  byteOffset: number;
+  line: number;
+  column: number;
+}
+
+export interface ReferenceInfo {
+  targetOid?: string;
+  targetBasketId?: string;
+  orderPosition?: number;
+}
+
+export interface PrimitiveValue {
+  kind: 'primitive';
+  value: string;
+}
+
+export interface ObjectValue {
+  kind: 'object';
+  value: IomObject;
+}
+
+export type IomValue = PrimitiveValue | ObjectValue;
 
 export interface IomAttribute {
-  name: string;
-  value?: IomPrimitive | IomObject;
-  values?: Array<IomPrimitive | IomObject>;
-  ref?: string;
-  bid?: string;
-  orderPos?: string | number;
+  name: IomName;
+  values: IomValue[];
 }
 
 export interface IomObject {
-  tag: string;
-  attrs?: IomAttribute[];
-  ref?: string;
-  bid?: string;
-  orderPos?: string | number;
+  tag: IomName;
+  oid?: string;
+  operation: 'insert' | 'update' | 'delete' | 'none';
+  consistency: 'complete' | 'incomplete' | 'inconsistent' | 'adapted' | 'unspecified';
+  reference: ReferenceInfo | null;
+  location: SourceLocation;
+  attributes: IomAttribute[];
 }
 
-export interface StartTransferEvent {
-  event: 'startTransfer';
-  sender?: string;
+export interface ExtensionAttribute {
+  name: XmlQualifiedName;
+  value: string;
+}
+
+export interface ExtensionElement {
+  name: XmlQualifiedName;
+  attributes: ExtensionAttribute[];
+  text: string;
+  children: ExtensionElement[];
+}
+
+export interface ModelEntry {
+  name: string;
+  version?: string;
+  uri?: string;
+  xmlNamespace: XmlQualifiedName;
+}
+
+export interface OidSpace {
+  name: string;
+  domain: string;
+}
+
+export interface TransferHeader {
+  version: '2.3' | '2.4';
+  sender: string;
   comment?: string;
-  iliVersion?: string;
-  software?: string;
-  date?: string;
-  version?: number;
+  models: ModelEntry[];
+  oidSpaces: OidSpace[];
+  extensions: ExtensionElement[];
 }
 
-export interface StartBasketEvent {
-  event: 'startBasket';
-  basketType: string;
-  bid: string;
-  consistency?: string;
-  operation?: string;
-  oidDomain?: number;
+export interface BasketMetadata {
+  topic: IomName;
+  basketId: string;
+  kind: 'full' | 'update' | 'initial' | 'unspecified';
+  consistency: 'complete' | 'incomplete' | 'inconsistent' | 'adapted' | 'unspecified';
   startState?: string;
   endState?: string;
-  kind?: string;
-  domains?: string[];
+  domains: string[];
+  topics: string[];
+  extensions: ExtensionElement[];
+  location: SourceLocation;
 }
 
-export interface ObjectEvent {
+interface EventEnvelope {
+  schema: 'iox-event/2';
+}
+
+export interface StartTransferEvent extends EventEnvelope {
+  event: 'startTransfer';
+  header: TransferHeader;
+}
+
+export interface StartBasketEvent extends EventEnvelope {
+  event: 'startBasket';
+  basket: BasketMetadata;
+}
+
+export interface ObjectEvent extends EventEnvelope {
   event: 'object';
-  operation: string;
-  objectId: string;
-  consistency?: string;
-  refBid?: string;
-  refOrderPos?: string;
   object: IomObject;
 }
 
-export interface EndBasketEvent {
+export interface EndBasketEvent extends EventEnvelope {
   event: 'endBasket';
-  bid: string;
 }
 
-export interface EndTransferEvent {
+export interface EndTransferEvent extends EventEnvelope {
   event: 'endTransfer';
 }
 
-export type IoxEvent =
-  | StartTransferEvent
-  | StartBasketEvent
-  | ObjectEvent
-  | EndBasketEvent
-  | EndTransferEvent;
-
-export interface DiagnosticLocation {
-  sourceName?: string;
-  byteOffset?: number;
-  line?: number;
-  column?: number;
-}
+export type IoxEvent = StartTransferEvent | StartBasketEvent | ObjectEvent |
+  EndBasketEvent | EndTransferEvent;
 
 export interface Diagnostic {
-  severity?: 'Warning' | 'Error' | 'Fatal';
+  severity: 'info' | 'warning' | 'error' | 'fatal';
   code: string;
   message: string;
-  location?: DiagnosticLocation;
+  location: SourceLocation;
+  contextPath: string[];
 }
 
 export interface XtfReaderOptions {
@@ -96,6 +149,13 @@ export interface XtfReaderOptions {
   sourceName?: string;
   expectedVersion?: '2.3' | '2.4';
   preserveUnknownExtensions?: boolean;
+  requireAtLeastOneModel?: boolean;
+  allowVersionAutoDetection?: boolean;
+  maxDepth?: number;
+  maxAttributesPerElement?: number;
+  maxTextBytesPerNode?: number;
+  maxTotalInputBytes?: number;
+  maxQueuedEvents?: number;
 }
 
 export interface XtfWriterOptions {
@@ -114,18 +174,11 @@ export class IoxError extends Error {
 }
 
 export function createIoxModule(options?: IoxModuleOptions): Promise<IoxModule>;
-
-export function readAll(
-  module: IoxModule,
-  input: Uint8Array | ArrayBuffer | string,
-  options?: XtfReaderOptions
-): IoxEvent[];
-
-export function writeAll(
-  module: IoxModule,
-  events: Iterable<IoxEvent>,
-  options: XtfWriterOptions
-): Uint8Array;
+export function readAll(module: IoxModule,
+                        input: Uint8Array | ArrayBuffer | string,
+                        options?: XtfReaderOptions): IoxEvent[];
+export function writeAll(module: IoxModule, events: Iterable<IoxEvent>,
+                         options: XtfWriterOptions): Uint8Array;
 
 export class XtfReader implements Iterable<IoxEvent> {
   constructor(module: IoxModule,

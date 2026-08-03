@@ -1218,6 +1218,10 @@ function dbg(...args) {
 
   var ___cxa_find_matching_catch_3 = (arg0) => findMatchingCatch([arg0]);
 
+  var ___cxa_find_matching_catch_4 = (arg0,arg1) => findMatchingCatch([arg0,arg1]);
+
+  var ___cxa_find_matching_catch_5 = (arg0,arg1,arg2) => findMatchingCatch([arg0,arg1,arg2]);
+
   
   
   var ___cxa_throw = (ptr, type, destructor) => {
@@ -4158,6 +4162,8 @@ function dbg(...args) {
   }
   }
 
+  var _llvm_eh_typeid_for = (type) => type;
+
   var wasmTableMirror = [];
   
   /** @type {WebAssembly.Table} */
@@ -4222,6 +4228,10 @@ var wasmImports = {
   /** @export */
   __cxa_find_matching_catch_3: ___cxa_find_matching_catch_3,
   /** @export */
+  __cxa_find_matching_catch_4: ___cxa_find_matching_catch_4,
+  /** @export */
+  __cxa_find_matching_catch_5: ___cxa_find_matching_catch_5,
+  /** @export */
   __cxa_throw: ___cxa_throw,
   /** @export */
   __resumeException: ___resumeException,
@@ -4245,8 +4255,6 @@ var wasmImports = {
   fd_seek: _fd_seek,
   /** @export */
   fd_write: _fd_write,
-  /** @export */
-  invoke_diii,
   /** @export */
   invoke_i,
   /** @export */
@@ -4272,7 +4280,7 @@ var wasmImports = {
   /** @export */
   invoke_viiii,
   /** @export */
-  invoke_vij
+  llvm_eh_typeid_for: _llvm_eh_typeid_for
 };
 var wasmExports = createWasm();
 var ___wasm_call_ctors = createExportWrapper('__wasm_call_ctors', 0);
@@ -4286,6 +4294,7 @@ var _iox_reader_destroy = Module['_iox_reader_destroy'] = createExportWrapper('i
 var _iox_reader_feed = Module['_iox_reader_feed'] = createExportWrapper('iox_reader_feed', 3);
 var _iox_reader_finish = Module['_iox_reader_finish'] = createExportWrapper('iox_reader_finish', 1);
 var _iox_reader_next = Module['_iox_reader_next'] = createExportWrapper('iox_reader_next', 2);
+var ___cxa_free_exception = createExportWrapper('__cxa_free_exception', 1);
 var _iox_writer_create = Module['_iox_writer_create'] = createExportWrapper('iox_writer_create', 2);
 var _iox_writer_destroy = Module['_iox_writer_destroy'] = createExportWrapper('iox_writer_destroy', 1);
 var _iox_writer_write_event_json = Module['_iox_writer_write_event_json'] = createExportWrapper('iox_writer_write_event_json', 4);
@@ -4296,7 +4305,6 @@ var _iox_result_bytes = Module['_iox_result_bytes'] = createExportWrapper('iox_r
 var _iox_result_size = Module['_iox_result_size'] = createExportWrapper('iox_result_size', 1);
 var _iox_result_status = Module['_iox_result_status'] = createExportWrapper('iox_result_status', 1);
 var _iox_result_destroy = Module['_iox_result_destroy'] = createExportWrapper('iox_result_destroy', 1);
-var ___cxa_free_exception = createExportWrapper('__cxa_free_exception', 1);
 var _fflush = createExportWrapper('fflush', 1);
 var _strerror = createExportWrapper('strerror', 1);
 var _setThrew = createExportWrapper('setThrew', 2);
@@ -4313,6 +4321,17 @@ var ___cxa_decrement_exception_refcount = createExportWrapper('__cxa_decrement_e
 var ___get_exception_message = createExportWrapper('__get_exception_message', 3);
 var ___cxa_can_catch = createExportWrapper('__cxa_can_catch', 3);
 var ___cxa_is_pointer_type = createExportWrapper('__cxa_is_pointer_type', 1);
+
+function invoke_i(index) {
+  var sp = stackSave();
+  try {
+    return getWasmTableEntry(index)();
+  } catch(e) {
+    stackRestore(sp);
+    if (!(e instanceof EmscriptenEH)) throw e;
+    _setThrew(1, 0);
+  }
+}
 
 function invoke_iii(index,a1,a2) {
   var sp = stackSave();
@@ -4347,10 +4366,10 @@ function invoke_ii(index,a1) {
   }
 }
 
-function invoke_i(index) {
+function invoke_vi(index,a1) {
   var sp = stackSave();
   try {
-    return getWasmTableEntry(index)();
+    getWasmTableEntry(index)(a1);
   } catch(e) {
     stackRestore(sp);
     if (!(e instanceof EmscriptenEH)) throw e;
@@ -4391,21 +4410,10 @@ function invoke_vii(index,a1,a2) {
   }
 }
 
-function invoke_vi(index,a1) {
+function invoke_v(index) {
   var sp = stackSave();
   try {
-    getWasmTableEntry(index)(a1);
-  } catch(e) {
-    stackRestore(sp);
-    if (!(e instanceof EmscriptenEH)) throw e;
-    _setThrew(1, 0);
-  }
-}
-
-function invoke_iiii(index,a1,a2,a3) {
-  var sp = stackSave();
-  try {
-    return getWasmTableEntry(index)(a1,a2,a3);
+    getWasmTableEntry(index)();
   } catch(e) {
     stackRestore(sp);
     if (!(e instanceof EmscriptenEH)) throw e;
@@ -4424,21 +4432,10 @@ function invoke_viiii(index,a1,a2,a3,a4) {
   }
 }
 
-function invoke_vij(index,a1,a2) {
+function invoke_iiii(index,a1,a2,a3) {
   var sp = stackSave();
   try {
-    getWasmTableEntry(index)(a1,a2);
-  } catch(e) {
-    stackRestore(sp);
-    if (!(e instanceof EmscriptenEH)) throw e;
-    _setThrew(1, 0);
-  }
-}
-
-function invoke_v(index) {
-  var sp = stackSave();
-  try {
-    getWasmTableEntry(index)();
+    return getWasmTableEntry(index)(a1,a2,a3);
   } catch(e) {
     stackRestore(sp);
     if (!(e instanceof EmscriptenEH)) throw e;
@@ -4455,17 +4452,6 @@ function invoke_jiiii(index,a1,a2,a3,a4) {
     if (!(e instanceof EmscriptenEH)) throw e;
     _setThrew(1, 0);
     return 0n;
-  }
-}
-
-function invoke_diii(index,a1,a2,a3) {
-  var sp = stackSave();
-  try {
-    return getWasmTableEntry(index)(a1,a2,a3);
-  } catch(e) {
-    stackRestore(sp);
-    if (!(e instanceof EmscriptenEH)) throw e;
-    _setThrew(1, 0);
   }
 }
 

@@ -22,12 +22,14 @@ public:
 
     void feed(iox::ByteView data) override {
         if (!started_) {
-            pending_.append(data.data(), data.size());
+            pending_.append(reinterpret_cast<const char*>(data.data()),
+                            data.size());
             const auto magicSize = std::string(MAGIC).size();
             if (pending_.size() < magicSize) return;
             if (pending_.compare(0, magicSize, MAGIC) != 0) {
-                diagnostics_.push_back({iox::Diagnostic::Severity::Fatal,
-                    "custom.bad_magic", "Missing IOX-CUSTOM/1 header", std::nullopt});
+                diagnostics_.push_back({iox::DiagnosticSeverity::Fatal,
+                    iox::DiagnosticCode::FormatUnknown,
+                    "Missing IOX-CUSTOM/1 header", {}, {}});
                 failed_ = true;
                 return;
             }
@@ -92,7 +94,10 @@ void registerCustomFormat(iox::FormatRegistry& registry) {
     entry.description = "Magic-header NDJSON event stream";
     entry.extensions = {".custom"};
     entry.scoreSniffer = [](iox::ByteView prefix) {
-        return prefix.sv().find(MAGIC) == 0 ? 100 : 0;
+        if (prefix.empty()) return 0;
+        const std::string_view view(
+            reinterpret_cast<const char*>(prefix.data()), prefix.size());
+        return view.find(MAGIC) == 0 ? 100 : 0;
     };
     entry.readerFactory = [] { return std::make_unique<CustomReader>(); };
     entry.writerFactory = [](std::shared_ptr<iox::OutputSink> output) {
@@ -118,7 +123,7 @@ int main() {
     reader->feed(iox::ByteView(sink->str()));
     reader->finish();
     int eventCount = 0;
-    while (reader->next().status != iox::ReadOutcome::Status::End) {
+    while (reader->next().progress != iox::ReaderProgress::End) {
         ++eventCount;
     }
     std::cout << "custom format roundtrip events=" << eventCount << '\n';

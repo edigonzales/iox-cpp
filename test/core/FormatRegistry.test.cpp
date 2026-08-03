@@ -81,19 +81,22 @@ IOX_TEST(format_registry_sniffing) {
     jsonFmt.name = "json-events";
     jsonFmt.readerFactory = makeNullReader;
     jsonFmt.sniffer = [](iox::ByteView chunk) -> std::string {
-        auto sv = chunk.sv();
-        if (!sv.empty() && sv[0] == '{') return "json-events";
+        if (!chunk.empty() && chunk.data()[0] ==
+                                  static_cast<std::uint8_t>('{')) {
+            return "json-events";
+        }
         return "";
     };
     registry.addFormat(std::move(jsonFmt));
 
-    auto reader = registry.createReaderBySniffing(
-        iox::ByteView("{\"type\":\"StartTransfer\"}\n", 28));
+    const std::string event =
+        "{\"schema\":\"iox-event/2\",\"event\":\"startTransfer\"}\n";
+    auto reader = registry.createReaderBySniffing(iox::ByteView(event));
     // Reader factory returns nullptr in our test setup
     (void)reader;
 
-    auto reader2 = registry.createReaderBySniffing(
-        iox::ByteView("<xml>", 5));
+    const std::string xml = "<xml>";
+    auto reader2 = registry.createReaderBySniffing(iox::ByteView(xml));
     IOX_CHECK(reader2 == nullptr);
 }
 

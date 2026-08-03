@@ -37,7 +37,10 @@ std::string extensionOf(std::string_view sourceName) {
 }
 
 int xtfScore(ByteView prefix) {
-    const auto text = lowerAscii(prefix.sv());
+    if (prefix.empty()) return 0;
+    const std::string_view bytes(
+        reinterpret_cast<const char*>(prefix.data()), prefix.size());
+    const auto text = lowerAscii(bytes);
     if (text.find("<transfer") != std::string::npos ||
         text.find(":transfer") != std::string::npos) {
         return 100;
@@ -47,7 +50,9 @@ int xtfScore(ByteView prefix) {
 
 #if IOX_FACTORY_ENABLE_JSON
 int jsonScore(ByteView prefix) {
-    const auto text = prefix.sv();
+    if (prefix.empty()) return 0;
+    const std::string_view text(
+        reinterpret_cast<const char*>(prefix.data()), prefix.size());
     const auto first = text.find_first_not_of(" \t\r\n");
     return first != std::string_view::npos && text[first] == '{' ? 100 : 0;
 }

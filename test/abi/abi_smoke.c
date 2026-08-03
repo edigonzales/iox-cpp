@@ -1,183 +1,119 @@
 #include "iox/abi/iox.h"
+
+#include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
 
-static int contains_bytes(const uint8_t* bytes, size_t size,
-                          const char* needle) {
-    const size_t needle_size = strlen(needle);
-    if (needle_size == 0) return 1;
-    if (bytes == NULL || size < needle_size) return 0;
-    for (size_t i = 0; i + needle_size <= size; ++i) {
-        if (memcmp(bytes + i, needle, needle_size) == 0) return 1;
-    }
-    return 0;
+static int contains(const char* text, const char* needle) {
+    return text != NULL && strstr(text, needle) != NULL;
 }
 
 int main(void) {
-    /* Version */
-    uint32_t abi = iox_abi_version();
-    assert(abi == 1);
-    const char* ver = iox_version();
-    assert(ver != NULL);
-    assert(strlen(ver) > 0);
-    printf("ABI version: %u, Version: %s\n", abi, ver);
+    assert(iox_abi_version() == 2U);
+    assert(strcmp(iox_version(), "0.2.0") == 0);
 
-    /* Reader creation / destruction */
-    iox_reader_t* reader = iox_reader_create("xtf", NULL);
+    const char* start_event =
+        "{\"schema\":\"iox-event/2\",\"event\":\"startTransfer\","
+        "\"header\":{\"version\":\"2.3\",\"sender\":\"ABI\","
+        "\"models\":[],\"oidSpaces\":[],\"extensions\":[]}}";
+    const char* end_event =
+        "{\"schema\":\"iox-event/2\",\"event\":\"endTransfer\"}";
+
+    /* Incremental ABI reader and canonical result schema. */
+    iox_reader_t* reader = iox_reader_create("json-events", NULL);
     assert(reader != NULL);
-
-    /* Feed minimal XTF 2.3 */
-    const char* xtf_data =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-        "<ili:TRANSFER xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
-        "<ili:HEADERSECTION>"
-        "<ili:SENDER>Test</ili:SENDER>"
-        "<ili:SOFTWARE>ABI</ili:SOFTWARE>"
-        "</ili:HEADERSECTION>"
-        "</ili:TRANSFER>";
-    iox_status_t st = iox_reader_feed(reader, (const uint8_t*)xtf_data, strlen(xtf_data));
-    assert(st == IOX_STATUS_OK);
-
-    st = iox_reader_finish(reader);
-    assert(st == IOX_STATUS_OK);
-
-    /* Read first event */
+    const size_t split = strlen(start_event) / 2U;
+    assert(iox_reader_feed(reader, (const uint8_t*)start_event, split) ==
+           IOX_STATUS_OK);
     iox_result_t* result = NULL;
-    st = iox_reader_next(reader, &result);
-    assert(st == IOX_STATUS_EVENT);
+    assert(iox_reader_next(reader, &result) == IOX_STATUS_NEED_INPUT);
     assert(result != NULL);
-    const char* json = iox_result_json(result);
-    assert(json != NULL);
-    printf("Event 1: %s\n", json);
+    assert(contains(iox_result_json(result), "\"schema\":\"iox-result/2\""));
+    assert(contains(iox_result_json(result), "\"status\":\"need_input\""));
     iox_result_destroy(result);
 
-    /* Read second event (EndTransfer auto-emitted on TRANSFER close) */
-    st = iox_reader_next(reader, &result);
-    assert(st == IOX_STATUS_EVENT);
-    iox_result_destroy(result);
+    assert(iox_reader_feed(reader, (const uint8_t*)start_event + split,
+                           strlen(start_event) - split) == IOX_STATUS_OK);
+    assert(iox_reader_feed(reader, (const uint8_t*)"\n", 1U) == IOX_STATUS_OK);
+    assert(iox_reader_feed(reader, (const uint8_t*)end_event,
+                           strlen(end_event)) == IOX_STATUS_OK);
+    assert(iox_reader_feed(reader, (const uint8_t*)"\n", 1U) == IOX_STATUS_OK);
+    assert(iox_reader_finish(reader) == IOX_STATUS_OK);
 
-    /* Next should be END */
-    st = iox_reader_next(reader, &result);
-    assert(st == IOX_STATUS_END);
-    if (result) iox_result_destroy(result);
-
-    iox_reader_destroy(reader);
-
-    /* Incremental JSON reader: NeedInput, Event, and End are distinct ABI
-       states and the event payload must survive chunking. */
-    reader = iox_reader_create("json-events", NULL);
-    assert(reader != NULL);
-    const char* json_evt =
-        "{\"event\":\"startTransfer\",\"sender\":\"chunked\","
-        "\"version\":24}";
-    const size_t json_evt_size = strlen(json_evt);
-    st = iox_reader_feed(reader, (const uint8_t*)json_evt, json_evt_size / 2);
-    assert(st == IOX_STATUS_OK);
-    result = NULL;
-    st = iox_reader_next(reader, &result);
-    assert(st == IOX_STATUS_NEED_INPUT);
-    assert(result != NULL);
-    assert(iox_result_status(result) == IOX_STATUS_NEED_INPUT);
-    assert(strstr(iox_result_json(result), "\"status\":\"need_input\"") != NULL);
+    assert(iox_reader_next(reader, &result) == IOX_STATUS_EVENT);
+    assert(contains(iox_result_json(result), "\"schema\":\"iox-event/2\""));
+    assert(contains(iox_result_json(result), "\"sender\":\"ABI\""));
     iox_result_destroy(result);
-    st = iox_reader_feed(reader,
-                         (const uint8_t*)json_evt + json_evt_size / 2,
-                         json_evt_size - json_evt_size / 2);
-    assert(st == IOX_STATUS_OK);
-    st = iox_reader_feed(reader, (const uint8_t*)"\n", 1);
-    assert(st == IOX_STATUS_OK);
-    st = iox_reader_next(reader, &result);
-    assert(st == IOX_STATUS_EVENT);
-    assert(strstr(iox_result_json(result), "\"sender\":\"chunked\"") != NULL);
+    assert(iox_reader_next(reader, &result) == IOX_STATUS_EVENT);
     iox_result_destroy(result);
-    st = iox_reader_finish(reader);
-    assert(st == IOX_STATUS_OK);
-    st = iox_reader_next(reader, &result);
-    assert(st == IOX_STATUS_END);
-    assert(result != NULL);
+    assert(iox_reader_next(reader, &result) == IOX_STATUS_END);
     iox_result_destroy(result);
     iox_reader_destroy(reader);
 
-    /* Writer test */
+    /* Persistent event parser and chunk-wise output on the writer. */
     iox_writer_t* writer = iox_writer_create("json-events", NULL);
     assert(writer != NULL);
-
-    /* Write a complete event, take its output, then write and take again. */
-    const char* startEvt =
-        "{\"event\":\"startTransfer\",\"sender\":\"ABI\",\"version\":23}\n";
-    st = iox_writer_write_event_json(writer, startEvt, strlen(startEvt), &result);
-    assert(st == IOX_STATUS_OK);
-    assert(result != NULL);
-    assert(strstr(iox_result_json(result), "\"ok\":true") != NULL);
+    assert(iox_writer_write_event_json(writer, start_event, strlen(start_event),
+                                       &result) == IOX_STATUS_OK);
+    assert(contains(iox_result_json(result), "\"ok\":true"));
     iox_result_destroy(result);
-    result = NULL;
-    st = iox_writer_take_output(writer, &result);
-    assert(st == IOX_STATUS_OK);
-    assert(result != NULL);
-    assert(iox_result_size(result) > 0);
-    assert(contains_bytes(iox_result_bytes(result), iox_result_size(result),
-                          "StartTransfer"));
+    assert(iox_writer_take_output(writer, &result) == IOX_STATUS_OK);
+    assert(iox_result_size(result) > 0U);
     iox_result_destroy(result);
 
-    /* Write EndTransfer */
-    const char* endEvt = "{\"event\":\"endTransfer\"}\n";
-    st = iox_writer_write_event_json(writer, endEvt, strlen(endEvt), &result);
-    assert(st == IOX_STATUS_OK);
+    assert(iox_writer_write_event_json(writer, end_event, strlen(end_event),
+                                       &result) == IOX_STATUS_OK);
     iox_result_destroy(result);
-    result = NULL;
-    st = iox_writer_take_output(writer, &result);
-    assert(st == IOX_STATUS_OK);
-    assert(result != NULL && iox_result_size(result) > 0);
+    assert(iox_writer_finish(writer, &result) == IOX_STATUS_OK);
+    assert(iox_result_size(result) > 0U);
     iox_result_destroy(result);
-
-    /* Malformed input is a structured error and never an exception. */
-    st = iox_writer_write_event_json(writer, "{", 1, &result);
-    assert(st == IOX_STATUS_ERROR);
-    assert(result != NULL);
-    assert(strstr(iox_result_json(result), "\"ok\":false") != NULL);
-    assert(strstr(iox_result_json(result), "json.parse_error") != NULL);
+    assert(iox_writer_finish(writer, &result) == IOX_STATUS_INVALID_STATE);
+    assert(contains(iox_result_json(result), "\"ok\":false"));
     iox_result_destroy(result);
-
-    /* Finish and get output */
-    st = iox_writer_finish(writer, &result);
-    assert(st == IOX_STATUS_OK);
-    assert(result != NULL);
-    assert(iox_result_size(result) == 0);
-    iox_result_destroy(result);
-    st = iox_writer_take_output(writer, &result);
-    assert(st == IOX_STATUS_INVALID_STATE);
-    assert(result != NULL);
-    iox_result_destroy(result);
-
     iox_writer_destroy(writer);
 
-    /* XTF writer still emits a deterministic transfer document. */
-    writer = iox_writer_create("xtf", NULL);
+    /* Fatal parse failures remain structured and never cross C. */
+    writer = iox_writer_create("json-events", NULL);
     assert(writer != NULL);
-    st = iox_writer_write_event_json(writer, "{\"type\":\"StartTransfer\"}",
-                                     strlen("{\"type\":\"StartTransfer\"}"), &result);
-    assert(st == IOX_STATUS_OK);
-    iox_result_destroy(result);
-    st = iox_writer_write_event_json(writer, "{\"type\":\"EndTransfer\"}",
-                                     strlen("{\"type\":\"EndTransfer\"}"), &result);
-    assert(st == IOX_STATUS_OK);
-    iox_result_destroy(result);
-    st = iox_writer_finish(writer, &result);
-    assert(st == IOX_STATUS_OK);
-    assert(iox_result_size(result) > 0);
-    printf("XTF writer output size: %zu\n", iox_result_size(result));
+    assert(iox_writer_write_event_json(writer, "{", 1U, &result) ==
+           IOX_STATUS_ERROR);
+    assert(result != NULL);
+    assert(contains(iox_result_json(result), "json.malformed"));
+    assert(contains(iox_result_json(result), "\"ok\":false"));
     iox_result_destroy(result);
     iox_writer_destroy(writer);
 
-    /* Null-pointer safety */
-    iox_reader_destroy(NULL);
-    iox_writer_destroy(NULL);
-    iox_result_destroy(NULL);
-    assert(iox_reader_create(NULL, NULL) == NULL);
-    assert(iox_reader_feed(NULL, NULL, 0) == IOX_STATUS_INVALID_ARGUMENT);
-    assert(iox_writer_take_output(NULL, NULL) == IOX_STATUS_INVALID_ARGUMENT);
+    /* XTF reader still streams events through the same result contract. */
+    const char* xtf =
+        "<?xml version=\"1.0\"?><ili:TRANSFER "
+        "xmlns:ili=\"http://www.interlis.ch/INTERLIS2.3\">"
+        "<ili:HEADERSECTION><ili:SENDER>ABI</ili:SENDER>"
+        "</ili:HEADERSECTION></ili:TRANSFER>";
+    reader = iox_reader_create("xtf23", NULL);
+    assert(reader != NULL);
+    assert(iox_reader_feed(reader, (const uint8_t*)xtf, strlen(xtf)) ==
+           IOX_STATUS_OK);
+    assert(iox_reader_finish(reader) == IOX_STATUS_OK);
+    assert(iox_reader_next(reader, &result) == IOX_STATUS_EVENT);
+    iox_result_destroy(result);
+    assert(iox_reader_next(reader, &result) == IOX_STATUS_EVENT);
+    iox_result_destroy(result);
+    iox_reader_destroy(reader);
 
-    printf("All ABI tests passed!\n");
+    /* Null argument safety and result accessors. */
+    assert(iox_reader_create(NULL, NULL) == NULL);
+    assert(iox_writer_create(NULL, NULL) == NULL);
+    assert(iox_reader_feed(NULL, NULL, 0U) == IOX_STATUS_INVALID_ARGUMENT);
+    assert(iox_reader_next(NULL, &result) == IOX_STATUS_INVALID_ARGUMENT);
+    assert(result != NULL);
+    iox_result_destroy(result);
+    assert(iox_writer_take_output(NULL, NULL) == IOX_STATUS_INVALID_ARGUMENT);
+    assert(iox_result_json(NULL) == NULL);
+    assert(iox_result_bytes(NULL) == NULL);
+    assert(iox_result_size(NULL) == 0U);
+    assert(iox_result_status(NULL) == IOX_STATUS_INVALID_ARGUMENT);
+
+    puts("ABI 2 smoke tests passed");
     return 0;
 }

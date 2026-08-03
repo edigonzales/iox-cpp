@@ -18,8 +18,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
     reader.finish();
     while (true) {
         const auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End ||
-            outcome.status == iox::ReadOutcome::Status::NeedInput) {
+        if (outcome.progress == iox::ReaderProgress::End ||
+            outcome.progress == iox::ReaderProgress::NeedInput) {
             break;
         }
     }

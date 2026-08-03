@@ -1,462 +1,490 @@
 #include "iox/json/JsonEventReader.h"
 
-#include <cstdlib>
-#include <cstring>
-#include <sstream>
+#include "iox/Diagnostic.h"
+
+#include <yyjson.h>
+
+#include <algorithm>
+#include <deque>
+#include <initializer_list>
+#include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_set>
+#include <utility>
 
 namespace iox {
 namespace json {
-
 namespace {
 
-enum class TokenType {
-    Eof, LBrace, RBrace, LBracket, RBracket, Colon, Comma,
-    String, Number, True, False, Null, Invalid
-};
+using JsonDoc = std::unique_ptr<yyjson_doc, decltype(&yyjson_doc_free)>;
 
-struct Token {
-    TokenType type = TokenType::Eof;
-    std::string_view text;
-};
+[[noreturn]] void malformed(std::string message) {
+    throw IoxError(DiagnosticCode::JsonMalformed, std::move(message));
+}
 
-class JsonLexer final {
-public:
-    explicit JsonLexer(std::string_view input) : input_(input) {}
+std::string_view jsonString(yyjson_val* value, const char* description) {
+    if (!value || !yyjson_is_str(value)) {
+        malformed(std::string(description) + " must be a string");
+    }
+    return {yyjson_get_str(value), yyjson_get_len(value)};
+}
 
-    Token next() {
-        skipWhitespace();
-        if (pos_ >= input_.size()) return {TokenType::Eof};
+yyjson_val* requiredField(yyjson_val* object, const char* key) {
+    if (!object || !yyjson_is_obj(object)) malformed("Expected JSON object");
+    auto* value = yyjson_obj_get(object, key);
+    if (!value) malformed(std::string("Missing JSON field: ") + key);
+    return value;
+}
 
-        const char c = input_[pos_];
-        switch (c) {
-        case '{': ++pos_; return {TokenType::LBrace};
-        case '}': ++pos_; return {TokenType::RBrace};
-        case '[': ++pos_; return {TokenType::LBracket};
-        case ']': ++pos_; return {TokenType::RBracket};
-        case ':': ++pos_; return {TokenType::Colon};
-        case ',': ++pos_; return {TokenType::Comma};
-        case '"': return readString();
-        case 't': return readKeyword("true", TokenType::True);
-        case 'f': return readKeyword("false", TokenType::False);
-        case 'n': return readKeyword("null", TokenType::Null);
-        default:
-            if (c == '-' || (c >= '0' && c <= '9')) return readNumber();
-            ++pos_;
-            return {TokenType::Invalid};
+yyjson_val* optionalField(yyjson_val* object, const char* key) {
+    return object && yyjson_is_obj(object) ? yyjson_obj_get(object, key) : nullptr;
+}
+
+yyjson_val* requiredObject(yyjson_val* parent, const char* key) {
+    auto* value = requiredField(parent, key);
+    if (!yyjson_is_obj(value)) malformed(std::string(key) + " must be an object");
+    return value;
+}
+
+yyjson_val* requiredArray(yyjson_val* parent, const char* key) {
+    auto* value = requiredField(parent, key);
+    if (!yyjson_is_arr(value)) malformed(std::string(key) + " must be an array");
+    return value;
+}
+
+std::string requiredString(yyjson_val* parent, const char* key) {
+    return std::string(jsonString(requiredField(parent, key), key));
+}
+
+std::optional<std::string> optionalString(yyjson_val* parent,
+                                          const char* key) {
+    auto* value = optionalField(parent, key);
+    if (!value || yyjson_is_null(value)) return std::nullopt;
+    return std::string(jsonString(value, key));
+}
+
+std::uint64_t requiredUint(yyjson_val* parent, const char* key) {
+    auto* value = requiredField(parent, key);
+    if (!yyjson_is_uint(value)) malformed(std::string(key) + " must be an unsigned integer");
+    return yyjson_get_uint(value);
+}
+
+void requireOnlyKeys(yyjson_val* object,
+                     std::initializer_list<std::string_view> allowed) {
+    if (!yyjson_is_obj(object)) malformed("Expected JSON object");
+    std::unordered_set<std::string_view> keys(allowed.begin(), allowed.end());
+    size_t index = 0;
+    size_t count = 0;
+    yyjson_val* key = nullptr;
+    yyjson_val* value = nullptr;
+    yyjson_obj_foreach(const_cast<yyjson_val*>(object), index, count, key, value) {
+        const std::string_view name(yyjson_get_str(key), yyjson_get_len(key));
+        if (keys.find(name) == keys.end()) {
+            malformed("Unknown JSON field: " + std::string(name));
         }
     }
+}
 
-private:
-    std::string_view input_;
-    std::size_t pos_ = 0;
-
-    void skipWhitespace() {
-        while (pos_ < input_.size() &&
-               (input_[pos_] == ' ' || input_[pos_] == '\t' ||
-                input_[pos_] == '\r' || input_[pos_] == '\n')) {
-            ++pos_;
+void rejectDuplicateKeys(yyjson_val* value) {
+    if (yyjson_is_obj(value)) {
+        std::unordered_set<std::string> keys;
+        size_t index = 0;
+        size_t count = 0;
+        yyjson_val* key = nullptr;
+        yyjson_val* child = nullptr;
+        yyjson_obj_foreach(const_cast<yyjson_val*>(value), index, count, key, child) {
+            std::string name(yyjson_get_str(key), yyjson_get_len(key));
+            if (!keys.insert(name).second) malformed("Duplicate JSON field: " + name);
+            rejectDuplicateKeys(child);
+        }
+    } else if (yyjson_is_arr(value)) {
+        size_t index = 0;
+        size_t count = 0;
+        yyjson_val* child = nullptr;
+        yyjson_arr_foreach(const_cast<yyjson_val*>(value), index, count, child) {
+            rejectDuplicateKeys(child);
         }
     }
+}
 
-    Token readString() {
-        ++pos_;
-        const auto start = pos_;
-        while (pos_ < input_.size()) {
-            if (input_[pos_] == '"') {
-                const auto end = pos_++;
-                return {TokenType::String, input_.substr(start, end - start)};
-            }
-            if (input_[pos_] == '\\' && pos_ + 1 < input_.size()) {
-                pos_ += 2;
-            } else {
-                ++pos_;
-            }
-        }
-        return {TokenType::Invalid};
+XmlQualifiedName parseQName(yyjson_val* value) {
+    requireOnlyKeys(value, {"namespaceUri", "localName", "prefixHint"});
+    return {requiredString(value, "namespaceUri"),
+            requiredString(value, "localName"),
+            requiredString(value, "prefixHint")};
+}
+
+IomName parseName(yyjson_val* value) {
+    requireOnlyKeys(value, {"interlisName", "xml"});
+    auto interlisName = requiredString(value, "interlisName");
+    auto* xml = requiredField(value, "xml");
+    if (yyjson_is_null(xml)) return IomName(std::move(interlisName));
+    if (!yyjson_is_obj(xml)) malformed("xml must be an object or null");
+    return IomName(std::move(interlisName), parseQName(xml));
+}
+
+SourceLocation parseLocation(yyjson_val* value) {
+    requireOnlyKeys(value, {"sourceName", "byteOffset", "line", "column"});
+    SourceLocation location;
+    location.sourceName = requiredString(value, "sourceName");
+    location.byteOffset = requiredUint(value, "byteOffset");
+    const auto line = requiredUint(value, "line");
+    const auto column = requiredUint(value, "column");
+    if (line > UINT32_MAX || column > UINT32_MAX) malformed("Location exceeds uint32 range");
+    location.line = static_cast<std::uint32_t>(line);
+    location.column = static_cast<std::uint32_t>(column);
+    return location;
+}
+
+ObjectOperation parseOperation(std::string_view value) {
+    if (value == "insert") return ObjectOperation::Insert;
+    if (value == "update") return ObjectOperation::Update;
+    if (value == "delete") return ObjectOperation::Delete;
+    if (value == "none") return ObjectOperation::None;
+    malformed("Unknown object operation");
+}
+
+Consistency parseConsistency(std::string_view value) {
+    if (value == "complete") return Consistency::Complete;
+    if (value == "incomplete") return Consistency::Incomplete;
+    if (value == "inconsistent") return Consistency::Inconsistent;
+    if (value == "adapted") return Consistency::Adapted;
+    if (value == "unspecified") return Consistency::Unspecified;
+    malformed("Unknown consistency value");
+}
+
+BasketKind parseBasketKind(std::string_view value) {
+    if (value == "full") return BasketKind::Full;
+    if (value == "update") return BasketKind::Update;
+    if (value == "initial") return BasketKind::Initial;
+    if (value == "unspecified") return BasketKind::Unspecified;
+    malformed("Unknown basket kind");
+}
+
+ExtensionElement parseExtension(yyjson_val* value) {
+    requireOnlyKeys(value, {"name", "attributes", "text", "children"});
+    ExtensionElement result;
+    result.name = parseQName(requiredObject(value, "name"));
+    auto* attributes = requiredArray(value, "attributes");
+    size_t index = 0;
+    size_t count = 0;
+    yyjson_val* attribute = nullptr;
+    yyjson_arr_foreach(const_cast<yyjson_val*>(attributes), index, count, attribute) {
+        requireOnlyKeys(attribute, {"name", "value"});
+        result.attributes.push_back({parseQName(requiredObject(attribute, "name")),
+                                     requiredString(attribute, "value")});
     }
-
-    Token readNumber() {
-        const auto start = pos_;
-        if (input_[pos_] == '-') ++pos_;
-        while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') ++pos_;
-        if (pos_ < input_.size() && input_[pos_] == '.') {
-            ++pos_;
-            while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') ++pos_;
-        }
-        if (pos_ < input_.size() && (input_[pos_] == 'e' || input_[pos_] == 'E')) {
-            ++pos_;
-            if (pos_ < input_.size() && (input_[pos_] == '+' || input_[pos_] == '-')) ++pos_;
-            while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') ++pos_;
-        }
-        return {TokenType::Number, input_.substr(start, pos_ - start)};
-    }
-
-    Token readKeyword(const char* keyword, TokenType type) {
-        const auto length = std::strlen(keyword);
-        if (pos_ + length <= input_.size() && input_.substr(pos_, length) == keyword) {
-            const auto result = Token{type, input_.substr(pos_, length)};
-            pos_ += length;
-            return result;
-        }
-        ++pos_;
-        return {TokenType::Invalid};
-    }
-};
-
-std::string unescapeJson(std::string_view raw) {
-    std::string result;
-    result.reserve(raw.size());
-    for (std::size_t i = 0; i < raw.size(); ++i) {
-        if (raw[i] != '\\' || i + 1 >= raw.size()) {
-            result.push_back(raw[i]);
-            continue;
-        }
-        switch (raw[++i]) {
-        case '"': result.push_back('"'); break;
-        case '\\': result.push_back('\\'); break;
-        case '/': result.push_back('/'); break;
-        case 'b': result.push_back('\b'); break;
-        case 'f': result.push_back('\f'); break;
-        case 'n': result.push_back('\n'); break;
-        case 'r': result.push_back('\r'); break;
-        case 't': result.push_back('\t'); break;
-        case 'u': {
-            if (i + 4 >= raw.size()) return {};
-            const auto code = std::strtoul(std::string(raw.substr(i + 1, 4)).c_str(), nullptr, 16);
-            if (code <= 0x7f) result.push_back(static_cast<char>(code));
-            else if (code <= 0x7ff) {
-                result.push_back(static_cast<char>(0xc0 | (code >> 6)));
-                result.push_back(static_cast<char>(0x80 | (code & 0x3f)));
-            } else {
-                result.push_back(static_cast<char>(0xe0 | (code >> 12)));
-                result.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3f)));
-                result.push_back(static_cast<char>(0x80 | (code & 0x3f)));
-            }
-            i += 4;
-            break;
-        }
-        default: return {};
-        }
+    result.text = requiredString(value, "text");
+    auto* children = requiredArray(value, "children");
+    index = 0;
+    count = 0;
+    yyjson_val* child = nullptr;
+    yyjson_arr_foreach(const_cast<yyjson_val*>(children), index, count, child) {
+        result.children.push_back(parseExtension(child));
     }
     return result;
 }
 
-struct JsonValue final {
-    enum class Type { Null, Bool, Number, String, Object, Array };
-    Type type = Type::Null;
-    bool boolean = false;
-    std::string text;
-    std::vector<std::pair<std::string, JsonValue>> object;
-    std::vector<JsonValue> array;
-};
-
-class JsonDocumentParser final {
-public:
-    explicit JsonDocumentParser(std::string_view input) : lexer_(input) {}
-
-    bool parse(JsonValue& value) {
-        if (!parseValue(lexer_.next(), value)) return false;
-        return lexer_.next().type == TokenType::Eof;
-    }
-
-private:
-    JsonLexer lexer_;
-
-    bool parseValue(Token token, JsonValue& value) {
-        switch (token.type) {
-        case TokenType::Null: value.type = JsonValue::Type::Null; return true;
-        case TokenType::True: value.type = JsonValue::Type::Bool; value.boolean = true; return true;
-        case TokenType::False: value.type = JsonValue::Type::Bool; value.boolean = false; return true;
-        case TokenType::String:
-            value.type = JsonValue::Type::String;
-            value.text = unescapeJson(token.text);
-            return true;
-        case TokenType::Number:
-            value.type = JsonValue::Type::Number;
-            value.text = std::string(token.text);
-            return true;
-        case TokenType::LBrace: return parseObject(value);
-        case TokenType::LBracket: return parseArray(value);
-        default: return false;
-        }
-    }
-
-    bool parseObject(JsonValue& value) {
-        value.type = JsonValue::Type::Object;
-        auto token = lexer_.next();
-        if (token.type == TokenType::RBrace) return true;
-        while (token.type == TokenType::String) {
-            const auto key = unescapeJson(token.text);
-            if (lexer_.next().type != TokenType::Colon) return false;
-            JsonValue child;
-            if (!parseValue(lexer_.next(), child)) return false;
-            value.object.emplace_back(key, std::move(child));
-            token = lexer_.next();
-            if (token.type == TokenType::RBrace) return true;
-            if (token.type != TokenType::Comma) return false;
-            token = lexer_.next();
-        }
-        return false;
-    }
-
-    bool parseArray(JsonValue& value) {
-        value.type = JsonValue::Type::Array;
-        auto token = lexer_.next();
-        if (token.type == TokenType::RBracket) return true;
-        while (true) {
-            JsonValue child;
-            if (!parseValue(token, child)) return false;
-            value.array.push_back(std::move(child));
-            token = lexer_.next();
-            if (token.type == TokenType::RBracket) return true;
-            if (token.type != TokenType::Comma) return false;
-            token = lexer_.next();
-        }
-    }
-};
-
-const JsonValue* field(const JsonValue& object, std::string_view name) {
-    if (object.type != JsonValue::Type::Object) return nullptr;
-    for (const auto& entry : object.object) {
-        if (entry.first == name) return &entry.second;
-    }
-    return nullptr;
-}
-
-std::string stringField(const JsonValue& object, std::string_view name,
-                        std::string defaultValue = {}) {
-    const auto* value = field(object, name);
-    return value && value->type == JsonValue::Type::String ? value->text : std::move(defaultValue);
-}
-
-std::optional<std::int64_t> integerField(const JsonValue& object, std::string_view name) {
-    const auto* value = field(object, name);
-    if (!value) return std::nullopt;
-    try {
-        if (value->type == JsonValue::Type::Number || value->type == JsonValue::Type::String) {
-            return std::stoll(value->text);
-        }
-    } catch (...) {
-    }
-    return std::nullopt;
-}
-
-std::optional<std::string> optionalStringField(const JsonValue& object, std::string_view name) {
-    const auto* value = field(object, name);
-    if (!value || value->type == JsonValue::Type::Null) return std::nullopt;
-    if (value->type == JsonValue::Type::String) return value->text;
-    return std::nullopt;
-}
-
-IomValue parsePrimitive(const JsonValue& value) {
-    switch (value.type) {
-    case JsonValue::Type::Null: return IomValue::null();
-    case JsonValue::Type::String: return IomValue::text(value.text);
-    case JsonValue::Type::Bool: return IomValue::boolean(value.boolean);
-    case JsonValue::Type::Number:
-        try {
-            if (value.text.find_first_of(".eE") == std::string::npos) {
-                return IomValue::integer(std::stoll(value.text));
-            }
-            return IomValue::decimal(std::stod(value.text));
-        } catch (...) {
-            return IomValue::text(value.text);
-        }
-    default: return IomValue::null();
-    }
-}
-
-IomObject parseObjectValue(const JsonValue& value) {
-    IomObject result(IomName(stringField(value, "tag")));
-    if (const auto ref = optionalStringField(value, "ref")) result.setRef(*ref);
-    if (const auto bid = optionalStringField(value, "bid")) result.setBid(*bid);
-    if (const auto order = integerField(value, "orderPos")) result.setOrderPos(*order);
-
-    const auto* attrs = field(value, "attrs");
-    if (!attrs || attrs->type != JsonValue::Type::Array) return result;
-    for (const auto& attrValue : attrs->array) {
-        const auto name = stringField(attrValue, "name");
-        if (name.empty()) continue;
-        auto& attr = result.setAttribute(IomName(name));
-        if (const auto ref = optionalStringField(attrValue, "ref")) attr.ref = *ref;
-        if (const auto bid = optionalStringField(attrValue, "bid")) attr.bid = *bid;
-        if (const auto order = integerField(attrValue, "orderPos")) attr.orderPos = *order;
-
-        const auto addValue = [&attr](const JsonValue& item) {
-            if (item.type == JsonValue::Type::Object) {
-                attr.values.emplace_back(parseObjectValue(item));
-            } else {
-                attr.values.emplace_back(parsePrimitive(item));
-            }
-        };
-        if (const auto* values = field(attrValue, "values");
-            values && values->type == JsonValue::Type::Array) {
-            for (const auto& item : values->array) addValue(item);
-        } else if (const auto* single = field(attrValue, "value")) {
-            addValue(*single);
-        }
+std::vector<ExtensionElement> parseExtensions(yyjson_val* array) {
+    if (!yyjson_is_arr(array)) malformed("extensions must be an array");
+    std::vector<ExtensionElement> result;
+    size_t index = 0;
+    size_t count = 0;
+    yyjson_val* value = nullptr;
+    yyjson_arr_foreach(const_cast<yyjson_val*>(array), index, count, value) {
+        result.push_back(parseExtension(value));
     }
     return result;
 }
 
-class JsonEventParser final {
-public:
-    bool feedLine(std::string_view line, IoxEvent& event,
-                  std::vector<Diagnostic>& diagnostics) const {
-        if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
-        if (line.empty()) return false;
-
-        JsonValue root;
-        JsonDocumentParser parser(line);
-        if (!parser.parse(root)) {
-            diagnostics.push_back({Diagnostic::Severity::Error, ErrorCode::JsonParseError,
-                                   "Malformed JSON event line"});
-            return false;
-        }
-        std::string type = stringField(root, "type");
-        if (type.empty()) type = stringField(root, "event");
-        if (type == "startTransfer" || type == "StartTransfer") {
-            StartTransferEvent value;
-            value.sender = stringField(root, "sender");
-            value.comment = stringField(root, "comment");
-            value.iliVersion = stringField(root, "iliVersion");
-            value.software = stringField(root, "software");
-            value.date = stringField(root, "date");
-            if (const auto version = integerField(root, "version")) value.version = static_cast<int>(*version);
-            event = std::move(value);
-            return true;
-        }
-        if (type == "startBasket" || type == "StartBasket") {
-            StartBasketEvent value;
-            value.basketType = IomName(stringField(root, "basketType"));
-            value.bid = stringField(root, "bid");
-            value.consistency = stringField(root, "consistency");
-            value.operation = stringField(root, "operation");
-            if (const auto domain = integerField(root, "oidDomain")) value.oidDomain = static_cast<int>(*domain);
-            value.startState = optionalStringField(root, "startState");
-            value.endState = optionalStringField(root, "endState");
-            value.kind = optionalStringField(root, "kind");
-            if (const auto* domains = field(root, "domains"); domains && domains->type == JsonValue::Type::Array) {
-                for (const auto& domain : domains->array) {
-                    if (domain.type == JsonValue::Type::String) value.domains.push_back(domain.text);
-                }
-            }
-            event = std::move(value);
-            return true;
-        }
-        if (type == "object" || type == "Object") {
-            ObjectEvent value;
-            value.operation = stringField(root, "operation");
-            value.objectId = stringField(root, "objectId");
-            value.consistency = optionalStringField(root, "consistency");
-            value.refBid = optionalStringField(root, "refBid");
-            value.refOrderPos = optionalStringField(root, "refOrderPos");
-            if (const auto* object = field(root, "object"); object && object->type == JsonValue::Type::Object) {
-                value.object = parseObjectValue(*object);
-            }
-            event = std::move(value);
-            return true;
-        }
-        if (type == "endBasket" || type == "EndBasket") {
-            event = EndBasketEvent{stringField(root, "bid")};
-            return true;
-        }
-        if (type == "endTransfer" || type == "EndTransfer") {
-            event = EndTransferEvent{};
-            return true;
-        }
-
-        diagnostics.push_back({Diagnostic::Severity::Error, ErrorCode::JsonParseError,
-                               "Unknown event type: " + type});
-        return false;
+std::vector<std::string> parseStringArray(yyjson_val* array,
+                                          const char* description) {
+    if (!yyjson_is_arr(array)) malformed(std::string(description) + " must be an array");
+    std::vector<std::string> result;
+    size_t index = 0;
+    size_t count = 0;
+    yyjson_val* value = nullptr;
+    yyjson_arr_foreach(const_cast<yyjson_val*>(array), index, count, value) {
+        result.emplace_back(jsonString(value, description));
     }
-};
+    return result;
+}
+
+IomObject parseIomObject(yyjson_val* value);
+
+IomValue parseIomValue(yyjson_val* value) {
+    requireOnlyKeys(value, {"kind", "value"});
+    const auto kind = requiredString(value, "kind");
+    auto* payload = requiredField(value, "value");
+    if (kind == "primitive") {
+        return IomValue::primitive(std::string(jsonString(payload, "value")));
+    }
+    if (kind == "object") {
+        if (!yyjson_is_obj(payload)) malformed("Object value must contain an object");
+        return IomValue::object(parseIomObject(payload));
+    }
+    malformed("Unknown IOM value kind");
+}
+
+IomObject parseIomObject(yyjson_val* value) {
+    requireOnlyKeys(value, {"tag", "oid", "operation", "consistency",
+                            "reference", "location", "attributes"});
+    IomObject result(parseName(requiredObject(value, "tag")),
+                     optionalString(value, "oid"));
+    result.setOperation(parseOperation(requiredString(value, "operation")));
+    result.setConsistency(parseConsistency(requiredString(value, "consistency")));
+    auto* reference = requiredField(value, "reference");
+    if (!yyjson_is_null(reference)) {
+        requireOnlyKeys(reference, {"targetOid", "targetBasketId", "orderPosition"});
+        ReferenceInfo info;
+        info.targetOid = optionalString(reference, "targetOid");
+        info.targetBasketId = optionalString(reference, "targetBasketId");
+        if (auto* position = optionalField(reference, "orderPosition")) {
+            if (!yyjson_is_uint(position)) malformed("orderPosition must be unsigned");
+            info.orderPosition = yyjson_get_uint(position);
+        }
+        result.setReference(std::move(info));
+    }
+    result.setSourceLocation(parseLocation(requiredObject(value, "location")));
+    auto* attributes = requiredArray(value, "attributes");
+    size_t attributeIndex = 0;
+    size_t attributeCount = 0;
+    yyjson_val* attribute = nullptr;
+    yyjson_arr_foreach(const_cast<yyjson_val*>(attributes), attributeIndex,
+                       attributeCount, attribute) {
+        requireOnlyKeys(attribute, {"name", "values"});
+        auto name = parseName(requiredObject(attribute, "name"));
+        auto* values = requiredArray(attribute, "values");
+        size_t valueIndex = 0;
+        size_t valueCount = 0;
+        yyjson_val* item = nullptr;
+        yyjson_arr_foreach(const_cast<yyjson_val*>(values), valueIndex,
+                           valueCount, item) {
+            result.insertValue(name, result.valueCount(name.interlisName()),
+                               parseIomValue(item));
+        }
+        if (valueCount == 0) malformed("IOM attributes must contain at least one value");
+    }
+    return result;
+}
+
+TransferHeader parseHeader(yyjson_val* value) {
+    requireOnlyKeys(value, {"version", "sender", "comment", "models",
+                            "oidSpaces", "extensions"});
+    TransferHeader result;
+    const auto version = requiredString(value, "version");
+    if (version == "2.3") result.version = XtfVersion::V23;
+    else if (version == "2.4") result.version = XtfVersion::V24;
+    else malformed("Unsupported XTF version in JSON event");
+    result.sender = requiredString(value, "sender");
+    result.comment = optionalString(value, "comment");
+    auto* models = requiredArray(value, "models");
+    size_t index = 0;
+    size_t count = 0;
+    yyjson_val* model = nullptr;
+    yyjson_arr_foreach(const_cast<yyjson_val*>(models), index, count, model) {
+        requireOnlyKeys(model, {"name", "version", "uri", "xmlNamespace"});
+        result.models.push_back({requiredString(model, "name"),
+                                 optionalString(model, "version"),
+                                 optionalString(model, "uri"),
+                                 parseQName(requiredObject(model, "xmlNamespace"))});
+    }
+    auto* spaces = requiredArray(value, "oidSpaces");
+    index = 0;
+    count = 0;
+    yyjson_val* space = nullptr;
+    yyjson_arr_foreach(const_cast<yyjson_val*>(spaces), index, count, space) {
+        requireOnlyKeys(space, {"name", "domain"});
+        result.oidSpaces.push_back({requiredString(space, "name"),
+                                    requiredString(space, "domain")});
+    }
+    result.extensions = parseExtensions(requiredArray(value, "extensions"));
+    return result;
+}
+
+BasketMetadata parseBasket(yyjson_val* value) {
+    requireOnlyKeys(value, {"topic", "basketId", "kind", "consistency",
+                            "startState", "endState", "domains", "topics",
+                            "extensions", "location"});
+    BasketMetadata result;
+    result.topic = parseName(requiredObject(value, "topic"));
+    result.basketId = requiredString(value, "basketId");
+    result.kind = parseBasketKind(requiredString(value, "kind"));
+    result.consistency = parseConsistency(requiredString(value, "consistency"));
+    result.startState = optionalString(value, "startState");
+    result.endState = optionalString(value, "endState");
+    result.domains = parseStringArray(requiredArray(value, "domains"), "domains");
+    result.topics = parseStringArray(requiredArray(value, "topics"), "topics");
+    result.extensions = parseExtensions(requiredArray(value, "extensions"));
+    result.location = parseLocation(requiredObject(value, "location"));
+    return result;
+}
+
+IoxEvent parseEvent(const std::string& line) {
+    yyjson_read_err error{};
+    JsonDoc doc(yyjson_read_opts(const_cast<char*>(line.data()), line.size(),
+                                 YYJSON_READ_NOFLAG, nullptr, &error),
+                &yyjson_doc_free);
+    if (!doc) {
+        malformed("Malformed JSON at byte " + std::to_string(error.pos) +
+                  ": " + (error.msg ? std::string(error.msg) : "unknown error"));
+    }
+    auto* root = yyjson_doc_get_root(doc.get());
+    if (!yyjson_is_obj(root)) malformed("JSON event root must be an object");
+    rejectDuplicateKeys(root);
+    if (requiredString(root, "schema") != "iox-event/2") {
+        malformed("Unsupported event JSON schema");
+    }
+    const auto event = requiredString(root, "event");
+    if (event == "startTransfer") {
+        requireOnlyKeys(root, {"schema", "event", "header"});
+        return StartTransferEvent{parseHeader(requiredObject(root, "header"))};
+    }
+    if (event == "startBasket") {
+        requireOnlyKeys(root, {"schema", "event", "basket"});
+        return StartBasketEvent{parseBasket(requiredObject(root, "basket"))};
+    }
+    if (event == "object") {
+        requireOnlyKeys(root, {"schema", "event", "object"});
+        return ObjectEvent{parseIomObject(requiredObject(root, "object"))};
+    }
+    if (event == "endBasket") {
+        requireOnlyKeys(root, {"schema", "event"});
+        return EndBasketEvent{};
+    }
+    if (event == "endTransfer") {
+        requireOnlyKeys(root, {"schema", "event"});
+        return EndTransferEvent{};
+    }
+    malformed("Unknown event kind");
+}
 
 } // namespace
 
-struct JsonEventReader::Impl {
-    std::string buffer;
-    std::size_t lineStart = 0;
-    bool finished = false;
-    bool eof = false;
+struct JsonEventReader::Impl final {
+    enum class State { BeforeTransfer, InTransfer, InBasket, AfterTransfer, Failed };
+
+    JsonReaderOptions options;
+    std::string buffered;
+    std::deque<IoxEvent> events;
     std::vector<Diagnostic> diagnostics;
-    JsonEventParser parser;
+    State state = State::BeforeTransfer;
+    bool inputFinished = false;
+    std::uint64_t consumedBytes = 0;
+    std::uint32_t line = 1;
+
+    explicit Impl(JsonReaderOptions readerOptions)
+        : options(std::move(readerOptions)) {
+        if (options.maxLineBytes == 0) {
+            throw IoxError(DiagnosticCode::InvalidArgument,
+                           "JSON maxLineBytes must be greater than zero");
+        }
+    }
+
+    [[noreturn]] void fail(DiagnosticCode code, std::string message,
+                           std::uint64_t byteOffset = 0) {
+        state = State::Failed;
+        throw IoxError(code, std::move(message),
+                       {options.sourceName, consumedBytes + byteOffset, line, 1});
+    }
+
+    void validate(const IoxEvent& event) {
+        const auto kind = eventKind(event);
+        const bool valid =
+            (state == State::BeforeTransfer && kind == EventKind::StartTransfer) ||
+            (state == State::InTransfer &&
+                (kind == EventKind::StartBasket || kind == EventKind::EndTransfer)) ||
+            (state == State::InBasket &&
+                (kind == EventKind::Object || kind == EventKind::EndBasket));
+        if (!valid) fail(DiagnosticCode::InvalidEventOrder,
+                         "Invalid event order in JSON stream");
+        switch (kind) {
+        case EventKind::StartTransfer: state = State::InTransfer; break;
+        case EventKind::StartBasket: state = State::InBasket; break;
+        case EventKind::EndBasket: state = State::InTransfer; break;
+        case EventKind::EndTransfer: state = State::AfterTransfer; break;
+        case EventKind::Object: break;
+        }
+    }
+
+    void parseLine(std::string lineValue) {
+        if (!lineValue.empty() && lineValue.back() == '\r') lineValue.pop_back();
+        if (lineValue.empty()) fail(DiagnosticCode::JsonMalformed,
+                                    "Blank lines are not valid event JSON");
+        try {
+            auto event = parseEvent(lineValue);
+            validate(event);
+            events.push_back(std::move(event));
+        } catch (const IoxError& error) {
+            if (state == State::Failed) throw;
+            fail(error.code(), error.what());
+        }
+        consumedBytes += lineValue.size() + 1;
+        ++line;
+    }
+
+    void consumeCompleteLines() {
+        while (true) {
+            const auto newline = buffered.find('\n');
+            if (newline == std::string::npos) break;
+            auto lineValue = buffered.substr(0, newline);
+            buffered.erase(0, newline + 1);
+            parseLine(std::move(lineValue));
+        }
+        if (buffered.size() > options.maxLineBytes) {
+            fail(DiagnosticCode::JsonMalformed,
+                 "JSON event exceeds maxLineBytes");
+        }
+    }
 };
 
-JsonEventReader::JsonEventReader() : impl_(std::make_unique<Impl>()) {}
+JsonEventReader::JsonEventReader(JsonReaderOptions options)
+    : impl_(std::make_unique<Impl>(std::move(options))) {}
+
 JsonEventReader::~JsonEventReader() = default;
 
-void JsonEventReader::feed(ByteView data) {
-    if (impl_->finished) {
-        impl_->diagnostics.push_back({Diagnostic::Severity::Error, ErrorCode::InvalidState,
-                                      "Cannot feed JsonEventReader after finish()"});
-        return;
+ReadOutcome JsonEventReader::next() {
+    if (!impl_->events.empty()) {
+        auto event = std::move(impl_->events.front());
+        impl_->events.pop_front();
+        return {ReaderProgress::Event, std::move(event)};
     }
-    impl_->buffer.append(data.data(), data.size());
+    if (impl_->inputFinished) return {ReaderProgress::End, std::nullopt};
+    return {ReaderProgress::NeedInput, std::nullopt};
+}
+
+void JsonEventReader::feed(ByteView data) {
+    if (impl_->inputFinished || impl_->state == Impl::State::Failed) {
+        throw IoxError(DiagnosticCode::InvalidState,
+                       "Cannot feed a finished or failed JSON reader");
+    }
+    if (!data.empty()) {
+        impl_->buffered.append(reinterpret_cast<const char*>(data.data()), data.size());
+        impl_->consumeCompleteLines();
+    }
 }
 
 void JsonEventReader::finish() {
-    if (impl_->finished) {
-        impl_->diagnostics.push_back({Diagnostic::Severity::Error, ErrorCode::InvalidState,
-                                      "JsonEventReader finish() called more than once"});
-        return;
+    if (impl_->inputFinished || impl_->state == Impl::State::Failed) {
+        throw IoxError(DiagnosticCode::InvalidState,
+                       "JSON reader can only be finished once");
     }
-    impl_->finished = true;
+    if (!impl_->buffered.empty()) {
+        auto lineValue = std::move(impl_->buffered);
+        impl_->buffered.clear();
+        impl_->parseLine(std::move(lineValue));
+    }
+    if (impl_->state != Impl::State::AfterTransfer) {
+        impl_->fail(DiagnosticCode::InvalidEventOrder,
+                    "JSON stream ended before EndTransferEvent");
+    }
+    impl_->inputFinished = true;
 }
 
-bool JsonEventReader::isFinished() const noexcept { return impl_->eof; }
-
-ReadOutcome JsonEventReader::next() {
-    ReadOutcome outcome;
-    if (impl_->eof) {
-        outcome.status = ReadOutcome::Status::End;
-        return outcome;
-    }
-
-    auto& buffer = impl_->buffer;
-    auto position = impl_->lineStart;
-    while (position < buffer.size()) {
-        if (buffer[position] == '\n') {
-            const auto line = std::string_view(buffer).substr(impl_->lineStart,
-                                                              position - impl_->lineStart);
-            impl_->lineStart = position + 1;
-            IoxEvent event;
-            if (impl_->parser.feedLine(line, event, impl_->diagnostics)) {
-                outcome.status = ReadOutcome::Status::Event;
-                outcome.event = std::move(event);
-                outcome.diagnostics = std::move(impl_->diagnostics);
-                impl_->diagnostics.clear();
-                return outcome;
-            }
-            position = impl_->lineStart;
-            continue;
-        }
-        ++position;
-    }
-
-    if (impl_->finished) {
-        if (impl_->lineStart < buffer.size()) {
-            const auto line = std::string_view(buffer).substr(impl_->lineStart);
-            impl_->lineStart = buffer.size();
-            IoxEvent event;
-            if (impl_->parser.feedLine(line, event, impl_->diagnostics)) {
-                outcome.status = ReadOutcome::Status::Event;
-                outcome.event = std::move(event);
-                outcome.diagnostics = std::move(impl_->diagnostics);
-                impl_->diagnostics.clear();
-                return outcome;
-            }
-        }
-        impl_->eof = true;
-        outcome.status = ReadOutcome::Status::End;
-    } else {
-        outcome.status = ReadOutcome::Status::NeedInput;
-    }
-    outcome.diagnostics = std::move(impl_->diagnostics);
-    impl_->diagnostics.clear();
-    return outcome;
+bool JsonEventReader::isFinished() const noexcept {
+    return impl_->inputFinished && impl_->events.empty();
 }
 
 std::vector<Diagnostic> JsonEventReader::takeDiagnostics() {

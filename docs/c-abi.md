@@ -35,17 +35,17 @@ Calling `write_event_json` or `take_output` after `finish` returns
 
 ## Result schema
 
-Successful event result:
+All results use schema 2. A successful event result is:
 
 ```json
-{"ok":true,"status":"event","event":{"event":"startTransfer"},"diagnostics":[]}
+{"schema":"iox-result/2","ok":true,"status":"event","event":{"schema":"iox-event/2","event":"startTransfer","header":{"version":"2.3","sender":"iox-cpp","models":[],"oidSpaces":[],"extensions":[]}},"error":null,"diagnostics":[]}
 ```
 
 Error result:
 
 ```json
-{"ok":false,"status":"error","error":{"code":"json.parse_error","message":"..."},"diagnostics":[]}
+{"schema":"iox-result/2","ok":false,"status":"error","event":null,"error":{"code":"json.malformed","message":"...","location":{"sourceName":"","byteOffset":0,"line":0,"column":0}},"diagnostics":[]}
 ```
 
-The native NDJSON reader/writer retains the historical `type` discriminator;
-the C ABI normalizes it to the lower-camel `event` discriminator shown above.
+The native NDJSON reader/writer, C ABI, Node.js, browser, and worker surfaces
+all use the same `iox-event/2` payload without normalization layers.

@@ -34,7 +34,7 @@ function result(native, resultPointer) {
 test('WASM C ABI preserves incremental reader states and payloads', async () => {
   const mod = await createIoxModule();
   const native = mod._native;
-  assert.equal(native._iox_abi_version(), 1);
+  assert.equal(native._iox_abi_version(), 2);
   assert.equal(typeof native._iox_writer_take_output, 'function');
 
   const format = cString(native, 'json-events');
@@ -42,7 +42,9 @@ test('WASM C ABI preserves incremental reader states and payloads', async () => 
   freeString(native, format);
   assert.notEqual(reader, 0);
 
-  const event = cString(native, '{"event":"startTransfer","sender":"wasm"}');
+  const event = cString(native,
+    '{"schema":"iox-event/2","event":"startTransfer","header":' +
+    '{"version":"2.3","sender":"wasm","models":[],"oidSpaces":[],"extensions":[]}}');
   const half = Math.floor(event.size / 2);
   const out = native._iox_alloc(4);
   assert.equal(native._iox_reader_feed(reader, event.pointer, half), 0);
@@ -58,13 +60,20 @@ test('WASM C ABI preserves incremental reader states and payloads', async () => 
   assert.equal(native._iox_reader_next(reader, out), 1);
   const eventResult = result(native, out);
   assert.equal(eventResult.status, 1);
+  assert.equal(eventResult.json.schema, 'iox-result/2');
   assert.equal(eventResult.json.event.event, 'startTransfer');
-  assert.equal(eventResult.json.event.sender, 'wasm');
+  assert.equal(eventResult.json.event.header.sender, 'wasm');
+  const end = cString(native, '{"schema":"iox-event/2","event":"endTransfer"}');
+  assert.equal(native._iox_reader_feed(reader, end.pointer, end.size), 0);
+  assert.equal(native._iox_reader_feed(reader, newline.pointer, 1), 0);
+  assert.equal(native._iox_reader_next(reader, out), 1);
+  assert.equal(result(native, out).json.event.event, 'endTransfer');
   assert.equal(native._iox_reader_finish(reader), 0);
   assert.equal(native._iox_reader_next(reader, out), 3);
   assert.equal(result(native, out).json.status, 'end');
 
   native._iox_free(event.pointer);
+  native._iox_free(end.pointer);
   freeString(native, newline);
   native._iox_free(out);
   native._iox_reader_destroy(reader);
@@ -79,13 +88,15 @@ test('WASM C ABI writes output chunks and returns structured errors', async () =
   assert.notEqual(writer, 0);
   const out = native._iox_alloc(4);
 
-  const start = cString(native, '{"event":"startTransfer","sender":"wasm"}');
+  const start = cString(native,
+    '{"schema":"iox-event/2","event":"startTransfer","header":' +
+    '{"version":"2.3","sender":"wasm","models":[],"oidSpaces":[],"extensions":[]}}');
   assert.equal(native._iox_writer_write_event_json(writer, start.pointer, start.size, out), 0);
   assert.equal(result(native, out).status, 0);
   assert.equal(native._iox_writer_take_output(writer, out), 0);
   const first = result(native, out);
   assert.ok(first.bytes.length > 0);
-  assert.match(new TextDecoder().decode(first.bytes), /StartTransfer/);
+  assert.match(new TextDecoder().decode(first.bytes), /"iox-event\/2"/);
   native._iox_free(start.pointer);
 
   const invalid = cString(native, '{');
@@ -93,11 +104,11 @@ test('WASM C ABI writes output chunks and returns structured errors', async () =
   const error = result(native, out);
   assert.equal(error.status, -1);
   assert.equal(error.json.ok, false);
-  assert.equal(error.json.error.code, 'json.parse_error');
+  assert.equal(error.json.error.code, 'json.malformed');
   native._iox_free(invalid.pointer);
 
-  assert.equal(native._iox_writer_finish(writer, out), 0);
-  assert.deepEqual([...result(native, out).bytes], []);
+  assert.equal(native._iox_writer_finish(writer, out), -1);
+  assert.equal(result(native, out).json.error.code, 'json.malformed');
   native._iox_free(out);
   native._iox_writer_destroy(writer);
 });

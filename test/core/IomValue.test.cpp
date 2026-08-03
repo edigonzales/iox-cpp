@@ -1,45 +1,55 @@
+#include "iox/IomObject.h"
 #include "iox/IomValue.h"
 #include "iox/test/Test.h"
 
-IOX_TEST(iomvalue_null) {
-    auto v = iox::IomValue::null();
-    IOX_CHECK(v.isNull());
-    IOX_CHECK_EQ(iox::IomValue::Kind::Null, v.kind());
+IOX_TEST(iomvalue_preserves_lexical_primitive) {
+    const auto value = iox::IomValue::primitive("001.2300");
+    IOX_CHECK_EQ(iox::IomValue::Kind::Primitive, value.kind());
+    IOX_CHECK(value.isPrimitive());
+    IOX_CHECK(!value.isObject());
+    IOX_CHECK_EQ(std::string("001.2300"), value.primitive());
 }
 
-IOX_TEST(iomvalue_text) {
-    auto v = iox::IomValue::text("hello");
-    IOX_CHECK(!v.isNull());
-    IOX_CHECK_EQ(iox::IomValue::Kind::Text, v.kind());
-    IOX_CHECK_EQ(std::string("hello"), v.asText());
-    IOX_CHECK_EQ(std::string("hello"), v.toTransferString());
+IOX_TEST(iomvalue_holds_nested_object) {
+    iox::IomObject child(iox::IomName("Model.Topic.Child"), "oid-1");
+    child.setPrimitive(iox::IomName("text"), u8"Grüezi");
+    const auto value = iox::IomValue::object(child);
+    IOX_CHECK_EQ(iox::IomValue::Kind::Object, value.kind());
+    IOX_CHECK(value.isObject());
+    IOX_CHECK(value.object().semanticallyEquals(child));
 }
 
-IOX_TEST(iomvalue_integer) {
-    auto v = iox::IomValue::integer(42);
-    IOX_CHECK_EQ(iox::IomValue::Kind::Integer, v.kind());
-    IOX_CHECK_EQ(42, v.asInteger());
+IOX_TEST(iomvalue_copy_is_value_semantic) {
+    iox::IomValue first = iox::IomValue::object(
+        iox::IomObject(iox::IomName("Child")));
+    auto second = first;
+    second.object().setPrimitive(iox::IomName("value"), "changed");
+    IOX_CHECK(!first.object().hasAttribute("value"));
+    IOX_CHECK_EQ(std::string_view("changed"),
+                 *second.object().primitive("value"));
+
+    IOX_CHECK(iox::IomValue::primitive("true") ==
+              iox::IomValue::primitive("true"));
+    IOX_CHECK(iox::IomValue::primitive("true") !=
+              iox::IomValue::primitive("TRUE"));
 }
 
-IOX_TEST(iomvalue_decimal) {
-    auto v = iox::IomValue::decimal(3.14);
-    IOX_CHECK_EQ(iox::IomValue::Kind::Decimal, v.kind());
-    IOX_CHECK(v.asDecimal() > 3.13 && v.asDecimal() < 3.15);
-}
+IOX_TEST(iomvalue_wrong_accessor_throws) {
+    bool primitiveThrew = false;
+    try {
+        (void)iox::IomValue::object(iox::IomObject{}).primitive();
+    } catch (const iox::IoxError& error) {
+        primitiveThrew = error.code() == iox::DiagnosticCode::InvalidState;
+    }
+    IOX_CHECK(primitiveThrew);
 
-IOX_TEST(iomvalue_boolean) {
-    auto v = iox::IomValue::boolean(true);
-    IOX_CHECK_EQ(iox::IomValue::Kind::Boolean, v.kind());
-    IOX_CHECK(v.asBoolean());
-}
-
-IOX_TEST(iomvalue_equality) {
-    auto v1 = iox::IomValue::integer(100);
-    auto v2 = iox::IomValue::integer(100);
-    auto v3 = iox::IomValue::integer(200);
-
-    IOX_CHECK(v1 == v2);
-    IOX_CHECK(v1 != v3);
+    bool objectThrew = false;
+    try {
+        (void)iox::IomValue::primitive("x").object();
+    } catch (const iox::IoxError& error) {
+        objectThrew = error.code() == iox::DiagnosticCode::InvalidState;
+    }
+    IOX_CHECK(objectThrew);
 }
 
 #include "iox/test/TestMain.h"

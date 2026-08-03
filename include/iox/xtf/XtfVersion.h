@@ -1,23 +1,14 @@
 #pragma once
 
+#include "iox/Events.h"
+
 namespace iox {
 namespace xtf {
 
-/// Detected or expected XTF version.
-enum class XtfVersion {
-    Unknown,
-    Xtf23,
-    Xtf24
-};
+using ::iox::XtfVersion;
 
-/// Return a string representation of the version.
-inline const char* toString(XtfVersion v) {
-    switch (v) {
-    case XtfVersion::Unknown: return "unknown";
-    case XtfVersion::Xtf23:   return "2.3";
-    case XtfVersion::Xtf24:   return "2.4";
-    }
-    return "?";
+inline const char* toString(XtfVersion version) noexcept {
+    return xtfVersionName(version);
 }
 
 } // namespace xtf

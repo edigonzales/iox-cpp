@@ -1,223 +1,134 @@
-#include "iox/xtf/XtfReader.h"
-#include "iox/xtf/XtfWriter.h"
-#include "iox/xtf/XtfVersion.h"
 #include "iox/Events.h"
 #include "iox/Writer.h"
+#include "iox/xtf/XtfReader.h"
+#include "iox/xtf/XtfWriter.h"
 #include "iox/test/Test.h"
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-// ============================================================================
-// Helpers
-// ============================================================================
+namespace {
 
-static std::string writeXtf(const std::vector<iox::IoxEvent>& events,
-                             iox::xtf::XtfVersion version) {
-    auto sink = std::make_shared<iox::StringOutputSink>();
-    iox::xtf::XtfWriterOptions opts;
-    opts.version = version;
-    opts.pretty = false;
-    opts.sender = "TestSender";
-    opts.software = "iox-test";
-    iox::xtf::XtfWriter writer(sink, opts);
-    for (const auto& e : events) writer.write(e);
-    writer.close();
-    return sink->str();
+iox::IomObject coordinate(double c1, double c2, double c3 = 0.0) {
+    iox::IomObject result(iox::IomName("COORD"));
+    result.setPrimitive(iox::IomName("C1"), std::to_string(c1));
+    result.setPrimitive(iox::IomName("C2"), std::to_string(c2));
+    result.setPrimitive(iox::IomName("C3"), std::to_string(c3));
+    return result;
 }
 
-static std::vector<iox::IoxEvent> readXtf(const std::string& data) {
+iox::IomObject polyline(
+    const std::vector<std::pair<double, double>>& points) {
+    iox::IomObject segments(iox::IomName("SEGMENTS"));
+    for (const auto& point : points) {
+        segments.appendObject(iox::IomName("segment"),
+                              coordinate(point.first, point.second));
+    }
+    iox::IomObject result(iox::IomName("POLYLINE"));
+    result.setObject(iox::IomName("sequence"), segments);
+    return result;
+}
+
+std::vector<iox::IoxEvent> roundtrip(std::string attribute,
+                                     iox::IomObject geometry) {
+    iox::StartTransferEvent transfer;
+    transfer.header.version = iox::XtfVersion::V23;
+    transfer.header.sender = "geometry-test";
+    iox::StartBasketEvent basket;
+    basket.basket.topic = iox::IomName("M.T.B");
+    basket.basket.basketId = "B1";
+    iox::ObjectEvent object;
+    object.object = iox::IomObject(iox::IomName("M.T.Geometry"), "TID1");
+    object.object.setObject(iox::IomName(std::move(attribute)),
+                            std::move(geometry));
+
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::xtf::XtfWriterOptions options;
+    options.version = iox::XtfVersion::V23;
+    options.pretty = false;
+    iox::xtf::XtfWriter writer(sink, options);
+    for (const iox::IoxEvent& event :
+         std::vector<iox::IoxEvent>{transfer, basket, object,
+                                    iox::EndBasketEvent{},
+                                    iox::EndTransferEvent{}}) {
+        writer.write(event);
+    }
+    writer.close();
+
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(data.data(), data.size()));
+    reader.feed(iox::ByteView(sink->str()));
     reader.finish();
     std::vector<iox::IoxEvent> events;
     while (true) {
         auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-        if (outcome.status == iox::ReadOutcome::Status::NeedInput) break;
-        if (outcome.event) events.push_back(std::move(*outcome.event));
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        IOX_CHECK_EQ(iox::ReaderProgress::Event, outcome.progress);
+        events.push_back(std::move(*outcome.event));
     }
     return events;
 }
 
-// Helper to build a COORD IomObject
-static iox::IomObject makeCoord(double c1, double c2, double c3) {
-    iox::IomObject coord(iox::IomName("COORD"));
-    coord.setPrimitive("C1", iox::IomValue::text(std::to_string(c1)));
-    coord.setPrimitive("C2", iox::IomValue::text(std::to_string(c2)));
-    coord.setPrimitive("C3", iox::IomValue::text(std::to_string(c3)));
-    return coord;
-}
-
-// Helper to build a POLYLINE IomObject
-static iox::IomObject makePolyline(const std::vector<std::pair<double,double>>& points) {
-    iox::IomObject polyline(iox::IomName("POLYLINE"));
-    iox::IomObject segments(iox::IomName("SEGMENTS"));
-    for (const auto& p : points) {
-        auto& segAttr = segments.setAttribute(iox::IomName("segment"));
-        segAttr.values.push_back(makeCoord(p.first, p.second, 0.0));
-    }
-    auto& seqAttr = polyline.setAttribute(iox::IomName("sequence"));
-    seqAttr.values.push_back(std::move(segments));
-    return polyline;
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
+} // namespace
 
 IOX_TEST(xtf23_geometry_coord) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.B");
-    sb.bid = "B1";
-    events.push_back(sb);
-
-    iox::ObjectEvent obj;
-    obj.operation = "insert";
-    obj.objectId = "TID1";
-    obj.object = iox::IomObject(iox::IomName("M.T.WithCoord"));
-    auto& attr = obj.object.setAttribute(iox::IomName("Location"));
-    attr.values.push_back(makeCoord(2600000.0, 1200000.0, 500.0));
-    events.push_back(obj);
-
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf23);
-    auto parsed = readXtf(xml);
-
-    // Should have Object event with COORD
-    IOX_CHECK_EQ(static_cast<std::size_t>(5), parsed.size());
-    auto& objEvent = std::get<iox::ObjectEvent>(parsed[2]);
-    auto* locAttr = objEvent.object.findAttribute("Location");
-    IOX_CHECK(locAttr != nullptr);
-    IOX_CHECK_EQ(static_cast<std::size_t>(1), locAttr->values.size());
-    IOX_CHECK(std::holds_alternative<iox::IomObject>(locAttr->values[0]));
+    const auto events = roundtrip(
+        "Location", coordinate(2600000.0, 1200000.0, 500.0));
+    const auto geometry =
+        std::get<iox::ObjectEvent>(events[2]).object.object("Location");
+    IOX_CHECK(geometry.has_value());
+    IOX_CHECK_EQ(std::string("COORD"), geometry->tag().interlisName());
+    IOX_CHECK_EQ(std::string_view("2600000.000000"),
+                 *geometry->primitive("C1"));
 }
 
 IOX_TEST(xtf23_geometry_polyline) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.B");
-    sb.bid = "B1";
-    events.push_back(sb);
-
-    iox::ObjectEvent obj;
-    obj.operation = "insert";
-    obj.objectId = "TID1";
-    obj.object = iox::IomObject(iox::IomName("M.T.WithLine"));
-    auto polyline = makePolyline({{2600000,1200000},{2600100,1200100},{2600200,1200000}});
-    auto& attr = obj.object.setAttribute(iox::IomName("Line"));
-    attr.values.push_back(std::move(polyline));
-    events.push_back(obj);
-
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf23);
-    auto parsed = readXtf(xml);
-
-    IOX_CHECK_EQ(static_cast<std::size_t>(5), parsed.size());
-    auto& objEvent = std::get<iox::ObjectEvent>(parsed[2]);
-    auto* lineAttr = objEvent.object.findAttribute("Line");
-    IOX_CHECK(lineAttr != nullptr);
-    IOX_CHECK(!lineAttr->values.empty());
-    IOX_CHECK(std::holds_alternative<iox::IomObject>(lineAttr->values[0]));
-
-    // Verify the nested structure
-    auto& poly = std::get<iox::IomObject>(lineAttr->values[0]);
-    IOX_CHECK_EQ(std::string("POLYLINE"), poly.tag().iliName());
+    const auto events = roundtrip(
+        "Line", polyline({{2600000, 1200000}, {2600100, 1200100},
+                           {2600200, 1200000}}));
+    const auto geometry =
+        std::get<iox::ObjectEvent>(events[2]).object.object("Line");
+    IOX_CHECK(geometry.has_value());
+    IOX_CHECK_EQ(std::string("POLYLINE"), geometry->tag().interlisName());
+    const auto sequence = geometry->object("sequence");
+    IOX_CHECK(sequence.has_value());
+    IOX_CHECK_EQ(static_cast<std::size_t>(3),
+                 sequence->valueCount("segment"));
 }
 
 IOX_TEST(xtf23_geometry_surface) {
-    // Build a SURFACE with one exterior POLYLINE
-    iox::IomObject surface(iox::IomName("SURFACE"));
     iox::IomObject boundary(iox::IomName("BOUNDARY"));
-    auto polyline = makePolyline({{0,0},{100,0},{100,100},{0,100},{0,0}});
-    auto& bAttr = boundary.setAttribute(iox::IomName("polyline"));
-    bAttr.values.push_back(std::move(polyline));
-    auto& sAttr = surface.setAttribute(iox::IomName("boundary"));
-    sAttr.values.push_back(std::move(boundary));
-
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.B");
-    sb.bid = "B1";
-    events.push_back(sb);
-
-    iox::ObjectEvent obj;
-    obj.operation = "insert";
-    obj.objectId = "TID1";
-    obj.object = iox::IomObject(iox::IomName("M.T.SurfaceClass"));
-    auto& attr = obj.object.setAttribute(iox::IomName("Area"));
-    attr.values.push_back(std::move(surface));
-    events.push_back(obj);
-
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf23);
-    auto parsed = readXtf(xml);
-
-    IOX_CHECK_EQ(static_cast<std::size_t>(5), parsed.size());
-    auto& objEvent = std::get<iox::ObjectEvent>(parsed[2]);
-    auto* areaAttr = objEvent.object.findAttribute("Area");
-    IOX_CHECK(areaAttr != nullptr);
-    IOX_CHECK(std::holds_alternative<iox::IomObject>(areaAttr->values[0]));
+    boundary.setObject(iox::IomName("polyline"),
+                       polyline({{0, 0}, {100, 0}, {100, 100},
+                                 {0, 100}, {0, 0}}));
+    iox::IomObject surface(iox::IomName("SURFACE"));
+    surface.setObject(iox::IomName("boundary"), boundary);
+    const auto events = roundtrip("Area", surface);
+    const auto geometry =
+        std::get<iox::ObjectEvent>(events[2]).object.object("Area");
+    IOX_CHECK(geometry.has_value());
+    IOX_CHECK_EQ(std::string("SURFACE"), geometry->tag().interlisName());
+    IOX_CHECK(geometry->object("boundary").has_value());
 }
 
 IOX_TEST(xtf23_geometry_incomplete_polyline) {
-    // POLYLINE with multiple sequences (clipping)
-    iox::IomObject polyline(iox::IomName("POLYLINE"));
-    iox::IomObject segments1(iox::IomName("SEGMENTS"));
-    auto& s1Attr = segments1.setAttribute(iox::IomName("segment"));
-    s1Attr.values.push_back(makeCoord(0, 0, 0));
-    s1Attr.values.push_back(makeCoord(10, 10, 0));
+    iox::IomObject first(iox::IomName("SEGMENTS"));
+    first.appendObject(iox::IomName("segment"), coordinate(0, 0));
+    first.appendObject(iox::IomName("segment"), coordinate(10, 10));
+    iox::IomObject second(iox::IomName("SEGMENTS"));
+    second.appendObject(iox::IomName("segment"), coordinate(20, 20));
+    second.appendObject(iox::IomName("segment"), coordinate(30, 30));
+    iox::IomObject line(iox::IomName("POLYLINE"));
+    line.appendObject(iox::IomName("sequence"), first);
+    line.appendObject(iox::IomName("sequence"), second);
 
-    iox::IomObject segments2(iox::IomName("SEGMENTS"));
-    auto& s2Attr = segments2.setAttribute(iox::IomName("segment"));
-    s2Attr.values.push_back(makeCoord(20, 20, 0));
-    s2Attr.values.push_back(makeCoord(30, 30, 0));
-
-    auto& seqAttr = polyline.setAttribute(iox::IomName("sequence"));
-    seqAttr.values.push_back(std::move(segments1));
-    seqAttr.values.push_back(std::move(segments2));
-
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 23; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.B");
-    sb.bid = "B1";
-    events.push_back(sb);
-
-    iox::ObjectEvent obj;
-    obj.operation = "insert";
-    obj.objectId = "TID1";
-    obj.object = iox::IomObject(iox::IomName("M.T.Clipped"));
-    auto& attr = obj.object.setAttribute(iox::IomName("Geom"));
-    attr.values.push_back(std::move(polyline));
-    events.push_back(obj);
-
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf23);
-    auto parsed = readXtf(xml);
-
-    IOX_CHECK_EQ(static_cast<std::size_t>(5), parsed.size());
-    auto& objEvent = std::get<iox::ObjectEvent>(parsed[2]);
-    auto* geomAttr = objEvent.object.findAttribute("Geom");
-    IOX_CHECK(geomAttr != nullptr);
-    auto& poly = std::get<iox::IomObject>(geomAttr->values[0]);
-    // POLYLINE has one "sequence" attribute with 2 values (2 SEGMENTS)
-    auto* seq = poly.findAttribute("sequence");
-    IOX_CHECK(seq != nullptr);
-    IOX_CHECK_EQ(static_cast<std::size_t>(2), seq->values.size());
+    const auto events = roundtrip("Geom", line);
+    const auto geometry =
+        std::get<iox::ObjectEvent>(events[2]).object.object("Geom");
+    IOX_CHECK(geometry.has_value());
+    IOX_CHECK_EQ(static_cast<std::size_t>(2),
+                 geometry->valueCount("sequence"));
 }
 
 #include "iox/test/TestMain.h"

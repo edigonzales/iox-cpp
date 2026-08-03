@@ -1,136 +1,117 @@
 #pragma once
 
+#include "iox/Diagnostic.h"
 #include "iox/IomName.h"
 #include "iox/IomValue.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
-#include <optional>
-#include <utility>
-#include <cstdint>
 
 namespace iox {
 
-// Forward declarations
-class IomObject;
-
-namespace detail {
-class IomObjectImpl;
-} // namespace detail
-
-/// A single attribute entry in an IomObject.
-/// Attributes are ordered; each attribute may have multiple values
-/// (repeated, analogous to LIST/BAG in transfer encoding).
-struct IomAttribute final {
-    IomName name;
-
-    /// Each value is either a primitive or a nested IomObject.
-    using AttrValue = std::variant<IomValue, IomObject>;
-    std::vector<AttrValue> values;
-
-    // Reference metadata (REF, BID, ORDER_POS)
-    std::optional<std::string> ref;
-    std::optional<std::string> bid;
-    std::optional<std::int64_t> orderPos;
+enum class ObjectOperation {
+    Insert,
+    Update,
+    Delete,
+    None
 };
 
-/// Copy-on-write handle for an INTERLIS IOM object.
-///
-/// Publicly this is a small, copyable value type. Internally it
-/// wraps a std::shared_ptr<Impl>. Mutating operations call detach()
-/// to ensure copy-on-write semantics.
+enum class Consistency {
+    Complete,
+    Incomplete,
+    Inconsistent,
+    Adapted,
+    Unspecified
+};
+
+struct ReferenceInfo final {
+    std::optional<std::string> targetOid;
+    std::optional<std::string> targetBasketId;
+    std::optional<std::uint64_t> orderPosition;
+
+    bool operator==(const ReferenceInfo& other) const noexcept {
+        return targetOid == other.targetOid &&
+               targetBasketId == other.targetBasketId &&
+               orderPosition == other.orderPosition;
+    }
+};
+
 class IomObject final {
 public:
-    /// Construct an empty object with the given tag (class name).
-    IomObject(IomName tag = IomName{});
+    IomObject();
+    explicit IomObject(IomName tag,
+                       std::optional<std::string> oid = std::nullopt);
+
+    IomObject(const IomObject&) noexcept;
+    IomObject(IomObject&&) noexcept;
+    IomObject& operator=(const IomObject&) noexcept;
+    IomObject& operator=(IomObject&&) noexcept;
     ~IomObject();
 
-    // Copy / move
-    IomObject(const IomObject&) = default;
-    IomObject(IomObject&&) noexcept = default;
-    IomObject& operator=(const IomObject&) = default;
-    IomObject& operator=(IomObject&&) noexcept = default;
-
-    // --- Tag (INTERLIS class name) ---
+    bool empty() const noexcept;
 
     const IomName& tag() const;
     void setTag(IomName tag);
 
-    // --- Attributes (ordered) ---
+    const std::optional<std::string>& oid() const noexcept;
+    void setOid(std::optional<std::string> oid);
 
-    /// Number of attributes.
-    std::size_t attributeCount() const;
+    ObjectOperation operation() const noexcept;
+    void setOperation(ObjectOperation operation);
 
-    /// Get attribute by index (0-based).
-    const IomAttribute& attributeAt(std::size_t index) const;
+    Consistency consistency() const noexcept;
+    void setConsistency(Consistency consistency);
 
-    /// Get all attributes (ordered).
-    const std::vector<IomAttribute>& attributes() const;
+    const ReferenceInfo& reference() const noexcept;
+    void setReference(ReferenceInfo reference);
+    bool isReference() const noexcept;
 
-    /// Find attribute by name. Returns nullptr if not found.
-    const IomAttribute* findAttribute(std::string_view iliName) const;
+    const SourceLocation& sourceLocation() const noexcept;
+    void setSourceLocation(SourceLocation location);
 
-    /// Add or replace an attribute. If an attribute with the same
-    /// iliName already exists, its values are replaced.
-    /// Returns a reference to the (new or updated) attribute.
-    IomAttribute& setAttribute(IomName name);
+    std::size_t attributeCount() const noexcept;
+    const IomName& attributeName(std::size_t attributeIndex) const;
+    bool hasAttribute(std::string_view interlisName) const;
 
-    /// Remove an attribute by iliName. Returns true if removed.
-    bool removeAttribute(std::string_view iliName);
+    std::size_t valueCount(std::string_view interlisName) const;
+    const IomValue& value(std::string_view interlisName,
+                          std::size_t valueIndex) const;
 
-    // --- Convenience: single-valued primitive attributes ---
+    std::optional<std::string_view> primitive(
+        std::string_view interlisName,
+        std::size_t valueIndex = 0) const;
 
-    /// Get a single primitive value by attribute name.
-    /// Returns nullopt if the attribute does not exist or has
-    /// multiple values or is structured.
-    std::optional<IomValue> getPrimitive(std::string_view attrName) const;
+    std::optional<IomObject> object(
+        std::string_view interlisName,
+        std::size_t valueIndex = 0) const;
 
-    /// Set a single primitive value. Replaces any existing values.
-    void setPrimitive(std::string_view attrName, IomValue value);
+    void setPrimitive(IomName attribute, std::string value);
+    void appendPrimitive(IomName attribute, std::string value);
+    void setObject(IomName attribute, IomObject value);
+    void appendObject(IomName attribute, IomObject value);
 
-    // --- Convenience: structured sub-objects ---
+    void insertValue(IomName attribute,
+                     std::size_t valueIndex,
+                     IomValue value);
+    void replaceValue(std::string_view interlisName,
+                      std::size_t valueIndex,
+                      IomValue value);
+    void eraseValue(std::string_view interlisName,
+                    std::size_t valueIndex);
+    void eraseAttribute(std::string_view interlisName);
+    void clearAttributes();
 
-    /// Get the first structured sub-object for an attribute.
-    /// Returns a default (empty) IomObject if not found.
-    IomObject getStructure(std::string_view attrName) const;
-
-    /// Set a structured sub-object as the only value.
-    void setStructure(std::string_view attrName, IomObject obj);
-
-    // --- Reference metadata on this object ---
-
-    const std::optional<std::string>& ref() const;
-    const std::optional<std::string>& bid() const;
-    const std::optional<std::int64_t>& orderPos() const;
-
-    void setRef(std::string ref);
-    void setBid(std::string bid);
-    void setOrderPos(std::int64_t pos);
-
-    // --- COW operations ---
-
-    /// Ensure exclusive ownership of the implementation.
-    /// Called automatically by all mutating operations.
-    void detach();
-
-    /// Recursive deep copy. After this, no mutation to either
-    /// the original or the copy affects the other at any depth.
-    /// Detects cycles and returns an empty object if one is found.
     IomObject deepCopy() const;
-
-    /// Number of shared owners of the internal state.
-    /// For testing and debugging only.
-    long useCount() const noexcept;
-
-    // --- Comparison ---
-
-    bool operator==(const IomObject& o) const;
-    bool operator!=(const IomObject& o) const { return !(*this == o); }
+    bool semanticallyEquals(const IomObject& other) const;
 
 private:
-    std::shared_ptr<detail::IomObjectImpl> impl_;
+    struct Impl;
+    std::shared_ptr<Impl> impl_;
+    void detach();
 };
 
 } // namespace iox

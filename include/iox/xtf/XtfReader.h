@@ -26,8 +26,8 @@ public:
     bool isFinished() const noexcept override;
     std::vector<Diagnostic> takeDiagnostics() override;
 
-    /// The detected XTF version, or Unknown if not yet determined.
-    XtfVersion detectedVersion() const noexcept;
+    /// The detected XTF version, or nullopt before the document root.
+    std::optional<XtfVersion> detectedVersion() const noexcept;
 
 private:
     struct Impl;

@@ -1,53 +1,102 @@
 #pragma once
 
-#include <string>
-#include <vector>
 #include <cstdint>
-#include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace iox {
 
-/// Structured diagnostic produced during reading or writing.
-/// Non-fatal diagnostics accumulate; fatal errors are reported
-/// through the Reader/Writer return values.
-struct Diagnostic final {
-    enum class Severity {
-        Warning,
-        Error,
-        Fatal
-    };
-
-    Severity severity = Severity::Warning;
-    std::string code;       // stable error code, e.g. "xtf.unknown.element"
-    std::string message;    // human-readable description
-
-    struct Location {
-        std::string sourceName;
-        std::uint64_t byteOffset = 0;
-        int line = 0;
-        int column = 0;
-    };
-    std::optional<Location> location;
+enum class DiagnosticSeverity {
+    Info,
+    Warning,
+    Error,
+    Fatal
 };
 
-/// Stable error codes for programmatic handling.
-namespace ErrorCode {
-    inline constexpr const char* XmlMalformed      = "xml.malformed";
-    inline constexpr const char* XmlDtdForbidden   = "xml.dtd_forbidden";
-    inline constexpr const char* XmlExternalEntityForbidden = "xml.external_entity_forbidden";
-    inline constexpr const char* XmlLimitExceeded  = "xml.limit_exceeded";
-    inline constexpr const char* XtfStateViolation  = "xtf.state_violation";
-    inline constexpr const char* XtfUnsupportedVersion = "xtf.unsupported_version";
-    inline constexpr const char* XtfUnknownElement  = "xtf.unknown_element";
-    inline constexpr const char* XtfMissingName     = "xtf.missing_name";
-    inline constexpr const char* IoError            = "io.error";
-    inline constexpr const char* InvalidArgument    = "invalid_argument";
-    inline constexpr const char* InvalidState       = "invalid_state";
-    inline constexpr const char* JsonParseError     = "json.parse_error";
-    inline constexpr const char* BasketLimitExceeded = "basket.limit_exceeded";
-    inline constexpr const char* BasketStateViolation = "basket.state_violation";
-    inline constexpr const char* FormatUnknown      = "format.unknown";
-    inline constexpr const char* InternalError      = "internal_error";
-}
+enum class DiagnosticCode {
+    XmlMalformed,
+    XmlDtdForbidden,
+    XmlExternalEntityForbidden,
+    XmlLimitExceeded,
+    UnexpectedElement,
+    UnexpectedAttribute,
+    InvalidEventOrder,
+    InvalidXtfNamespace,
+    UnsupportedXtfVersion,
+    MissingRequiredHeader,
+    MissingModelEntry,
+    MissingBasketId,
+    MissingObjectId,
+    InvalidReference,
+    InvalidGeometry,
+    UnknownInterlisName,
+    UnknownExtensionPreserved,
+    ModelMismatch,
+    WriterStateError,
+    JsonMalformed,
+    IoError,
+    InvalidArgument,
+    InvalidState,
+    BasketLimitExceeded,
+    BasketStateViolation,
+    FormatUnknown,
+    IomCycle,
+    AbiInvalidArgument,
+    InternalError
+};
+
+std::string_view diagnosticCodeName(DiagnosticCode code) noexcept;
+
+struct SourceLocation final {
+    std::string sourceName;
+    std::uint64_t byteOffset = 0;
+    std::uint32_t line = 0;
+    std::uint32_t column = 0;
+
+    bool empty() const noexcept {
+        return sourceName.empty() && byteOffset == 0 && line == 0 && column == 0;
+    }
+};
+
+struct Diagnostic final {
+    DiagnosticSeverity severity = DiagnosticSeverity::Error;
+    DiagnosticCode code = DiagnosticCode::InternalError;
+    std::string message;
+    SourceLocation location;
+    std::vector<std::string> contextPath;
+};
+
+class DiagnosticSink {
+public:
+    virtual ~DiagnosticSink() = default;
+    virtual void report(const Diagnostic& diagnostic) = 0;
+};
+
+class VectorDiagnosticSink final : public DiagnosticSink {
+public:
+    void report(const Diagnostic& diagnostic) override;
+    const std::vector<Diagnostic>& diagnostics() const noexcept;
+    std::vector<Diagnostic> take();
+    void clear() noexcept;
+
+private:
+    std::vector<Diagnostic> diagnostics_;
+};
+
+class IoxError final : public std::runtime_error {
+public:
+    IoxError(DiagnosticCode code,
+             std::string message,
+             SourceLocation location = {});
+
+    DiagnosticCode code() const noexcept;
+    const SourceLocation& location() const noexcept;
+
+private:
+    DiagnosticCode code_;
+    SourceLocation location_;
+};
 
 } // namespace iox

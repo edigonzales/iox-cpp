@@ -1,88 +1,90 @@
-#include "iox/xtf/XtfReader.h"
-#include "iox/xtf/XtfWriter.h"
-#include "iox/xtf/XtfVersion.h"
 #include "iox/Events.h"
 #include "iox/Writer.h"
+#include "iox/xtf/XtfReader.h"
+#include "iox/xtf/XtfWriter.h"
 #include "iox/test/Test.h"
+
 #include <memory>
 #include <string>
 #include <vector>
 
-static std::string writeXtf(const std::vector<iox::IoxEvent>& events,
-                             iox::xtf::XtfVersion version) {
+namespace {
+
+std::vector<iox::IoxEvent> roundtrip(std::vector<iox::IoxEvent> events) {
     auto sink = std::make_shared<iox::StringOutputSink>();
-    iox::xtf::XtfWriterOptions opts;
-    opts.version = version; opts.pretty = false;
-    opts.sender = "T"; opts.software = "t";
-    iox::xtf::XtfWriter writer(sink, opts);
-    for (const auto& e : events) writer.write(e);
+    iox::xtf::XtfWriterOptions options;
+    options.version = iox::XtfVersion::V24;
+    options.pretty = false;
+    iox::xtf::XtfWriter writer(sink, options);
+    for (const auto& event : events) writer.write(event);
     writer.close();
-    return sink->str();
+
+    iox::xtf::XtfReader reader;
+    reader.feed(iox::ByteView(sink->str()));
+    reader.finish();
+    std::vector<iox::IoxEvent> result;
+    while (true) {
+        auto outcome = reader.next();
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        IOX_CHECK_EQ(iox::ReaderProgress::Event, outcome.progress);
+        result.push_back(std::move(*outcome.event));
+    }
+    return result;
 }
 
-static std::vector<iox::IoxEvent> readXtf(const std::string& data) {
-    iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(data.data(), data.size()));
-    reader.finish();
-    std::vector<iox::IoxEvent> events;
-    while (true) {
-        auto o = reader.next();
-        if (o.status == iox::ReadOutcome::Status::End) break;
-        if (o.status == iox::ReadOutcome::Status::NeedInput) break;
-        if (o.event) events.push_back(std::move(*o.event));
-    }
-    return events;
+iox::StartTransferEvent start() {
+    iox::StartTransferEvent result;
+    result.header.version = iox::XtfVersion::V24;
+    result.header.sender = "test";
+    return result;
 }
+
+iox::StartBasketEvent basket() {
+    iox::StartBasketEvent result;
+    result.basket.topic = iox::IomName(
+        "M.T", {"urn:m", "T", "m"});
+    result.basket.basketId = "B1";
+    return result;
+}
+
+} // namespace
 
 IOX_TEST(xtf24_minimal_header) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 24; events.push_back(st);
-    iox::EndTransferEvent et; events.push_back(et);
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf24);
-    auto parsed = readXtf(xml);
-    IOX_CHECK(!parsed.empty());
-    IOX_CHECK(std::holds_alternative<iox::StartTransferEvent>(parsed[0]));
+    const auto events = roundtrip({start(), iox::EndTransferEvent{}});
+    IOX_CHECK_EQ(static_cast<std::size_t>(2), events.size());
+    IOX_CHECK_EQ(iox::XtfVersion::V24,
+                 std::get<iox::StartTransferEvent>(events[0]).header.version);
 }
 
 IOX_TEST(xtf24_object_roundtrip) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 24; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.B"); sb.bid = "B1";
-    events.push_back(sb);
-    iox::ObjectEvent obj;
-    obj.operation = "insert"; obj.objectId = "T1";
-    obj.object = iox::IomObject(iox::IomName("M.T.C"));
-    obj.object.setPrimitive("Name", iox::IomValue::text("val"));
-    events.push_back(obj);
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf24);
-    auto parsed = readXtf(xml);
-    IOX_CHECK_EQ(static_cast<std::size_t>(5), parsed.size());
+    iox::ObjectEvent object;
+    object.object = iox::IomObject(
+        iox::IomName("M.T.C", {"urn:m", "C", "m"}), "T1");
+    object.object.setOperation(iox::ObjectOperation::Insert);
+    object.object.setPrimitive(iox::IomName("Name"), "val");
+    const auto events = roundtrip(
+        {start(), basket(), object, iox::EndBasketEvent{},
+         iox::EndTransferEvent{}});
+    const auto& parsed = std::get<iox::ObjectEvent>(events[2]).object;
+    IOX_CHECK_EQ(std::string("T1"), *parsed.oid());
+    IOX_CHECK_EQ(std::string_view("val"), *parsed.primitive("Name"));
 }
 
 IOX_TEST(xtf24_geometry_coord) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent st; st.version = 24; events.push_back(st);
-    iox::StartBasketEvent sb;
-    sb.basketType = iox::IomName("M.T.B"); sb.bid = "B1"; events.push_back(sb);
-    iox::ObjectEvent obj;
-    obj.operation = "insert"; obj.objectId = "T1";
-    obj.object = iox::IomObject(iox::IomName("M.T.G"));
-    iox::IomObject coord(iox::IomName("COORD"));
-    coord.setPrimitive("C1", iox::IomValue::text("1.0"));
-    coord.setPrimitive("C2", iox::IomValue::text("2.0"));
-    auto& attr = obj.object.setAttribute(iox::IomName("Pos"));
-    attr.values.push_back(std::move(coord));
-    events.push_back(obj);
-    iox::EndBasketEvent eb; eb.bid = "B1"; events.push_back(eb);
-    iox::EndTransferEvent et; events.push_back(et);
-
-    auto xml = writeXtf(events, iox::xtf::XtfVersion::Xtf24);
-    auto parsed = readXtf(xml);
-    IOX_CHECK_EQ(static_cast<std::size_t>(5), parsed.size());
+    iox::IomObject coordinate(iox::IomName("COORD"));
+    coordinate.setPrimitive(iox::IomName("C1"), "1.0");
+    coordinate.setPrimitive(iox::IomName("C2"), "2.0");
+    iox::ObjectEvent object;
+    object.object = iox::IomObject(
+        iox::IomName("M.T.C", {"urn:m", "C", "m"}), "T1");
+    object.object.setObject(iox::IomName("Pos"), coordinate);
+    const auto events = roundtrip(
+        {start(), basket(), object, iox::EndBasketEvent{},
+         iox::EndTransferEvent{}});
+    const auto parsed = std::get<iox::ObjectEvent>(events[2]).object.object("Pos");
+    IOX_CHECK(parsed.has_value());
+    IOX_CHECK_EQ(std::string_view("1.0"), *parsed->primitive("c1"));
+    IOX_CHECK_EQ(std::string_view("2.0"), *parsed->primitive("c2"));
 }
 
 #include "iox/test/TestMain.h"

@@ -53,22 +53,22 @@ void writeFile(const std::string& path, const std::string& data) {
 
 void printEvents(const std::vector<iox::IoxEvent>& events) {
     for (const auto& event : events) {
-        std::cout << iox::eventTypeName(event);
+        std::cout << iox::eventKindName(iox::eventKind(event));
         std::visit([](const auto& e) {
             using T = std::decay_t<decltype(e)>;
             if constexpr (std::is_same_v<T, iox::StartTransferEvent>) {
-                std::cout << " sender=" << e.sender
-                          << " version=" << (e.version ? std::to_string(*e.version) : "?");
+                std::cout << " sender=" << e.header.sender
+                          << " version=" << iox::xtfVersionName(e.header.version);
             } else if constexpr (std::is_same_v<T, iox::StartBasketEvent>) {
-                std::cout << " bid=" << e.bid
-                          << " type=" << e.basketType.iliName()
-                          << " consistency=" << e.consistency;
+                std::cout << " bid=" << e.basket.basketId
+                          << " topic=" << e.basket.topic.interlisName()
+                          << " consistency="
+                          << static_cast<int>(e.basket.consistency);
             } else if constexpr (std::is_same_v<T, iox::ObjectEvent>) {
-                std::cout << " tid=" << e.objectId
-                          << " class=" << e.object.tag().iliName()
+                std::cout << " tid="
+                          << (e.object.oid() ? *e.object.oid() : "")
+                          << " class=" << e.object.tag().interlisName()
                           << " attrs=" << e.object.attributeCount();
-            } else if constexpr (std::is_same_v<T, iox::EndBasketEvent>) {
-                std::cout << " bid=" << e.bid;
             }
         }, event);
         std::cout << "\n";
@@ -85,22 +85,22 @@ void printEventsJson(const std::vector<iox::IoxEvent>& events) {
 
 std::vector<iox::IoxEvent> readXtf(const std::string& data) {
     iox::xtf::XtfReader reader;
-    reader.feed(iox::ByteView(data.data(), data.size()));
+    reader.feed(iox::ByteView(data));
     reader.finish();
 
     std::vector<iox::IoxEvent> events;
     while (true) {
         auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
-        if (outcome.status == iox::ReadOutcome::Status::NeedInput) break;
+        if (outcome.progress == iox::ReaderProgress::End) break;
+        if (outcome.progress == iox::ReaderProgress::NeedInput) break;
         if (outcome.event) events.push_back(std::move(*outcome.event));
     }
 
     // Print any diagnostics
     auto diags = reader.takeDiagnostics();
     for (const auto& d : diags) {
-        std::cerr << "[" << (d.severity == iox::Diagnostic::Severity::Fatal ? "FATAL" :
-                              d.severity == iox::Diagnostic::Severity::Error ? "ERROR" : "WARN")
+        std::cerr << "[" << (d.severity == iox::DiagnosticSeverity::Fatal ? "FATAL" :
+                              d.severity == iox::DiagnosticSeverity::Error ? "ERROR" : "WARN")
                   << "] " << d.message << "\n";
     }
     return events;
@@ -109,7 +109,7 @@ std::vector<iox::IoxEvent> readXtf(const std::string& data) {
 std::string writeXtf(const std::vector<iox::IoxEvent>& events, bool isXtf24) {
     auto sink = std::make_shared<iox::StringOutputSink>();
     iox::xtf::XtfWriterOptions opts;
-    opts.version = isXtf24 ? iox::xtf::XtfVersion::Xtf24 : iox::xtf::XtfVersion::Xtf23;
+    opts.version = isXtf24 ? iox::xtf::XtfVersion::V24 : iox::xtf::XtfVersion::V23;
     opts.pretty = true;
     iox::xtf::XtfWriter writer(sink, opts);
     for (const auto& e : events) writer.write(e);
@@ -185,7 +185,7 @@ int main(int argc, char* argv[]) {
         // Detect version from first event
         bool is24 = false;
         if (auto* st = std::get_if<iox::StartTransferEvent>(&events[0])) {
-            is24 = st->version && *st->version == 24;
+            is24 = st->header.version == iox::XtfVersion::V24;
         }
         auto output = writeXtf(events, is24);
         writeFile(outputPath, output);

@@ -4,14 +4,26 @@
 
 #include <string>
 #include <optional>
+#include <cstddef>
 
 namespace iox {
 namespace xtf {
 
+enum class Strictness { Lenient, Strict };
+
+struct XmlLimits final {
+    std::size_t maxDepth = 256;
+    std::size_t maxAttributesPerElement = 1024;
+    std::size_t maxTextBytesPerNode = 16U * 1024U * 1024U;
+    std::size_t maxTotalInputBytes = 0;
+    std::size_t maxQueuedEvents = 1024;
+};
+
 /// Options controlling XTF reader behaviour.
 struct XtfReaderOptions final {
-    /// If true, certain non-fatal issues become fatal.
-    bool strict = false;
+    Strictness strictness = Strictness::Lenient;
+
+    XmlLimits xmlLimits;
 
     /// Name for the data source (used in diagnostics).
     std::string sourceName;
@@ -22,13 +34,17 @@ struct XtfReaderOptions final {
 
     /// If true, unknown fachlich extension elements are preserved
     /// in the IOM structure instead of being diagnosed.
-    bool preserveUnknownExtensions = false;
+    bool preserveUnknownExtensions = true;
+
+    bool requireAtLeastOneModel = true;
+
+    bool allowVersionAutoDetection = true;
 };
 
 /// Options controlling XTF writer behaviour.
 struct XtfWriterOptions final {
     /// The XTF version to write.
-    XtfVersion version = XtfVersion::Xtf24;
+    XtfVersion version = XtfVersion::V24;
 
     /// Strict mode: additional validation rules.
     bool strict = false;

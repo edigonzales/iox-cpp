@@ -20,7 +20,7 @@ IOX_TEST(xtf24_reader_preserves_expanded_qnames) {
     iox::IomObject object;
     while (true) {
         auto outcome = reader.next();
-        if (outcome.status == iox::ReadOutcome::Status::End) break;
+        if (outcome.progress == iox::ReaderProgress::End) break;
         if (outcome.event) {
             if (const auto* event = std::get_if<iox::ObjectEvent>(&*outcome.event)) {
                 object = event->object;
@@ -29,10 +29,11 @@ IOX_TEST(xtf24_reader_preserves_expanded_qnames) {
         }
     }
     IOX_CHECK(object.tag().hasXmlName());
-    IOX_CHECK_EQ(std::string("urn:example:model"), object.tag().xmlName()->namespaceUri);
-    IOX_CHECK_EQ(std::string("Class"), object.tag().xmlName()->localName);
-    IOX_CHECK(object.findAttribute("Name") != nullptr);
-    IOX_CHECK(object.findAttribute("Name")->name.hasXmlName());
+    IOX_CHECK_EQ(std::string("urn:example:model"),
+                 object.tag().xmlName().namespaceUri);
+    IOX_CHECK_EQ(std::string("Class"), object.tag().xmlName().localName);
+    IOX_CHECK(object.hasAttribute("Name"));
+    IOX_CHECK(object.attributeName(0).hasXmlName());
 }
 
 #include "iox/test/TestMain.h"
