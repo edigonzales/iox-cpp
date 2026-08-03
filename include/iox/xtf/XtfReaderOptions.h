@@ -44,13 +44,19 @@ struct XtfReaderOptions final {
 /// Options controlling XTF writer behaviour.
 struct XtfWriterOptions final {
     /// The XTF version to write.
-    XtfVersion version = XtfVersion::V24;
+    XtfVersion version = XtfVersion::V23;
 
     /// Strict mode: additional validation rules.
-    bool strict = false;
+    Strictness strictness = Strictness::Lenient;
 
     /// Pretty-print with indentation.
     bool pretty = true;
+
+    /// Preserve representable extension content in the output.
+    bool preserveUnknownExtensions = true;
+
+    /// Assign stable namespace prefixes where a dialect uses prefixes.
+    bool deterministicPrefixes = true;
 
     /// Sender string for the header.
     std::string sender;

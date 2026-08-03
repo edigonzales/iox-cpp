@@ -651,10 +651,31 @@ struct Xtf23Dialect::Impl final {
     void appendGenericAttribute(IomObject& owner, const Node& attribute) {
         const auto name = iomName(attribute.name);
         if (const auto oid = optionalAttribute(attribute, "OID")) {
-            owner.appendPrimitive(name, *oid);
+            if (oid->empty()) {
+                strictOrReport(DiagnosticCode::UnexpectedAttribute,
+                               "OID must not be empty", attribute.location);
+            }
+            if (!unknownAttributes(attribute, attributeNames({"OID"})).empty()) {
+                strictOrReport(DiagnosticCode::UnexpectedAttribute,
+                               "OID attribute contains unknown XML attributes",
+                               attribute.location);
+            }
+            if (!attribute.children.empty() || !isWhitespace(attribute.text)) {
+                strictOrReport(DiagnosticCode::UnexpectedElement,
+                               "OID attribute must not contain element or text data",
+                               attribute.location);
+            }
+            IomObject oidValue(IomName("OID"), *oid);
+            oidValue.setSourceLocation(attribute.location);
+            owner.appendObject(name, std::move(oidValue));
             return;
         }
         if (hasReference(attribute)) {
+            if (!isWhitespace(attribute.text)) {
+                strictOrReport(DiagnosticCode::UnexpectedElement,
+                               "Reference attribute must not contain text data",
+                               attribute.location);
+            }
             IomObject reference = attribute.children.empty()
                                       ? IomObject(IomName("REF"))
                                       : nodeToObject(attribute.children.front());

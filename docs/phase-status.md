@@ -352,3 +352,37 @@ The normative PDF and pinned Java source were inspected during implementation;
 normal CTest and WASM tests use neither network nor Java. No Linux or Windows
 run, sanitizer pass, fuzzing, or coverage threshold is claimed for this phase;
 those independent gates remain assigned to Phase 20.
+
+## Phase 16 — Conformant XTF 2.3 writer
+
+Phase 16 was verified on macOS on 2026-08-03. `XtfWriter` now validates the
+event sequence before dispatch and delegates XTF 2.3 wire rules to one private
+dialect. Fatal state, content, XML, and sink failures make the writer terminal;
+`close()` succeeds only after `EndTransfer`, is then idempotent, and never
+synthesizes events. Output is written incrementally through `OutputSink`.
+
+The dialect writes normative header order, complete model and OID-space data,
+aliases, comments, basket metadata, object operations and consistency,
+references including embedded association payloads, structures, lexical
+primitives, OID-valued attributes, and the required coordinate, arc, custom
+line-form, line-attribute, clipped polyline, boundary, surface and area shapes.
+Unknown extensions are preserved or diagnosed according to policy and are
+fatal in strict mode. Independently specified byte goldens are checked before
+semantic Reader → Writer → Reader comparisons. The pinned Java
+`XtfWriterAlt.java` was inspected, while the normal tests use neither Java nor
+network access.
+
+### Phase 16 verification commands
+
+```text
+cmake --build build/phase14 --parallel                        # exit 0
+ctest --test-dir build/phase14 --output-on-failure            # exit 0, 34/34
+cmake --build build/phase14-ilic --parallel                   # exit 0
+ctest --test-dir build/phase14-ilic --output-on-failure       # exit 0, 29/29
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, Emscripten 3.1.64
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 8/8
+```
+
+No Linux or Windows run, sanitizer pass, fuzzing, or coverage threshold is
+claimed for this phase; those independent release gates remain assigned to
+Phase 20.

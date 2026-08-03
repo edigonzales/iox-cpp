@@ -491,7 +491,8 @@ iox_writer_t* iox_writer_create(const char* format, const char* optionsJson) {
             iox::xtf::XtfWriterOptions options;
             if (value != "xtf24") options.version = iox::xtf::XtfVersion::V23;
             if (const auto strict = jsonBoolOption(optionsJson, "strict")) {
-                options.strict = *strict;
+                options.strictness = *strict ? iox::xtf::Strictness::Strict
+                                             : iox::xtf::Strictness::Lenient;
             }
             if (const auto pretty = jsonBoolOption(optionsJson, "pretty")) {
                 options.pretty = *pretty;

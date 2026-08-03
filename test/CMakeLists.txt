@@ -87,6 +87,12 @@ add_executable(iox-test-xtf23-geometry
 target_link_libraries(iox-test-xtf23-geometry PRIVATE iox-xtf iox-xml iox-core iox-test-support)
 add_test(NAME iox.test.xtf23.geometry COMMAND iox-test-xtf23-geometry)
 
+add_executable(iox-test-xtf23-writer
+    xtf23/Xtf23Writer.test.cpp
+)
+target_link_libraries(iox-test-xtf23-writer PRIVATE iox-xtf iox-xml iox-core iox-test-support)
+add_test(NAME iox.test.xtf23.writer COMMAND iox-test-xtf23-writer)
+
 # --- XTF 2.4 tests ----------------------------------------------------------
 add_executable(iox-test-xtf24-basic
     xtf24/Xtf24Basic.test.cpp

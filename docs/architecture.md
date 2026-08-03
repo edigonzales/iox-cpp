@@ -77,11 +77,14 @@ providing value-like semantics without deep copies on every assignment.
 
 ## XTF Dialects
 
-`XtfReader` is the single public coordinator. The complete XTF 2.3 reader is
-a private dialect under `source/xtf/v23`; it receives expanded XML names and
-builds only the current header or attribute subtree, never a document DOM.
-Wire-format decisions stay in that dialect, while queueing, limits, and event
-order stay in the coordinator. The independent 2.4 replacement is deliberately
+`XtfReader` and `XtfWriter` are the single public coordinators. The complete
+XTF 2.3 reader and writer are private dialects under `source/xtf/v23`; the
+reader receives expanded XML names and builds only the current header or
+attribute subtree, never a document DOM. The writer consumes one event at a
+time and writes directly to `OutputSink`. Wire-format decisions stay in the
+dialect, while queueing, limits, terminal writer state, and event order stay in
+the coordinators. A failed writer is permanently terminal, and `close()` never
+invents missing end events. The independent 2.4 replacement is deliberately
 left to Phase 17; the existing compatibility path remains isolated meanwhile.
 Common logic is extracted only when the wire rules are genuinely identical.
 

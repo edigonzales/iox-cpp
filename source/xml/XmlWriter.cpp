@@ -283,6 +283,10 @@ struct XmlWriter::Impl final {
                 defaultBinding->second == name.namespaceUri) {
                 return {};
             }
+            if (name.prefixHint.empty()) {
+                addDeclaration(frame, "", name.namespaceUri);
+                return {};
+            }
         }
         for (const auto& binding : frame.bindings) {
             if (binding.second == name.namespaceUri &&

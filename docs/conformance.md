@@ -146,6 +146,29 @@ surfaces carry `Consistency::Incomplete`. Surface clipping groups remain
 ordered `SURFACE.clipped` objects with ordered `boundary` values, so a later
 writer does not have to guess group boundaries.
 
+### XTF 2.3 writer mapping
+
+The Phase 16 writer emits the section 3.3.3--3.3.11 wire order directly to an
+`OutputSink`: `HEADERSECTION` attributes, complete `MODEL` entries, aliases,
+OID spaces and comments precede `DATASECTION`; basket and object control
+attributes retain their event values. Lexical primitives are never parsed or
+normalized. A model-free XML attribute with `OID` is represented internally by
+an `IomObject` tagged `OID` with its `oid` field set, which distinguishes it
+from element text without adding a typed primitive to `IomValue`.
+
+`LINEATTR`, custom line forms, multiple `CLIPPED` segment sequences and grouped
+clipped surfaces are serialized from the canonical IOM geometry tree described
+above. Unknown extensions are either emitted with
+`extension.unknown-preserved`, diagnosed as dropped, or rejected in strict
+mode. Unsupported geometry members are likewise never silently discarded.
+Golden writer tests assert independently specified normative bytes before a
+separate semantic reparse; roundtrip success is not used as the sole oracle.
+
+The pinned `XtfWriterAlt.java` was inspected for header, basket, object,
+reference, line-attribute and clipped-geometry behavior. iox-cpp deliberately
+keeps a smaller direct streaming implementation: it has no transfer DOM,
+model-provider framework or automatic completion of missing end events.
+
 ### XTF 2.4 names
 
 The reader retains the expanded namespace URI and local XML name on every

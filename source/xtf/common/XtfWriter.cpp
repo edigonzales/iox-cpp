@@ -1,6 +1,7 @@
 #include "iox/xtf/XtfWriter.h"
 
 #include "iox/Diagnostic.h"
+#include "xtf/v23/Xtf23Writer.h"
 #include "xml/XmlWriter.h"
 
 #include <cctype>
@@ -68,6 +69,7 @@ enum class WriterState {
     BeforeTransfer,
     InTransfer,
     InBasket,
+    AfterBasket,
     AfterTransfer,
     Closed,
     Failed
@@ -77,6 +79,7 @@ struct XtfWriter::Impl final {
     XtfWriterOptions options;
     std::shared_ptr<OutputSink> sink;
     std::unique_ptr<xml::XmlWriter> xml;
+    std::unique_ptr<Xtf23Writer> writer23;
     WriterState state = WriterState::BeforeTransfer;
     bool dataSectionOpen = false;
     std::vector<Diagnostic> diagnostics;
@@ -175,15 +178,23 @@ struct XtfWriter::Impl final {
     void validate(EventKind kind) {
         const bool valid =
             (state == WriterState::BeforeTransfer && kind == EventKind::StartTransfer) ||
-            (state == WriterState::InTransfer &&
+            ((state == WriterState::InTransfer ||
+              state == WriterState::AfterBasket) &&
              (kind == EventKind::StartBasket || kind == EventKind::EndTransfer)) ||
             (state == WriterState::InBasket &&
              (kind == EventKind::Object || kind == EventKind::EndBasket));
         if (!valid) {
             state = WriterState::Failed;
-            throw IoxError(DiagnosticCode::InvalidEventOrder,
+            throw IoxError(DiagnosticCode::WriterStateError,
                            "Invalid event order in XTF writer");
         }
+    }
+
+    void advance(EventKind kind) noexcept {
+        if (kind == EventKind::StartTransfer) state = WriterState::InTransfer;
+        else if (kind == EventKind::StartBasket) state = WriterState::InBasket;
+        else if (kind == EventKind::EndBasket) state = WriterState::AfterBasket;
+        else if (kind == EventKind::EndTransfer) state = WriterState::AfterTransfer;
     }
 
     void writeStartTransfer(const StartTransferEvent& event) {
@@ -241,7 +252,6 @@ struct XtfWriter::Impl final {
             if (event.header.comment) writeTextElement("ili:COMMENT", *event.header.comment);
             xml->endElement();
         }
-        state = WriterState::InTransfer;
     }
 
     void writeStartBasket(const StartBasketEvent& event) {
@@ -268,7 +278,6 @@ struct XtfWriter::Impl final {
         }
         addNamespaceBinding(attributes, event.basket.topic);
         startElement(basketTag, attributes);
-        state = WriterState::InBasket;
     }
 
     void writeReferenceAttributes(
@@ -399,7 +408,6 @@ struct XtfWriter::Impl final {
     void writeEndBasket() {
         xml->endElement();
         basketTag.clear();
-        state = WriterState::InTransfer;
     }
 
     void writeEndTransfer() {
@@ -411,7 +419,6 @@ struct XtfWriter::Impl final {
         xml->endElement();
         dataSectionOpen = false;
         xml->endElement();
-        state = WriterState::AfterTransfer;
     }
 };
 
@@ -426,6 +433,13 @@ XtfWriter::XtfWriter(std::shared_ptr<OutputSink> output,
     xmlOptions.pretty = impl_->options.pretty;
     impl_->xml = std::make_unique<xml::XmlWriter>(impl_->sink,
                                                   std::move(xmlOptions));
+    if (impl_->options.version == XtfVersion::V23) {
+        impl_->writer23 = std::make_unique<Xtf23Writer>(
+            *impl_->xml, impl_->options,
+            [this](Diagnostic diagnostic) {
+                impl_->diagnostics.push_back(std::move(diagnostic));
+            });
+    }
 }
 
 XtfWriter::~XtfWriter() = default;
@@ -441,17 +455,23 @@ void XtfWriter::write(const IoxEvent& event) {
         std::visit([this](const auto& value) {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, StartTransferEvent>) {
-                impl_->writeStartTransfer(value);
+                if (impl_->writer23) impl_->writer23->writeStartTransfer(value);
+                else impl_->writeStartTransfer(value);
             } else if constexpr (std::is_same_v<T, StartBasketEvent>) {
-                impl_->writeStartBasket(value);
+                if (impl_->writer23) impl_->writer23->writeStartBasket(value);
+                else impl_->writeStartBasket(value);
             } else if constexpr (std::is_same_v<T, ObjectEvent>) {
-                impl_->writeObject(value);
+                if (impl_->writer23) impl_->writer23->writeObject(value);
+                else impl_->writeObject(value);
             } else if constexpr (std::is_same_v<T, EndBasketEvent>) {
-                impl_->writeEndBasket();
+                if (impl_->writer23) impl_->writer23->writeEndBasket(value);
+                else impl_->writeEndBasket();
             } else {
-                impl_->writeEndTransfer();
+                if (impl_->writer23) impl_->writer23->writeEndTransfer(value);
+                else impl_->writeEndTransfer();
             }
         }, event);
+        impl_->advance(kind);
     } catch (...) {
         impl_->state = WriterState::Failed;
         throw;
@@ -459,24 +479,48 @@ void XtfWriter::write(const IoxEvent& event) {
 }
 
 void XtfWriter::flush() {
-    if (impl_->state == WriterState::Failed) {
+    if (impl_->state == WriterState::Failed ||
+        impl_->state == WriterState::Closed ||
+        impl_->state == WriterState::BeforeTransfer) {
         throw IoxError(DiagnosticCode::WriterStateError,
-                       "XTF writer is in a failed state");
+                       "XTF writer cannot be flushed in its current state");
     }
-    impl_->xml->flush();
-    impl_->sink->flush();
+    try {
+        impl_->xml->flush();
+    } catch (...) {
+        impl_->state = WriterState::Failed;
+        throw;
+    }
 }
 
 void XtfWriter::close() {
     if (impl_->state == WriterState::Closed) return;
+    if (impl_->state == WriterState::Failed) {
+        throw IoxError(DiagnosticCode::WriterStateError,
+                       "Cannot close a failed XTF writer");
+    }
     if (impl_->state != WriterState::AfterTransfer) {
         impl_->state = WriterState::Failed;
-        throw IoxError(DiagnosticCode::InvalidEventOrder,
+        throw IoxError(DiagnosticCode::WriterStateError,
                        "XTF writer closed before EndTransferEvent");
     }
-    impl_->xml->endDocument();
-    impl_->sink->close();
-    impl_->state = WriterState::Closed;
+    try {
+        impl_->xml->endDocument();
+        impl_->sink->close();
+        impl_->state = WriterState::Closed;
+    } catch (const IoxError&) {
+        impl_->state = WriterState::Failed;
+        throw;
+    } catch (const std::exception& exception) {
+        impl_->state = WriterState::Failed;
+        throw IoxError(DiagnosticCode::IoError,
+                       std::string("XTF output close failed: ") +
+                           exception.what());
+    } catch (...) {
+        impl_->state = WriterState::Failed;
+        throw IoxError(DiagnosticCode::IoError,
+                       "XTF output close failed with an unknown exception");
+    }
 }
 
 bool XtfWriter::isClosed() const noexcept {

@@ -151,7 +151,7 @@ IOX_TEST(xtf_writer_state_machine) {
     try {
         writer.write(iox::EndTransferEvent{});
     } catch (const iox::IoxError& error) {
-        threw = error.code() == iox::DiagnosticCode::InvalidEventOrder;
+        threw = error.code() == iox::DiagnosticCode::WriterStateError;
     }
     IOX_CHECK(threw);
 

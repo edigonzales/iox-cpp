@@ -150,6 +150,7 @@ IOX_TEST(xtf23_geometry_incomplete_polyline) {
     second.appendObject(iox::IomName("segment"), coordinate(20, 20));
     second.appendObject(iox::IomName("segment"), coordinate(30, 30));
     iox::IomObject line(iox::IomName("POLYLINE"));
+    line.setConsistency(iox::Consistency::Incomplete);
     line.appendObject(iox::IomName("sequence"), first);
     line.appendObject(iox::IomName("sequence"), second);
 
