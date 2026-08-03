@@ -1,320 +1,518 @@
-/// Model-aware tests against the concrete ilic-fork metamodel API.
+/// Model-aware transfer tests against the concrete ilic-core metamodel API.
 
 #include "iox/ilic/IlicModelIndex.h"
-#include "iox/xtf/XtfReaderOptions.h"
-#include "iox/xtf/XtfWriter.h"
-#include "iox/Events.h"
-#include "iox/Writer.h"
 #include "iox/test/Test.h"
+#include "iox/Writer.h"
+#include "iox/xtf/XtfWriter.h"
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
-struct TestModel final {
-    metamodel::Model model;
-    metamodel::SubModel topic;
-    metamodel::Class classA;
-    metamodel::Class classB;
-    metamodel::AttrOrParam name;
-    metamodel::AttrOrParam count;
-    metamodel::AttrOrParam refToA;
-    metamodel::TextType text;
-    metamodel::NumType number;
-    metamodel::ReferenceType reference;
+namespace {
 
-    TestModel() {
-        model.Name = "TestModel";
-        model.xmlns = "urn:example:model";
-        topic.Name = "TopicA";
-        topic.ElementInPackage = &model;
-        model.Element.push_back(&topic);
+struct ModelFixture final {
+    metamodel::MetaModelStore store;
 
-        classA.Name = "ClassA";
-        classA.ElementInPackage = &topic;
-        classA.ClassAttribute.push_back(&name);
-        classA.ClassAttribute.push_back(&count);
-        topic.Element.push_back(&classA);
+    metamodel::Model* base = nullptr;
+    metamodel::SubModel* data = nullptr;
+    metamodel::Class* parent = nullptr;
+    metamodel::Class* feature = nullptr;
+    metamodel::Class* target = nullptr;
+    metamodel::Class* detail = nullptr;
+    metamodel::View* transientView = nullptr;
+    metamodel::Class* link = nullptr;
+    metamodel::AttrOrParam* code = nullptr;
+    metamodel::AttrOrParam* name = nullptr;
+    metamodel::AttrOrParam* status = nullptr;
+    metamodel::AttrOrParam* details = nullptr;
+    metamodel::AttrOrParam* calculated = nullptr;
+    metamodel::Role* targetRole = nullptr;
+    metamodel::EnumType* statusType = nullptr;
+    metamodel::EnumNode* open = nullptr;
+    metamodel::EnumNode* others = nullptr;
 
-        classB.Name = "ClassB";
-        classB.ElementInPackage = &topic;
-        classB.ClassAttribute.push_back(&refToA);
-        topic.Element.push_back(&classB);
+    metamodel::Model* french = nullptr;
+    metamodel::SubModel* donnees = nullptr;
+    metamodel::Class* parentFr = nullptr;
+    metamodel::Class* featureFr = nullptr;
+    metamodel::Class* targetFr = nullptr;
+    metamodel::Class* detailFr = nullptr;
+    metamodel::View* transientViewFr = nullptr;
+    metamodel::Class* linkFr = nullptr;
+    metamodel::AttrOrParam* codeFr = nullptr;
+    metamodel::AttrOrParam* nameFr = nullptr;
+    metamodel::AttrOrParam* statusFr = nullptr;
+    metamodel::AttrOrParam* detailsFr = nullptr;
+    metamodel::AttrOrParam* calculatedFr = nullptr;
+    metamodel::Role* targetRoleFr = nullptr;
+    metamodel::EnumType* statusTypeFr = nullptr;
+    metamodel::EnumNode* openFr = nullptr;
+    metamodel::EnumNode* othersFr = nullptr;
+    metamodel::Model* otherModel = nullptr;
 
-        name.Name = "Name";
-        name.AttrParent = &classA;
-        name.Type = &text;
-        count.Name = "Count";
-        count.AttrParent = &classA;
-        count.Type = &number;
+    ModelFixture() {
+        buildBase();
+        buildTranslation();
+        addAmbiguousLocalClass();
+        store.addModel(*base);
+        store.addModel(*french);
+        store.addModel(*otherModel);
+    }
 
-        refToA.Name = "RefToA";
-        refToA.AttrParent = &classB;
-        refToA.Type = &reference;
-        reference._baseclass = &classA;
+private:
+    metamodel::Class* addClass(metamodel::SubModel& topic,
+                               std::string nameValue, int kind) {
+        auto* result = store.make<metamodel::Class>();
+        result->Name = std::move(nameValue);
+        result->Kind = static_cast<decltype(result->Kind)>(kind);
+        result->ElementInPackage = &topic;
+        topic.Element.push_back(result);
+        return result;
+    }
+
+    metamodel::AttrOrParam* addAttribute(metamodel::Class& owner,
+                                         std::string nameValue,
+                                         metamodel::Type* type) {
+        auto* result = store.make<metamodel::AttrOrParam>();
+        result->Name = std::move(nameValue);
+        result->AttrParent = &owner;
+        result->Type = type;
+        owner.ClassAttribute.push_back(result);
+        return result;
+    }
+
+    metamodel::EnumNode* addEnumNode(metamodel::EnumNode& parent,
+                                     std::string nameValue) {
+        auto* result = store.make<metamodel::EnumNode>();
+        result->Name = std::move(nameValue);
+        result->ParentNode = &parent;
+        parent.Node.push_back(result);
+        return result;
+    }
+
+    void buildBase() {
+        base = store.make<metamodel::Model>();
+        base->Name = "BaseModel";
+        base->Language = "de";
+        base->Version = "1.0";
+        base->At = "https://example.test/base";
+        base->xmlns = "urn:example:base";
+
+        data = store.make<metamodel::SubModel>();
+        data->Name = "Data";
+        data->ElementInPackage = base;
+        base->Element.push_back(data);
+
+        parent = addClass(*data, "Parent", metamodel::Class::ClassVal);
+        feature = addClass(*data, "Feature", metamodel::Class::ClassVal);
+        feature->Super = parent;
+        target = addClass(*data, "Target", metamodel::Class::ClassVal);
+        detail = addClass(*data, "Detail", metamodel::Class::Structure);
+
+        transientView = store.make<metamodel::View>();
+        transientView->Name = "CalculatedView";
+        transientView->Kind = metamodel::Class::ViewVal;
+        transientView->Transient = true;
+        transientView->ElementInPackage = data;
+        data->Element.push_back(transientView);
+
+        auto* text = store.make<metamodel::TextType>();
+        code = addAttribute(*parent, "Code", text);
+        name = addAttribute(*feature, "Name", text);
+
+        statusType = store.make<metamodel::EnumType>();
+        auto* top = store.make<metamodel::EnumNode>();
+        top->Name = "TOP";
+        top->EnumType = statusType;
+        statusType->TopNode = top;
+        open = addEnumNode(*top, "Open");
+        others = addEnumNode(*top, "OTHERS");
+        status = addAttribute(*feature, "Status", statusType);
+        details = addAttribute(*feature, "Details", detail);
+        calculated = addAttribute(*feature, "Calculated", text);
+        calculated->Transient = true;
+
+        link = addClass(*data, "Link", metamodel::Class::Association);
+        link->EmbeddedRoleTransfer = true;
+        targetRole = store.make<metamodel::Role>();
+        targetRole->Name = "TargetRole";
+        targetRole->Association = link;
+        targetRole->_baseclass = target;
+        targetRole->EmbeddedTransfer = true;
+        link->Role.push_back(targetRole);
+        feature->_roleaccess.push_back(targetRole);
+        auto* sourceRole = store.make<metamodel::Role>();
+        sourceRole->Name = "SourceRole";
+        sourceRole->Association = link;
+        sourceRole->_baseclass = feature;
+        link->Role.push_back(sourceRole);
+    }
+
+    void buildTranslation() {
+        french = store.make<metamodel::Model>();
+        french->Name = "Modele";
+        french->Language = "fr";
+        french->Version = "1.0-fr";
+        french->At = "https://example.test/fr";
+        french->_translationOf = base;
+
+        donnees = store.make<metamodel::SubModel>();
+        donnees->Name = "Donnees";
+        donnees->_translationOf = data;
+        donnees->ElementInPackage = french;
+        french->Element.push_back(donnees);
+
+        parentFr = addClass(*donnees, "ParentFr", metamodel::Class::ClassVal);
+        parentFr->_translationOf = parent;
+        featureFr = addClass(*donnees, "Objet", metamodel::Class::ClassVal);
+        featureFr->_translationOf = feature;
+        featureFr->Super = parentFr;
+        targetFr = addClass(*donnees, "Cible", metamodel::Class::ClassVal);
+        targetFr->_translationOf = target;
+        detailFr = addClass(*donnees, "DetailFr", metamodel::Class::Structure);
+        detailFr->_translationOf = detail;
+
+        transientViewFr = store.make<metamodel::View>();
+        transientViewFr->Name = "VueCalculee";
+        transientViewFr->Kind = metamodel::Class::ViewVal;
+        transientViewFr->Transient = true;
+        transientViewFr->_translationOf = transientView;
+        transientViewFr->ElementInPackage = donnees;
+        donnees->Element.push_back(transientViewFr);
+
+        auto* text = store.make<metamodel::TextType>();
+        codeFr = addAttribute(*parentFr, "CodeFr", text);
+        codeFr->_translationOf = code;
+        nameFr = addAttribute(*featureFr, "Nom", text);
+        nameFr->_translationOf = name;
+
+        statusTypeFr = store.make<metamodel::EnumType>();
+        statusTypeFr->_translationOf = statusType;
+        auto* top = store.make<metamodel::EnumNode>();
+        top->Name = "TOP";
+        top->EnumType = statusTypeFr;
+        top->_translationOf = statusType->TopNode;
+        statusTypeFr->TopNode = top;
+        openFr = addEnumNode(*top, "Ouvert");
+        openFr->_translationOf = open;
+        othersFr = addEnumNode(*top, "AUTRES");
+        othersFr->_translationOf = others;
+        statusFr = addAttribute(*featureFr, "Statut", statusTypeFr);
+        statusFr->_translationOf = status;
+        detailsFr = addAttribute(*featureFr, "DetailsFr", detailFr);
+        detailsFr->_translationOf = details;
+        calculatedFr = addAttribute(*featureFr, "Calcule", text);
+        calculatedFr->_translationOf = calculated;
+        calculatedFr->Transient = true;
+
+        linkFr = addClass(*donnees, "Lien", metamodel::Class::Association);
+        linkFr->_translationOf = link;
+        linkFr->EmbeddedRoleTransfer = true;
+        targetRoleFr = store.make<metamodel::Role>();
+        targetRoleFr->Name = "RoleCible";
+        targetRoleFr->_translationOf = targetRole;
+        targetRoleFr->Association = linkFr;
+        targetRoleFr->_baseclass = targetFr;
+        targetRoleFr->EmbeddedTransfer = true;
+        linkFr->Role.push_back(targetRoleFr);
+        featureFr->_roleaccess.push_back(targetRoleFr);
+        auto* sourceRole = store.make<metamodel::Role>();
+        sourceRole->Name = "RoleSource";
+        sourceRole->Association = linkFr;
+        sourceRole->_baseclass = featureFr;
+        linkFr->Role.push_back(sourceRole);
+    }
+
+    void addAmbiguousLocalClass() {
+        otherModel = store.make<metamodel::Model>();
+        otherModel->Name = "OtherModel";
+        otherModel->Language = "en";
+        otherModel->xmlns = "urn:example:other";
+        auto* other = store.make<metamodel::SubModel>();
+        other->Name = "Other";
+        other->ElementInPackage = otherModel;
+        otherModel->Element.push_back(other);
+        (void)addClass(*other, "Feature", metamodel::Class::ClassVal);
     }
 };
 
-static std::string writeXtf23(const std::vector<iox::IoxEvent>& events) {
+std::vector<iox::IoxEvent> transferEvents(iox::XtfVersion version) {
+    iox::StartTransferEvent start;
+    start.header.version = version;
+    start.header.sender = "test";
+    start.header.models.push_back({"Modele", {}, {}, {}});
+
+    iox::StartBasketEvent basket;
+    basket.basket.topic = iox::IomName("BaseModel.Data");
+    basket.basket.basketId = "b1";
+
+    iox::ObjectEvent object;
+    object.object = iox::IomObject(
+        iox::IomName("BaseModel.Data.Feature"), "o1");
+    object.object.setPrimitive(iox::IomName("Status"), "Open");
+    object.object.setPrimitive(iox::IomName("Name"), "nom");
+    object.object.setPrimitive(iox::IomName("Code"), "001.2300");
+    object.object.setObject(
+        iox::IomName("Details"),
+        iox::IomObject(iox::IomName("BaseModel.Data.Detail")));
+
+    return {start, basket, object, iox::EndBasketEvent{},
+            iox::EndTransferEvent{}};
+}
+
+std::string write(const ModelFixture& fixture, iox::XtfVersion version) {
     auto sink = std::make_shared<iox::StringOutputSink>();
-    iox::xtf::XtfWriterOptions opts;
-    opts.version = iox::xtf::XtfVersion::V23;
-    opts.pretty = false;
-    opts.sender = "Test";
-    opts.software = "iox-test";
-    iox::xtf::XtfWriter writer(sink, opts);
-    for (const auto& event : events) writer.write(event);
+    iox::ilic::IlicXtfWriterOptions options;
+    options.xtf.version = version;
+    options.xtf.pretty = false;
+    iox::ilic::IlicXtfWriter writer(fixture.store, sink, options);
+    for (const auto& event : transferEvents(version)) writer.write(event);
     writer.close();
     return sink->str();
 }
 
-static std::vector<iox::IoxEvent> knownEvents(const std::string& className) {
-    std::vector<iox::IoxEvent> events;
-    iox::StartTransferEvent start;
-    start.header.version = iox::XtfVersion::V23;
-    start.header.sender = "Test";
-    start.header.models.push_back(
-        {"TestModel", "1", "urn:example:model", {}});
-    events.push_back(start);
-    iox::StartBasketEvent basket;
-    basket.basket.topic = iox::IomName("TestModel.TopicA");
-    basket.basket.basketId = "B1";
-    events.push_back(basket);
-    iox::ObjectEvent object;
-    object.object = iox::IomObject(iox::IomName(className), "T1");
-    object.object.setOperation(iox::ObjectOperation::Insert);
-    events.push_back(object);
-    events.push_back(iox::EndBasketEvent{});
-    events.push_back(iox::EndTransferEvent{});
-    return events;
+} // namespace
+
+IOX_TEST(model_index_copies_and_translates_names) {
+    auto fixture = std::make_unique<ModelFixture>();
+    iox::ilic::IlicModelIndex index(fixture->store);
+    const auto topic = index.resolveTopic(
+        iox::IomName("BaseModel.Data"), "Modele", iox::XtfVersion::V23);
+    IOX_CHECK(topic.has_value());
+    IOX_CHECK_EQ(std::string("Modele.Donnees"), topic->interlisName());
+
+    const auto klass = index.resolveClass(
+        iox::IomName("BaseModel.Data.Feature"), "Modele",
+        iox::XtfVersion::V23);
+    IOX_CHECK(klass.has_value());
+    IOX_CHECK_EQ(std::string("Modele.Donnees.Objet"),
+                 klass->interlisName());
+
+    const auto property = index.resolveProperty(
+        iox::IomName("BaseModel.Data.Feature"), iox::IomName("Name"),
+        "Modele", iox::XtfVersion::V23);
+    IOX_CHECK(property.has_value());
+    IOX_CHECK_EQ(std::string("Nom"), property->interlisName());
 }
 
-IOX_TEST(model_based_index_find_topic) {
-    TestModel fixture;
-    iox::ilic::IlicModelIndex index(fixture.model);
-    const auto* topic = index.findTopic("TestModel.TopicA");
-    IOX_CHECK(topic != nullptr);
-    IOX_CHECK_EQ(std::string("TopicA"), topic->Name);
-    IOX_CHECK(index.findTopic("Nonexistent.Topic") == nullptr);
+IOX_TEST(model_index_does_not_retain_store_pointers) {
+    std::unique_ptr<iox::ilic::IlicModelIndex> index;
+    {
+        ModelFixture fixture;
+        index = std::make_unique<iox::ilic::IlicModelIndex>(fixture.store);
+    }
+    const auto klass = index->resolveClass(
+        iox::IomName("BaseModel.Data.Feature"), "Modele",
+        iox::XtfVersion::V23);
+    IOX_CHECK(klass.has_value());
+    IOX_CHECK_EQ(std::string("Modele.Donnees.Objet"),
+                 klass->interlisName());
 }
 
-IOX_TEST(model_based_index_find_class_and_properties) {
-    TestModel fixture;
-    iox::ilic::IlicModelIndex index(fixture.model);
-    const auto* klass = index.findClass("TestModel.TopicA.ClassA");
-    IOX_CHECK(klass != nullptr);
-    IOX_CHECK_EQ(std::string("ClassA"), klass->Name);
-
-    const auto* property = index.findProperty(*klass, "Name");
-    IOX_CHECK(property != nullptr);
-    IOX_CHECK_EQ(std::string("Name"), property->Name);
-    IOX_CHECK(dynamic_cast<const metamodel::TextType*>(property->Type) != nullptr);
-
-    const auto properties = index.transferProperties(*klass);
-    IOX_CHECK_EQ(static_cast<std::size_t>(2), properties.size());
-    IOX_CHECK_EQ(std::string("Name"), properties[0]->Name);
-    IOX_CHECK_EQ(std::string("Count"), properties[1]->Name);
+IOX_TEST(model_index_xtf24_uses_origin_wire_qnames) {
+    ModelFixture fixture;
+    iox::ilic::IlicModelIndex index(fixture.store);
+    const auto klass = index.resolveClass(
+        iox::IomName("Modele.Donnees.Objet"), "Modele",
+        iox::XtfVersion::V24);
+    IOX_CHECK(klass.has_value());
+    IOX_CHECK_EQ(std::string("Modele.Donnees.Objet"),
+                 klass->interlisName());
+    IOX_CHECK_EQ(std::string("urn:example:base"),
+                 klass->xmlName().namespaceUri);
+    IOX_CHECK_EQ(std::string("Feature"), klass->xmlName().localName);
 }
 
-IOX_TEST(model_based_index_reference_type) {
-    TestModel fixture;
-    iox::ilic::IlicModelIndex index(fixture.model);
-    const auto* klass = index.findClass("TestModel.TopicA.ClassB");
-    IOX_CHECK(klass != nullptr);
-    const auto* property = index.findProperty(*klass, "RefToA");
-    IOX_CHECK(property != nullptr);
-    const auto* reference = dynamic_cast<const metamodel::ReferenceType*>(property->Type);
-    IOX_CHECK(reference != nullptr);
-    IOX_CHECK(reference->_baseclass == index.findClass("TestModel.TopicA.ClassA"));
+IOX_TEST(model_index_rejects_ambiguous_local_names) {
+    ModelFixture fixture;
+    iox::ilic::IlicModelIndex index(fixture.store);
+    bool rejected = false;
+    try {
+        (void)index.resolveClass(iox::IomName("Feature"), "BaseModel",
+                                 iox::XtfVersion::V23);
+    } catch (const iox::IoxError& error) {
+        rejected = error.code() == iox::DiagnosticCode::ModelMismatch;
+    }
+    IOX_CHECK(rejected);
+    IOX_CHECK(index.resolveClass(iox::IomName("BaseModel.Data.Feature"),
+                                 "BaseModel", iox::XtfVersion::V23)
+                  .has_value());
 }
 
-IOX_TEST(model_based_reader_known_class_ok) {
-    TestModel fixture;
+IOX_TEST(model_index_transfer_order_skips_transient_properties) {
+    ModelFixture fixture;
+    iox::ilic::IlicModelIndex index(fixture.store);
+    const auto order = index.transferProperties(
+        iox::IomName("BaseModel.Data.Feature"), "Modele",
+        iox::XtfVersion::V23);
+    IOX_CHECK_EQ(static_cast<std::size_t>(5), order.size());
+    IOX_CHECK_EQ(std::string("CodeFr"), order[0].interlisName());
+    IOX_CHECK_EQ(std::string("Nom"), order[1].interlisName());
+    IOX_CHECK_EQ(std::string("Statut"), order[2].interlisName());
+    IOX_CHECK_EQ(std::string("DetailsFr"), order[3].interlisName());
+    IOX_CHECK_EQ(std::string("RoleCible"), order[4].interlisName());
+    IOX_CHECK(index.isTransientProperty(
+        iox::IomName("BaseModel.Data.Feature"),
+        iox::IomName("Calculated")));
+}
+
+IOX_TEST(model_index_translates_enumerations_including_others) {
+    ModelFixture fixture;
+    iox::ilic::IlicModelIndex index(fixture.store);
+    const auto open = index.translateEnumeration(
+        iox::IomName("BaseModel.Data.Feature"), iox::IomName("Status"),
+        "Open", "Modele");
+    const auto others = index.translateEnumeration(
+        iox::IomName("BaseModel.Data.Feature"), iox::IomName("Status"),
+        "OTHERS", "Modele");
+    IOX_CHECK(open.has_value());
+    IOX_CHECK(others.has_value());
+    IOX_CHECK_EQ(std::string("Ouvert"), *open);
+    IOX_CHECK_EQ(std::string("AUTRES"), *others);
+}
+
+IOX_TEST(model_index_exposes_roles_targets_views_and_structures) {
+    ModelFixture fixture;
+    iox::ilic::IlicModelIndex index(fixture.store);
+    const auto target = index.referenceTargetClass(
+        iox::IomName("BaseModel.Data.Feature"),
+        iox::IomName("TargetRole"), "Modele", iox::XtfVersion::V23);
+    IOX_CHECK(target.has_value());
+    IOX_CHECK_EQ(std::string("Modele.Donnees.Cible"),
+                 target->interlisName());
+    IOX_CHECK(index.isEmbeddedRole(
+        iox::IomName("BaseModel.Data.Feature"),
+        iox::IomName("TargetRole")));
+    IOX_CHECK(!index.isTopLevelTransferable(
+        iox::IomName("BaseModel.Data.Detail")));
+    IOX_CHECK(!index.isTopLevelTransferable(
+        iox::IomName("BaseModel.Data.CalculatedView")));
+    IOX_CHECK(index.isTopLevelTransferable(
+        iox::IomName("BaseModel.Data.Link")));
+}
+
+IOX_TEST(model_writer_translates_and_orders_xtf23) {
+    ModelFixture fixture;
+    const auto xml = write(fixture, iox::XtfVersion::V23);
+    IOX_CHECK(xml.find("<Modele.Donnees ") != std::string::npos);
+    IOX_CHECK(xml.find("<Modele.Donnees.Objet") != std::string::npos);
+    const auto code = xml.find("<CodeFr>001.2300</CodeFr>");
+    const auto name = xml.find("<Nom>nom</Nom>");
+    const auto status = xml.find("<Statut>Ouvert</Statut>");
+    IOX_CHECK(code != std::string::npos);
+    IOX_CHECK(code < name);
+    IOX_CHECK(name < status);
+    IOX_CHECK(xml.find("Modele.Donnees.DetailFr") != std::string::npos);
+}
+
+IOX_TEST(model_writer_and_reader_share_xtf24_mapping) {
+    ModelFixture fixture;
+    const auto xml = write(fixture, iox::XtfVersion::V24);
+    IOX_CHECK(xml.find("xmlns:Modele=\"urn:example:base\"") !=
+              std::string::npos);
+    IOX_CHECK(xml.find("<Modele:Feature") != std::string::npos);
+    IOX_CHECK(xml.find("<Modele:Name>nom</Modele:Name>") !=
+              std::string::npos);
+
     iox::ilic::IlicXtfReaderOptions options;
+    options.xtf.expectedVersion = iox::XtfVersion::V24;
     options.rejectUnknownClasses = true;
-    iox::ilic::IlicXtfReader reader(fixture.model, options);
-
-    auto events = knownEvents("TestModel.TopicA.ClassA");
-    auto xml = writeXtf23(events);
-    reader.feed(iox::ByteView(xml));
-    reader.finish();
-
-    int count = 0;
-    while (true) {
-        const auto outcome = reader.next();
-        if (outcome.event) ++count;
-        if (outcome.progress == iox::ReaderProgress::End) break;
-    }
-    IOX_CHECK_EQ(5, count);
-    for (const auto& diagnostic : reader.takeDiagnostics()) {
-        IOX_CHECK(diagnostic.severity != iox::DiagnosticSeverity::Error);
-    }
-}
-
-IOX_TEST(model_based_reader_unknown_class_rejected) {
-    TestModel fixture;
-    iox::ilic::IlicXtfReaderOptions options;
-    options.rejectUnknownClasses = true;
-    iox::ilic::IlicXtfReader reader(fixture.model, options);
-    auto xml = writeXtf23(knownEvents("TestModel.TopicA.UnknownClass"));
-    reader.feed(iox::ByteView(xml));
-    reader.finish();
-
-    bool hasError = false;
-    while (true) {
-        const auto outcome = reader.next();
-        if (outcome.progress == iox::ReaderProgress::End) break;
-    }
-    for (const auto& diagnostic : reader.takeDiagnostics()) {
-        if (diagnostic.code == iox::DiagnosticCode::UnknownInterlisName &&
-            diagnostic.message.find("Unknown class") != std::string::npos) {
-            hasError = true;
-        }
-    }
-    IOX_CHECK(hasError);
-}
-
-IOX_TEST(model_based_reader_unknown_property_rejected) {
-    TestModel fixture;
-    iox::ilic::IlicXtfReaderOptions options;
     options.rejectUnknownProperties = true;
-    iox::ilic::IlicXtfReader reader(fixture.model, options);
-
-    auto events = knownEvents("TestModel.TopicA.ClassA");
-    auto& object = std::get<iox::ObjectEvent>(events[2]);
-    object.object.setPrimitive(iox::IomName("UnknownProp"), std::to_string(42));
-    auto xml = writeXtf23(events);
-    reader.feed(iox::ByteView(xml));
-    reader.finish();
-    while (reader.next().progress != iox::ReaderProgress::End) {}
-
-    bool hasError = false;
-    for (const auto& diagnostic : reader.takeDiagnostics()) {
-        if (diagnostic.code == iox::DiagnosticCode::UnknownInterlisName &&
-            diagnostic.message.find("Unknown property") != std::string::npos) {
-            hasError = true;
-        }
-    }
-    IOX_CHECK(hasError);
-}
-
-IOX_TEST(model_based_writer_unknown_class_rejected) {
-    TestModel fixture;
-    auto sink = std::make_shared<iox::StringOutputSink>();
-    iox::ilic::IlicXtfWriterOptions options;
-    options.xtf.version = iox::xtf::XtfVersion::V23;
-    options.rejectUnknownClasses = true;
-    iox::ilic::IlicXtfWriter writer(fixture.model, sink, options);
-    iox::StartTransferEvent transfer;
-    transfer.header.sender = "Test";
-    writer.write(transfer);
-    iox::StartBasketEvent startBasket;
-    startBasket.basket.topic = iox::IomName("TestModel.TopicA");
-    startBasket.basket.basketId = "B1";
-    writer.write(startBasket);
-    iox::ObjectEvent object;
-    object.object = iox::IomObject(
-        iox::IomName("TestModel.TopicA.NoSuchClass"), "T1");
-    object.object.setOperation(iox::ObjectOperation::Insert);
-    writer.write(object);
-
-    bool hasError = false;
-    for (const auto& diagnostic : writer.takeDiagnostics()) {
-        if (diagnostic.code == iox::DiagnosticCode::UnknownInterlisName &&
-            diagnostic.message.find("unknown class") != std::string::npos) {
-            hasError = true;
-        }
-    }
-    IOX_CHECK(hasError);
-}
-
-IOX_TEST(model_based_writer_uses_model_attribute_order) {
-    TestModel fixture;
-    auto sink = std::make_shared<iox::StringOutputSink>();
-    iox::ilic::IlicXtfWriterOptions options;
-    options.xtf.version = iox::xtf::XtfVersion::V23;
-    iox::ilic::IlicXtfWriter writer(fixture.model, sink, options);
-    iox::StartTransferEvent transfer;
-    transfer.header.sender = "Test";
-    writer.write(transfer);
-    iox::StartBasketEvent basket;
-    basket.basket.topic = iox::IomName("TestModel.TopicA");
-    basket.basket.basketId = "B1";
-    writer.write(basket);
-    iox::ObjectEvent object;
-    object.object = iox::IomObject(
-        iox::IomName("TestModel.TopicA.ClassA"), "T1");
-    object.object.setOperation(iox::ObjectOperation::Insert);
-    object.object.setPrimitive(iox::IomName("Count"), std::to_string(2));
-    object.object.setPrimitive(iox::IomName("Name"), "first");
-    writer.write(object);
-    writer.write(iox::EndBasketEvent{});
-    writer.write(iox::EndTransferEvent{});
-    writer.close();
-
-    const auto xml = sink->str();
-    IOX_CHECK(xml.find("<Name>first</Name>") < xml.find("<Count>2</Count>"));
-}
-
-IOX_TEST(model_based_xtf24_namespace_mapping) {
-    TestModel fixture;
-    auto sink = std::make_shared<iox::StringOutputSink>();
-    iox::ilic::IlicXtfWriterOptions writerOptions;
-    writerOptions.xtf.version = iox::xtf::XtfVersion::V24;
-    writerOptions.xtf.pretty = false;
-    iox::ilic::IlicXtfWriter writer(fixture.model, sink, writerOptions);
-
-    iox::StartTransferEvent transfer;
-    transfer.header.version = iox::XtfVersion::V24;
-    transfer.header.sender = "Test";
-    transfer.header.models.push_back(
-        {"TestModel", std::nullopt, std::nullopt,
-         {"urn:example:model", "TestModel", "model"}});
-    writer.write(transfer);
-    iox::StartBasketEvent basket;
-    basket.basket.topic = iox::IomName(
-        "TestModel.TopicA",
-        iox::XmlQualifiedName("urn:example:model", "TopicA", "model"));
-    basket.basket.basketId = "B1";
-    writer.write(basket);
-    iox::ObjectEvent object;
-    object.object = iox::IomObject(
-        iox::IomName("TestModel.TopicA.ClassA",
-                     iox::XmlQualifiedName("urn:example:model", "ClassA", "model")),
-        "T1");
-    object.object.setPrimitive(
-        iox::IomName("Name",
-                     iox::XmlQualifiedName("urn:example:model", "Name", "model")),
-        "first");
-    writer.write(object);
-    writer.write(iox::EndBasketEvent{});
-    writer.write(iox::EndTransferEvent{});
-    writer.close();
-
-    const auto xml = sink->str();
-    IOX_CHECK(xml.find("xmlns:model=\"urn:example:model\"") != std::string::npos);
-    IOX_CHECK(xml.find("<model:ClassA") != std::string::npos);
-    IOX_CHECK(xml.find("<model:Name") != std::string::npos);
-    IOX_CHECK(xml.find(">first</model:Name>") != std::string::npos);
-
-    iox::ilic::IlicXtfReaderOptions readerOptions;
-    readerOptions.xtf.expectedVersion = iox::xtf::XtfVersion::V24;
-    readerOptions.rejectUnknownClasses = true;
-    readerOptions.rejectUnknownProperties = true;
-    iox::ilic::IlicXtfReader reader(fixture.model, readerOptions);
+    iox::ilic::IlicXtfReader reader(fixture.store, options);
     reader.feed(iox::ByteView(xml));
     reader.finish();
 
-    int count = 0;
+    bool foundObject = false;
     while (true) {
-        const auto outcome = reader.next();
-        if (outcome.event) ++count;
+        auto outcome = reader.next();
+        if (outcome.event) {
+            if (const auto* object =
+                    std::get_if<iox::ObjectEvent>(&*outcome.event)) {
+                foundObject = true;
+                IOX_CHECK_EQ(std::string("Modele.Donnees.Objet"),
+                             object->object.tag().interlisName());
+                IOX_CHECK_EQ(std::string("nom"),
+                             std::string(*object->object.primitive("Nom")));
+                IOX_CHECK_EQ(std::string("Ouvert"),
+                             std::string(*object->object.primitive("Statut")));
+            }
+        }
         if (outcome.progress == iox::ReaderProgress::End) break;
     }
-    IOX_CHECK_EQ(5, count);
+    IOX_CHECK(foundObject);
     for (const auto& diagnostic : reader.takeDiagnostics()) {
         IOX_CHECK(diagnostic.severity != iox::DiagnosticSeverity::Error);
     }
+}
+
+IOX_TEST(model_reader_preserves_unknown_names_with_diagnostics) {
+    ModelFixture fixture;
+    auto events = transferEvents(iox::XtfVersion::V23);
+    auto& object = std::get<iox::ObjectEvent>(events[2]);
+    object.object.setPrimitive(iox::IomName("Unknown"), "lexical");
+
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::xtf::XtfWriterOptions writerOptions;
+    writerOptions.version = iox::XtfVersion::V23;
+    writerOptions.pretty = false;
+    iox::xtf::XtfWriter generic(sink, writerOptions);
+    auto& header = std::get<iox::StartTransferEvent>(events[0]).header;
+    header.models[0] = {"Modele", "1.0-fr",
+                        "https://example.test/fr", {}};
+    for (const auto& event : events) generic.write(event);
+    generic.close();
+
+    iox::ilic::IlicXtfReader reader(fixture.store);
+    reader.feed(iox::ByteView(sink->str()));
+    reader.finish();
+    bool preserved = false;
+    while (true) {
+        auto outcome = reader.next();
+        if (outcome.event) {
+            if (const auto* read =
+                    std::get_if<iox::ObjectEvent>(&*outcome.event)) {
+                preserved = read->object.primitive("Unknown").has_value();
+            }
+        }
+        if (outcome.progress == iox::ReaderProgress::End) break;
+    }
+    IOX_CHECK(preserved);
+    bool diagnosed = false;
+    for (const auto& diagnostic : reader.takeDiagnostics()) {
+        if (diagnostic.code == iox::DiagnosticCode::UnknownInterlisName) {
+            diagnosed = true;
+        }
+    }
+    IOX_CHECK(diagnosed);
+}
+
+IOX_TEST(model_writer_failure_is_terminal) {
+    ModelFixture fixture;
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::ilic::IlicXtfWriterOptions options;
+    options.xtf.version = iox::XtfVersion::V23;
+    iox::ilic::IlicXtfWriter writer(fixture.store, sink, options);
+    auto events = transferEvents(iox::XtfVersion::V23);
+    writer.write(events[0]);
+    writer.write(events[1]);
+    auto& object = std::get<iox::ObjectEvent>(events[2]);
+    object.object.setTag(iox::IomName("BaseModel.Data.Missing"));
+    bool rejected = false;
+    try {
+        writer.write(object);
+    } catch (const iox::IoxError& error) {
+        rejected = error.code() == iox::DiagnosticCode::UnknownInterlisName;
+    }
+    IOX_CHECK(rejected);
+    bool terminal = false;
+    try {
+        writer.write(iox::EndBasketEvent{});
+    } catch (const iox::IoxError& error) {
+        terminal = error.code() == iox::DiagnosticCode::WriterStateError;
+    }
+    IOX_CHECK(terminal);
 }
 
 #include "iox/test/TestMain.h"

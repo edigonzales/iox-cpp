@@ -20,7 +20,7 @@
 | 15 | Conformant XTF 2.3 Reader | completed |
 | 16 | Conformant XTF 2.3 Writer | completed |
 | 17 | Conformant XTF 2.4 Dialect | completed |
-| 18 | Extended Direct ilic Semantics | pending |
+| 18 | Extended Direct ilic Semantics | completed |
 | 19 | Native, WASM, Browser, and Worker Parity | pending |
 | 20 | Independent Conformance and Release Gates | pending |
 
@@ -103,3 +103,12 @@ See `docs/phase-status.md` for detailed per-phase criteria and test results.
 - One-shot/chunked event and diagnostic parity over the XTF corpus
 - Semantic XTF 2.4 writer roundtrips and ordered-value regression coverage
 - Explicit `ilic-required`, `api-gap`, and out-of-scope model/test boundaries
+
+### Phase 18
+- Public ilic API accepts the concrete `metamodel::MetaModelStore`
+- Compact copied-value index with no retained metamodel pointers
+- Exact canonical, translated, and QName lookup; ambiguity is fatal
+- Topic, class, property, role, target-class, view, transient, enumeration,
+  and inherited transfer-order semantics
+- Header-selected target language and XTF 2.4 origin-wire QName mapping
+- No general constraint, cardinality, or file-wide reference validator

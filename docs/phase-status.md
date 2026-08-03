@@ -18,6 +18,9 @@
 | 13 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Version 0.2.0 API reset, ABI 2, event/result schema 2, lexical IOM values, ordered COW objects, stable diagnostics, private yyjson 0.12.0 |
 | 14 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Private Expat/XML implementation, callback exception containment, UTF-8 and resource limits, source positions, namespace-aware deterministic writer |
 | 15 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Private XTF 2.3 dialect, exact state/header/data rules, bounded event queue, lexical objects/references/geometry, strict/lenient option coverage |
+| 16 | completed | 4687479 | Top-level warnings-as-errors build (0); CTest 34/34; direct ilic build CTest 29/29 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Terminal streaming XTF 2.3 writer, complete metadata/reference/geometry output, independent byte goldens and semantic roundtrips |
+| 17 | completed | e13dd0d | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic build CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Independent private XTF 2.4 reader/writer dialect, exact control QNames, namespace preservation, roles and multi-geometries |
+| 18 | completed | this commit | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic warnings-as-errors build (0), CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Concrete MetaModelStore API, pointer-free compact index, exact translations/QNames, roles, views, transient members, enums and transfer order |
 
 ## Build Commands
 
@@ -421,3 +424,40 @@ source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-was
 No Linux or Windows run, sanitizer pass, fuzzing, or coverage threshold is
 claimed for this phase; those independent release gates remain assigned to
 Phase 20.
+
+## Phase 18 — Extended direct ilic transfer semantics
+
+Phase 18 was verified on macOS on 2026-08-03. The optional public ilic API now
+accepts the concrete `metamodel::MetaModelStore` from the pinned ilic fork.
+`IlicModelIndex` copies a compact value index once and retains no metamodel
+pointers; a lifetime regression test destroys the source store before lookup.
+Canonical, translated and expanded XML names resolve exactly, and ambiguous
+concepts fail with `model.mismatch` rather than selecting the first match.
+
+The index and composed reader/writer cover translated models, topics, classes,
+properties and hierarchical enumerations (including `OTHERS`), inherited
+transfer order, structures, roles, embedded roles, association targets,
+standalone associations, transient views and transient properties. The model
+selected in the transfer header controls target-language INTERLIS names; XTF
+2.4 retains origin-model wire QNames. Unknown reader values remain visible
+with diagnostics, while configured writer rejection is fatal and terminal.
+Canonical nested geometry/reference helper objects remain model-independent.
+No general constraints, cardinalities or file-wide references are claimed as
+validated.
+
+### Phase 18 verification commands
+
+```text
+cmake -S . -B build/phase18 -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=ON -DIOX_BUILD_TOOLS=ON -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase18 --parallel 8                      # exit 0
+ctest --test-dir build/phase18 --output-on-failure            # exit 0, 35/35
+cmake -S . -B build/phase18-ilic -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase18-ilic --parallel 8                 # exit 0
+ctest --test-dir build/phase18-ilic --output-on-failure       # exit 0, 30/30
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, Emscripten 3.1.64
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 8/8
+```
+
+Normal tests use neither Java nor network access. No Linux or Windows run,
+sanitizer pass, fuzzing, or coverage threshold is claimed for this phase;
+those independent release gates remain assigned to Phase 20.

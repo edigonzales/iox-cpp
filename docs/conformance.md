@@ -204,3 +204,34 @@ multi-geometries rather than the 2.3 `CLIPPED`/`LINEATTR` wire forms. Area
 multi-values use the normative `geom:multisurface` representation; model-free
 input cannot infer an area declaration from that XML shape alone, while the
 optional ilic layer can apply that semantic distinction.
+
+### Direct ilic transfer semantics
+
+The Phase 18 API uses the actual pinned-fork type
+`metamodel::MetaModelStore`; the namespace and type name differ from the
+illustrative names in the coding specification. The store is inspected only
+during `IlicModelIndex` construction. Runtime lookup uses copied values and
+therefore neither depends on store lifetime nor exposes a second public model
+hierarchy.
+
+Canonical and translated models, topics, classes, properties, roles and
+enumeration nodes are grouped by `_translationOf`. Scoped INTERLIS names and
+expanded QNames are resolved exactly; zero matches remain visible as unknown,
+while multiple semantic matches are fatal `model.mismatch` errors. For XTF
+2.4, translated events keep the original model's wire namespace and local XML
+name while their INTERLIS name follows the model selected in the transfer
+header. This matches the name-mapping approach inspected in the pinned
+`Xtf24Reader.java`, `TranslateToOrigin.java`, and translation utilities.
+
+The compact index also records inherited attribute/role order, embedded-role
+and target-class metadata, standalone association transferability, transient
+views/properties, and hierarchical enumeration paths including `OTHERS`.
+Writer transformation reorders only known properties and preserves lexical
+primitive bytes. Unknown reader content remains present with diagnostics;
+configured writer rejection is fatal and terminal. Canonical nested geometry
+and reference helper objects remain opaque to the model layer.
+
+This is intentionally transfer semantics, not a general validation engine.
+No claim is made for arbitrary constraints, cardinalities, object existence,
+or file-wide reference integrity. The normal tests use a concrete in-memory
+`MetaModelStore` and require neither Java nor network access.

@@ -34,11 +34,22 @@ iox-factory → iox-xtf + iox-json
   formats; `iox-core` remains format-independent.
 
 When enabled, `iox-ilic` consumes the concrete pinned-fork API in namespace
-`metamodel`: `Model`, `SubModel`, `Class`, and `AttrOrParam`. The adapter is
-composed around the generic `XtfReader`/`XtfWriter`, owns no model memory, and
-does not make the generic XTF targets depend on `ilic-core`. The CMake options
-`IOX_ILIC_SOURCE_DIR` and `IOX_FETCH_ILIC` select the immutable fork source;
-the default build keeps the module disabled.
+`metamodel`. Its public entry point accepts `MetaModelStore` directly. The
+constructor walks that store once and copies only names, translation links,
+QNames, role targets, enumeration paths, transfer order and small semantic
+flags into a private index; it retains no metamodel pointers. The adapter is
+composed around the generic `XtfReader`/`XtfWriter` and does not make the
+generic XTF targets depend on `ilic-core`.
+
+Name lookup is exact: a canonical or translated scoped name and an expanded
+XML QName identify one semantic concept or fail with `model.mismatch` when
+ambiguous. The selected transfer-header model chooses the target-language
+variant. The ilic layer handles transfer names, inherited properties, roles,
+embedded roles, association transferability, transient views/properties and
+enumeration translations. It deliberately is not a general validator: it
+does not claim constraint, cardinality or file-wide reference validation.
+The CMake options `IOX_ILIC_SOURCE_DIR` and `IOX_FETCH_ILIC` select the
+immutable fork source; the default build keeps the module disabled.
 
 ## Normative Event Stream
 
