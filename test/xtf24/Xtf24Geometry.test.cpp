@@ -94,14 +94,13 @@ static iox::IomObject makeCoord(double c1, double c2, double c3) {
 }
 
 static iox::IomObject makeArc(double c1,double c2,double c3,
-                               double a1,double a2,double a3,double r) {
+                               double a1,double a2,double r) {
     iox::IomObject arc(iox::IomName("ARC"));
     arc.setPrimitive(iox::IomName("C1"), std::to_string(c1));
     arc.setPrimitive(iox::IomName("C2"), std::to_string(c2));
     arc.setPrimitive(iox::IomName("C3"), std::to_string(c3));
     arc.setPrimitive(iox::IomName("A1"), std::to_string(a1));
     arc.setPrimitive(iox::IomName("A2"), std::to_string(a2));
-    arc.setPrimitive(iox::IomName("A3"), std::to_string(a3));
     arc.setPrimitive(iox::IomName("R"), std::to_string(r));
     return arc;
 }
@@ -135,15 +134,21 @@ static std::string roundtripGeometry(iox::IomObject geom, const char* className)
     iox::StartTransferEvent st;
     st.header.version = iox::XtfVersion::V24;
     st.header.sender = "T";
+    st.header.models.push_back(
+        {"M", std::nullopt, std::nullopt, {"urn:m", "M", "m"}});
     events.push_back(st);
     iox::StartBasketEvent sb;
-    sb.basket.topic = iox::IomName("M.T.B");
+    sb.basket.topic = iox::IomName("M.T", {"urn:m", "T", "m"});
     sb.basket.basketId = "B1";
     events.push_back(sb);
     iox::ObjectEvent obj;
-    obj.object = iox::IomObject(iox::IomName(className), "T1");
+    const auto classLocal = std::string(className).substr(
+        std::string(className).find_last_of('.') + 1U);
+    obj.object = iox::IomObject(
+        iox::IomName(className, {"urn:m", classLocal, "m"}), "T1");
     obj.object.setOperation(iox::ObjectOperation::Insert);
-    obj.object.setObject(iox::IomName("Geom"), std::move(geom));
+    obj.object.setObject(
+        iox::IomName("Geom", {"urn:m", "Geom", "m"}), std::move(geom));
     events.push_back(obj);
     events.push_back(iox::EndBasketEvent{});
     iox::EndTransferEvent et; events.push_back(et);
@@ -170,7 +175,7 @@ IOX_TEST(xtf24_geom_coord) {
 }
 
 IOX_TEST(xtf24_geom_arc) {
-    auto arc = makeArc(2600000,1200000,500, 2600100,1200100,500, 150);
+    auto arc = makeArc(2600000,1200000,500, 2600100,1200100,150);
     roundtripGeometry(std::move(arc), "M.T.A");
 }
 
@@ -186,7 +191,7 @@ IOX_TEST(xtf24_geom_polyline) {
 IOX_TEST(xtf24_geom_polyline_with_arc) {
     std::vector<iox::IomObject> segments;
     segments.push_back(makeCoord(0,0,0));
-    segments.push_back(makeArc(10,10,0, 20,20,0, 15));
+    segments.push_back(makeArc(10,10,0, 20,20,15));
     segments.push_back(makeCoord(30,30,0));
     auto pl = makePolyline(std::move(segments));
     roundtripGeometry(std::move(pl), "M.T.PA");
@@ -281,14 +286,14 @@ IOX_TEST(xtf24_geom_multiarea) {
     e1.push_back(makeCoord(0,0,0)); e1.push_back(makeCoord(100,0,0));
     e1.push_back(makeCoord(100,100,0)); e1.push_back(makeCoord(0,100,0));
     e1.push_back(makeCoord(0,0,0));
-    auto ar1 = makeArea(makePolyline(std::move(e1)), makePolyline({}));
+    auto ar1 = makeSurface(makePolyline(std::move(e1)));
 
     // Area 2
     std::vector<iox::IomObject> e2;
     e2.push_back(makeCoord(200,200,0)); e2.push_back(makeCoord(300,200,0));
     e2.push_back(makeCoord(300,300,0)); e2.push_back(makeCoord(200,300,0));
     e2.push_back(makeCoord(200,200,0));
-    auto ar2 = makeArea(makePolyline(std::move(e2)), makePolyline({}));
+    auto ar2 = makeSurface(makePolyline(std::move(e2)));
 
     iox::IomObject multi(iox::IomName("MULTIAREA"));
     multi.appendObject(iox::IomName("area"), std::move(ar1));
@@ -297,27 +302,21 @@ IOX_TEST(xtf24_geom_multiarea) {
 }
 
 IOX_TEST(xtf24_geom_incomplete_polyline) {
-    // Two sequences = clipped polyline
+    // XTF 2.4 represents multiple parts as a MULTIPOLYLINE.
     std::vector<iox::IomObject> segs1;
     segs1.push_back(makeCoord(0,0,0));
     segs1.push_back(makeCoord(10,10,0));
-    iox::IomObject s1(iox::IomName("SEGMENTS"));
-    for (auto& s : segs1) {
-        s1.appendObject(iox::IomName("segment"), std::move(s));
-    }
+    auto part1 = makePolyline(std::move(segs1));
 
     std::vector<iox::IomObject> segs2;
     segs2.push_back(makeCoord(20,20,0));
     segs2.push_back(makeCoord(30,30,0));
-    iox::IomObject s2(iox::IomName("SEGMENTS"));
-    for (auto& s : segs2) {
-        s2.appendObject(iox::IomName("segment"), std::move(s));
-    }
+    auto part2 = makePolyline(std::move(segs2));
 
-    iox::IomObject pl(iox::IomName("POLYLINE"));
-    pl.appendObject(iox::IomName("sequence"), std::move(s1));
-    pl.appendObject(iox::IomName("sequence"), std::move(s2));
-    roundtripGeometry(std::move(pl), "M.T.INC");
+    iox::IomObject multi(iox::IomName("MULTIPOLYLINE"));
+    multi.appendObject(iox::IomName("polyline"), std::move(part1));
+    multi.appendObject(iox::IomName("polyline"), std::move(part2));
+    roundtripGeometry(std::move(multi), "M.T.INC");
 }
 
 IOX_TEST(xtf24_geometry_fixture_chunk_matrix_preserves_multigeometry) {
@@ -331,9 +330,9 @@ IOX_TEST(xtf24_geometry_fixture_chunk_matrix_preserves_multigeometry) {
         IOX_CHECK(objectEvent != nullptr);
         const auto surface = objectEvent->object.object("formR");
         IOX_CHECK(surface.has_value());
-        IOX_CHECK_EQ(static_cast<std::size_t>(1), countTag(*surface, "surface"));
-        IOX_CHECK_EQ(static_cast<std::size_t>(8), countTag(*surface, "polyline"));
-        IOX_CHECK_EQ(static_cast<std::size_t>(2), countTag(*surface, "arc"));
+        IOX_CHECK_EQ(static_cast<std::size_t>(1), countTag(*surface, "SURFACE"));
+        IOX_CHECK_EQ(static_cast<std::size_t>(8), countTag(*surface, "POLYLINE"));
+        IOX_CHECK_EQ(static_cast<std::size_t>(2), countTag(*surface, "ARC"));
         IOX_CHECK(surface->hasAttribute("exterior"));
         IOX_CHECK(surface->hasAttribute("interior"));
     }
@@ -349,7 +348,7 @@ IOX_TEST(xtf24_geometry_fixture_preserves_custom_line_form) {
     const auto custom = objectEvent->object.object("attrS");
     IOX_CHECK(custom.has_value());
     IOX_CHECK_EQ(std::string("orientablecurve"), custom->tag().interlisName());
-    IOX_CHECK_EQ(static_cast<std::size_t>(2), countTag(*custom, "coord"));
+    IOX_CHECK_EQ(static_cast<std::size_t>(2), countTag(*custom, "COORD"));
 }
 
 IOX_TEST(xtf24_writer_emits_canonical_geometry_and_basket_envelope) {
@@ -357,17 +356,23 @@ IOX_TEST(xtf24_writer_emits_canonical_geometry_and_basket_envelope) {
     iox::StartTransferEvent start;
     start.header.version = iox::XtfVersion::V24;
     start.header.sender = "T";
+    start.header.models.push_back(
+        {"M", std::nullopt, std::nullopt, {"urn:m", "M", "m"}});
     events.push_back(start);
     iox::StartBasketEvent basket;
-    basket.basket.topic = iox::IomName("M.Topic");
+    basket.basket.topic =
+        iox::IomName("M.Topic", {"urn:m", "Topic", "m"});
     basket.basket.basketId = "B1";
     events.push_back(basket);
     iox::ObjectEvent object;
-    object.object = iox::IomObject(iox::IomName("M.Class"), "T1");
+    object.object = iox::IomObject(
+        iox::IomName("M.Topic.Class", {"urn:m", "Class", "m"}), "T1");
     iox::IomObject multi(iox::IomName("MULTICOORD"));
     multi.appendObject(iox::IomName("coord"), makeCoord(1, 2, 3));
     multi.appendObject(iox::IomName("coord"), makeCoord(4, 5, 6));
-    object.object.setObject(iox::IomName("Position"), std::move(multi));
+    object.object.setObject(
+        iox::IomName("Position", {"urn:m", "Position", "m"}),
+        std::move(multi));
     events.push_back(object);
     events.push_back(iox::EndBasketEvent{});
     events.push_back(iox::EndTransferEvent{});

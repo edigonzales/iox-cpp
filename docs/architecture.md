@@ -84,9 +84,11 @@ attribute subtree, never a document DOM. The writer consumes one event at a
 time and writes directly to `OutputSink`. Wire-format decisions stay in the
 dialect, while queueing, limits, terminal writer state, and event order stay in
 the coordinators. A failed writer is permanently terminal, and `close()` never
-invents missing end events. The independent 2.4 replacement is deliberately
-left to Phase 17; the existing compatibility path remains isolated meanwhile.
-Common logic is extracted only when the wire rules are genuinely identical.
+invents missing end events. XTF 2.4 has its own private reader and writer under
+`source/xtf/v24`; it shares only coordination and XML mechanics with 2.3.
+The 2.4 dialect requires stored expanded names or explicit header namespace
+metadata and never fabricates a model namespace URI. Common logic is extracted
+only when the wire rules are genuinely identical.
 
 ## Format Registry
 

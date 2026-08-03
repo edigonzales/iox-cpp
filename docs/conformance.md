@@ -173,9 +173,23 @@ model-provider framework or automatic completion of missing end events.
 
 The reader retains the expanded namespace URI and local XML name on every
 model-qualified class and property it can observe. Prefixes are lexical hints
-only; semantic comparisons use URI plus local name. If a model-free transfer
-does not carry enough information to derive an INTERLIS scoped name, the
-  expanded XML name is retained rather than guessed.
+only; semantic comparisons use URI plus local name. Model namespaces are
+associated with header model names only by the normative
+`http://www.interlis.ch/xtf/2.4/ModelName` form or by a single unambiguous root
+declaration. If a model-free transfer does not carry enough information to
+derive an INTERLIS scoped name, the expanded XML name is retained rather than
+guessed. The writer likewise requires a stored QName or an explicit
+`ModelEntry.xmlNamespace`; it never constructs a namespace URI from an
+INTERLIS name.
+
+The exact expanded control names are enforced: `ili:transfer`,
+`headersection`, `models`, `model`, `sender`, `comment`, and `datasection` use
+the XTF 2.4 INTERLIS namespace and normative case. Header models are text
+entries rather than 2.3-style attributes. Basket metadata, object operations,
+references, ordered roles, embedded association payloads and lexical values
+are mapped directly to the event/IOM contract. The pinned Java
+`Xtf24Reader.java` and `Xtf24WriterAlt.java` were inspected; where their legacy
+output differs, the current reference manual is authoritative.
 
 ### XTF 2.4 geometry mapping
 
@@ -185,4 +199,8 @@ objects whose repeated `segment` values retain `COORD`, `ARC`, or custom line
 form objects. `MULTICOORD`, `MULTIPOLYLINE`, `MULTISURFACE`, and `MULTIAREA`
 retain ordered member values. `SURFACE` and `AREA` keep distinct `exterior`
 and `interior` attributes. The writer flattens this tree to the normative
-XTF 2.4 `geom:` element encoding without numeric conversion.
+XTF 2.4 `geom:` element encoding without numeric conversion. XTF 2.4 uses
+multi-geometries rather than the 2.3 `CLIPPED`/`LINEATTR` wire forms. Area
+multi-values use the normative `geom:multisurface` representation; model-free
+input cannot infer an area declaration from that XML shape alone, while the
+optional ilic layer can apply that semantic distinction.

@@ -36,6 +36,8 @@ iox::StartTransferEvent start() {
     iox::StartTransferEvent result;
     result.header.version = iox::XtfVersion::V24;
     result.header.sender = "test";
+    result.header.models.push_back(
+        {"M", std::nullopt, std::nullopt, {"urn:m", "M", "m"}});
     return result;
 }
 
@@ -61,7 +63,8 @@ IOX_TEST(xtf24_object_roundtrip) {
     object.object = iox::IomObject(
         iox::IomName("M.T.C", {"urn:m", "C", "m"}), "T1");
     object.object.setOperation(iox::ObjectOperation::Insert);
-    object.object.setPrimitive(iox::IomName("Name"), "val");
+    object.object.setPrimitive(
+        iox::IomName("Name", {"urn:m", "Name", "m"}), "val");
     const auto events = roundtrip(
         {start(), basket(), object, iox::EndBasketEvent{},
          iox::EndTransferEvent{}});
@@ -77,14 +80,15 @@ IOX_TEST(xtf24_geometry_coord) {
     iox::ObjectEvent object;
     object.object = iox::IomObject(
         iox::IomName("M.T.C", {"urn:m", "C", "m"}), "T1");
-    object.object.setObject(iox::IomName("Pos"), coordinate);
+    object.object.setObject(
+        iox::IomName("Pos", {"urn:m", "Pos", "m"}), coordinate);
     const auto events = roundtrip(
         {start(), basket(), object, iox::EndBasketEvent{},
          iox::EndTransferEvent{}});
     const auto parsed = std::get<iox::ObjectEvent>(events[2]).object.object("Pos");
     IOX_CHECK(parsed.has_value());
-    IOX_CHECK_EQ(std::string_view("1.0"), *parsed->primitive("c1"));
-    IOX_CHECK_EQ(std::string_view("2.0"), *parsed->primitive("c2"));
+    IOX_CHECK_EQ(std::string_view("1.0"), *parsed->primitive("C1"));
+    IOX_CHECK_EQ(std::string_view("2.0"), *parsed->primitive("C2"));
 }
 
 #include "iox/test/TestMain.h"

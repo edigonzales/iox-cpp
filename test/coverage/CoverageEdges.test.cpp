@@ -11,7 +11,6 @@
 #include "iox/test/Test.h"
 #include "xml/ExpatParser.h"
 #include "xml/XmlWriter.h"
-#include "iox/xtf/Xtf24Dialect.h"
 #include "iox/xtf/XtfReader.h"
 #include "iox/xtf/XtfWriter.h"
 
@@ -438,34 +437,6 @@ IOX_TEST(coverage_xtf_and_abi_state_paths) {
     IOX_CHECK_EQ(IOX_STATUS_INVALID_ARGUMENT,
                  iox_writer_finish(nullptr, &result));
     IOX_CHECK(iox_result_json(nullptr) == nullptr);
-}
-
-IOX_TEST(coverage_direct_xtf_dialect_paths) {
-    const auto expanded = [](std::string_view uri, std::string_view local) {
-        return std::string(uri) + "\xFF" + std::string(local);
-    };
-    std::vector<iox::IoxEvent> events24;
-    iox::xtf::Xtf24Dialect dialect24({
-        [&](iox::IoxEvent value) { events24.push_back(std::move(value)); },
-        [](iox::Diagnostic) {}});
-    const auto basket = expanded(
-        "http://www.interlis.ch/xtf/2.4/INTERLIS", "basket");
-    const auto klass = expanded("urn:model", "Class");
-    const auto coord = expanded(
-        "http://www.interlis.ch/geometry/1.0", "coord");
-    dialect24.onStartElement(basket, {{"bid", "B"}});
-    dialect24.onStartElement(klass, {{"tid", "T"}});
-    dialect24.onStartElement("position", {});
-    dialect24.onStartElement(coord, {});
-    dialect24.onStartElement("c1", {});
-    dialect24.onCharacterData("1");
-    dialect24.onEndElement("c1");
-    dialect24.onEndElement(coord);
-    dialect24.onEndElement("position");
-    dialect24.onEndElement(klass);
-    dialect24.onEndElement(basket);
-    IOX_CHECK_EQ(static_cast<std::size_t>(3), events24.size());
-    IOX_CHECK(!dialect24.isFatal());
 }
 
 #include "iox/test/TestMain.h"

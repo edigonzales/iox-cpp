@@ -1,11 +1,10 @@
 #include "iox/xtf/XtfReader.h"
 
-#include "iox/xtf/Xtf24Dialect.h"
 #include "xtf/v23/Xtf23Dialect.h"
+#include "xtf/v24/Xtf24Dialect.h"
 #include "xml/ExpatParser.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cstdint>
 #include <deque>
 #include <limits>
@@ -25,26 +24,10 @@ constexpr std::string_view xtf24Namespace =
     "http://www.interlis.ch/xtf/2.4/INTERLIS";
 constexpr std::size_t queuedInputChunkSize = 64U * 1024U;
 
-std::string lowerAscii(std::string_view value) {
-    std::string result;
-    result.reserve(value.size());
-    for (const auto character : value) {
-        result.push_back(static_cast<char>(
-            std::tolower(static_cast<unsigned char>(character))));
-    }
-    return result;
-}
-
-std::string encodedName(const XmlQualifiedName& name) {
-    if (name.namespaceUri.empty()) return name.localName;
-    return name.namespaceUri + '\xFF' + name.localName;
-}
-
 } // namespace
 
 enum class CoordinatorState { BeforeRoot, InRoot, AfterRoot, Failed };
 enum class EventState { BeforeTransfer, InTransfer, InBasket, AfterTransfer };
-enum class Legacy24Phase { Header, Content };
 
 struct XtfReader::Impl final {
     XtfReaderOptions options;
@@ -58,17 +41,12 @@ struct XtfReader::Impl final {
     EventState eventState = EventState::BeforeTransfer;
     std::optional<XtfVersion> detected;
     XmlQualifiedName rootName;
+    std::vector<xml::XmlNamespaceDeclaration> rootNamespaces;
     std::size_t depth = 0;
     std::size_t totalFed = 0;
     bool finishCalled = false;
     bool parseComplete = false;
     bool pumping = false;
-
-    // Temporary compatibility path until the independent 2.4 dialect phase.
-    Legacy24Phase legacy24Phase = Legacy24Phase::Header;
-    TransferHeader legacy24Header;
-    std::optional<std::string> legacy24TextField;
-    std::string legacy24Text;
 
     [[noreturn]] void fail(DiagnosticCode code, std::string message,
                            SourceLocation location = {}) {
@@ -122,15 +100,14 @@ struct XtfReader::Impl final {
                 });
             return;
         }
-        Xtf24Callbacks callbacks;
-        callbacks.emitEvent = [this](IoxEvent event) {
-            validateAndQueue(std::move(event));
-        };
-        callbacks.addDiagnostic = [this](Diagnostic diagnostic) {
-            add(std::move(diagnostic));
-        };
-        dialect24 = std::make_unique<Xtf24Dialect>(std::move(callbacks));
-        legacy24Header.version = XtfVersion::V24;
+        dialect24 = std::make_unique<Xtf24Dialect>(
+            options, rootNamespaces,
+            [this](IoxEvent event) {
+                validateAndQueue(std::move(event));
+            },
+            [this](Diagnostic diagnostic) {
+                add(std::move(diagnostic));
+            });
     }
 
     void detectRoot(const xml::XmlStartElement& element) {
@@ -138,9 +115,7 @@ struct XtfReader::Impl final {
             element.name.localName == "TRANSFER") {
             detected = XtfVersion::V23;
         } else if (element.name.namespaceUri == xtf24Namespace &&
-                   (element.name.localName == "transfer" ||
-                    (options.strictness == Strictness::Lenient &&
-                     element.name.localName == "TRANSFER"))) {
+                   element.name.localName == "transfer") {
             detected = XtfVersion::V24;
         } else if (element.name.namespaceUri.find("INTERLIS2.2") !=
                    std::string::npos) {
@@ -159,81 +134,10 @@ struct XtfReader::Impl final {
                  element.location);
         }
         rootName = element.name;
+        rootNamespaces = element.namespaces;
         depth = 1;
         state = CoordinatorState::InRoot;
         createDialect();
-    }
-
-    std::vector<std::pair<std::string_view, std::string_view>> legacyAttributes(
-        const xml::XmlStartElement& element,
-        std::vector<std::pair<std::string, std::string>>& storage) {
-        storage.reserve(element.attributes.size());
-        for (const auto& attribute : element.attributes) {
-            storage.push_back({encodedName(attribute.name), attribute.value});
-        }
-        std::vector<std::pair<std::string_view, std::string_view>> result;
-        result.reserve(storage.size());
-        for (const auto& attribute : storage) {
-            result.push_back({attribute.first, attribute.second});
-        }
-        return result;
-    }
-
-    void emitLegacy24Header() {
-        if (eventState != EventState::BeforeTransfer) return;
-        validateAndQueue(StartTransferEvent{std::move(legacy24Header)});
-        legacy24Header = {};
-        legacy24Header.version = XtfVersion::V24;
-    }
-
-    void legacy24Start(const xml::XmlStartElement& element) {
-        std::vector<std::pair<std::string, std::string>> storage;
-        const auto attributes = legacyAttributes(element, storage);
-        if (legacy24Phase == Legacy24Phase::Content) {
-            dialect24->onStartElement(encodedName(element.name), attributes);
-            return;
-        }
-
-        const auto local = lowerAscii(element.name.localName);
-        if (local == "sender" || local == "comment") {
-            legacy24TextField = local;
-            legacy24Text.clear();
-        }
-        bool hasBid = false;
-        bool hasTid = false;
-        for (const auto& attribute : element.attributes) {
-            const auto attributeLocal = lowerAscii(attribute.name.localName);
-            if (attributeLocal == "bid") hasBid = true;
-            if (attributeLocal == "tid") hasTid = true;
-        }
-        if (hasBid && !hasTid) {
-            emitLegacy24Header();
-            legacy24Phase = Legacy24Phase::Content;
-            dialect24->onStartElement(encodedName(element.name), attributes);
-        }
-    }
-
-    void legacy24End(const xml::XmlEndElement& element) {
-        if (legacy24Phase == Legacy24Phase::Content) {
-            dialect24->onEndElement(encodedName(element.name));
-            return;
-        }
-        const auto local = lowerAscii(element.name.localName);
-        if (legacy24TextField && local == *legacy24TextField) {
-            if (local == "sender") legacy24Header.sender = legacy24Text;
-            else if (local == "comment") legacy24Header.comment = legacy24Text;
-            legacy24TextField.reset();
-            legacy24Text.clear();
-        }
-        if (local == "headersection") emitLegacy24Header();
-    }
-
-    void legacy24Characters(std::string_view data) {
-        if (legacy24Phase == Legacy24Phase::Content) {
-            dialect24->onCharacterData(data);
-        } else if (legacy24TextField) {
-            legacy24Text.append(data.data(), data.size());
-        }
     }
 
     void onStartElement(const xml::XmlStartElement& element) {
@@ -248,7 +152,7 @@ struct XtfReader::Impl final {
         }
         ++depth;
         if (*detected == XtfVersion::V23) dialect23->onStartElement(element);
-        else legacy24Start(element);
+        else dialect24->onStartElement(element);
     }
 
     void onEndElement(const xml::XmlEndElement& element) {
@@ -263,16 +167,13 @@ struct XtfReader::Impl final {
             }
             if (*detected == XtfVersion::V23) {
                 dialect23->onRootClosed(element.location);
-            } else {
-                emitLegacy24Header();
-                validateAndQueue(EndTransferEvent{});
-            }
+            } else dialect24->onRootClosed(element.location);
             depth = 0;
             state = CoordinatorState::AfterRoot;
             return;
         }
         if (*detected == XtfVersion::V23) dialect23->onEndElement(element);
-        else legacy24End(element);
+        else dialect24->onEndElement(element);
         --depth;
     }
 
@@ -280,7 +181,7 @@ struct XtfReader::Impl final {
                          const SourceLocation& location) {
         if (state == CoordinatorState::InRoot && detected) {
             if (*detected == XtfVersion::V23) dialect23->onText(data, location);
-            else legacy24Characters(data);
+            else dialect24->onText(data, location);
         }
     }
 

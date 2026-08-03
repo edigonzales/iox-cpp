@@ -267,6 +267,9 @@ IOX_TEST(model_based_xtf24_namespace_mapping) {
     iox::StartTransferEvent transfer;
     transfer.header.version = iox::XtfVersion::V24;
     transfer.header.sender = "Test";
+    transfer.header.models.push_back(
+        {"TestModel", std::nullopt, std::nullopt,
+         {"urn:example:model", "TestModel", "model"}});
     writer.write(transfer);
     iox::StartBasketEvent basket;
     basket.basket.topic = iox::IomName(

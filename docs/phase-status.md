@@ -386,3 +386,38 @@ source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-was
 No Linux or Windows run, sanitizer pass, fuzzing, or coverage threshold is
 claimed for this phase; those independent release gates remain assigned to
 Phase 20.
+
+## Phase 17 — Conformant XTF 2.4 dialect
+
+Phase 17 was verified on macOS on 2026-08-03. XTF 2.4 now has independent
+private reader and writer dialects; the common coordinators retain only event
+ordering, queueing, XML mechanics and terminal-state handling. The former
+public compatibility dialect and its legacy encoded-name path were removed.
+The reader captures root namespace declarations, enforces exact 2.4 expanded
+control names, reads the normative text-model header, maps complete basket and
+object metadata, preserves QNames and lexical primitives, and handles direct,
+embedded and ordered references.
+
+The 2.4 geometry path implements coordinates, arcs, polylines, multi-points,
+multi-polylines, surfaces and multi-surfaces without reusing 2.3 clipping or
+line-attribute wire rules. Unknown geometry remains visible and diagnosed.
+The writer requires an explicit stored QName or header namespace mapping and
+never invents a namespace URI. A checked byte golden, complete field
+assertions, strict/lenient negative cases, one-byte and irregular chunks, and
+the five pinned iox-ili XTF 2.4 writer fixtures provide independent and
+roundtrip coverage. The normal tests use neither Java nor network access.
+
+### Phase 17 verification commands
+
+```text
+cmake --build build/native -j 8                              # exit 0
+ctest --test-dir build/native --output-on-failure            # exit 0, 35/35
+cmake --build build/phase14-ilic --parallel                  # exit 0
+ctest --test-dir build/phase14-ilic --output-on-failure      # exit 0, 30/30
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, Emscripten 3.1.64
+source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 8/8
+```
+
+No Linux or Windows run, sanitizer pass, fuzzing, or coverage threshold is
+claimed for this phase; those independent release gates remain assigned to
+Phase 20.

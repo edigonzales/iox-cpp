@@ -44,6 +44,11 @@ iox::StartTransferEvent start(iox::XtfVersion version,
     iox::StartTransferEvent event;
     event.header.version = version;
     event.header.sender = std::move(sender);
+    if (version == iox::XtfVersion::V24) {
+        event.header.models.push_back(
+            {"M", std::nullopt, std::nullopt,
+             {"http://www.interlis.ch/xtf/2.4/M", "M", "m"}});
+    }
     return event;
 }
 

@@ -47,6 +47,7 @@ struct ExpatParser::Impl final {
     std::exception_ptr callbackError;
     SourceLocation callbackErrorLocation;
     std::vector<std::size_t> textBytes;
+    std::vector<XmlNamespaceDeclaration> pendingNamespaces;
     std::size_t totalInputBytes = 0;
     std::size_t depth = 0;
     bool finished_ = false;
@@ -120,6 +121,12 @@ struct ExpatParser::Impl final {
                 self.fail(DiagnosticCode::XmlLimitExceeded,
                           "XML attribute count exceeds maxAttributesPerElement");
             }
+            if (self.pendingNamespaces.size() >
+                    self.limits.maxAttributesPerElement - count) {
+                self.fail(DiagnosticCode::XmlLimitExceeded,
+                          "XML attributes and namespace declarations exceed "
+                          "maxAttributesPerElement");
+            }
             if (self.depth >= self.limits.maxDepth) {
                 self.fail(DiagnosticCode::XmlLimitExceeded,
                           "XML depth exceeds maxDepth");
@@ -133,6 +140,8 @@ struct ExpatParser::Impl final {
             element.name = decodeName(name == nullptr ? std::string_view{}
                                                       : std::string_view(name));
             element.location = self.currentLocation();
+            element.namespaces = std::move(self.pendingNamespaces);
+            self.pendingNamespaces.clear();
             element.attributes.reserve(count);
             for (std::size_t index = 0; index < count; ++index) {
                 element.attributes.push_back({
@@ -143,6 +152,26 @@ struct ExpatParser::Impl final {
             if (self.startHandler) self.startHandler(element);
         });
     }
+
+    static void XMLCALL startNamespace(void* userData,
+                                       const XML_Char* prefix,
+                                       const XML_Char* namespaceUri) noexcept {
+        auto& self = *static_cast<Impl*>(userData);
+        self.invokeFromCallback([&] {
+            if (self.pendingNamespaces.size() >=
+                self.limits.maxAttributesPerElement) {
+                self.fail(DiagnosticCode::XmlLimitExceeded,
+                          "XML namespace declarations exceed "
+                          "maxAttributesPerElement");
+            }
+            self.pendingNamespaces.push_back({
+                prefix == nullptr ? std::string{} : std::string(prefix),
+                namespaceUri == nullptr ? std::string{}
+                                        : std::string(namespaceUri)});
+        });
+    }
+
+    static void XMLCALL endNamespace(void*, const XML_Char*) noexcept {}
 
     static void XMLCALL endElement(void* userData, const XML_Char* name) noexcept {
         auto& self = *static_cast<Impl*>(userData);
@@ -275,6 +304,8 @@ ExpatParser::ExpatParser(XmlLimits limits, std::string sourceName)
     XML_SetUserData(impl_->parser, impl_.get());
     XML_SetReturnNSTriplet(impl_->parser, 1);
     XML_SetElementHandler(impl_->parser, &Impl::startElement, &Impl::endElement);
+    XML_SetNamespaceDeclHandler(impl_->parser, &Impl::startNamespace,
+                               &Impl::endNamespace);
     XML_SetCharacterDataHandler(impl_->parser, &Impl::characterData);
     XML_SetXmlDeclHandler(impl_->parser, &Impl::xmlDeclaration);
     XML_SetStartDoctypeDeclHandler(impl_->parser, &Impl::startDoctype);

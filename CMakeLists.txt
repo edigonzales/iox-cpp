@@ -74,6 +74,7 @@ add_library(iox-xtf STATIC
     source/xtf/v23/Xtf23Dialect.cpp
     source/xtf/v23/Xtf23Writer.cpp
     source/xtf/v24/Xtf24Dialect.cpp
+    source/xtf/v24/Xtf24Writer.cpp
 )
 
 target_include_directories(iox-xtf

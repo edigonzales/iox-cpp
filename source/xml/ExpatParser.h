@@ -26,9 +26,15 @@ struct XmlAttribute final {
     std::string value;
 };
 
+struct XmlNamespaceDeclaration final {
+    std::string prefix;
+    std::string namespaceUri;
+};
+
 struct XmlStartElement final {
     XmlQualifiedName name;
     std::vector<XmlAttribute> attributes;
+    std::vector<XmlNamespaceDeclaration> namespaces;
     SourceLocation location;
 };
 
