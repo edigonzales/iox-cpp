@@ -175,4 +175,113 @@ IOX_TEST(expat_finish_and_feed_are_one_shot) {
     IOX_CHECK(feedAfterFinish);
 }
 
+IOX_TEST(expat_covers_namespace_callback_and_suspension_edges) {
+    iox::xml::XmlLimits combined;
+    combined.maxAttributesPerElement = 2;
+    auto failure = parseFailure("<r xmlns:a='a' xmlns:b='b' x='1'/>", combined);
+    IOX_CHECK(failure.has_value());
+    IOX_CHECK(failure->code() == iox::DiagnosticCode::XmlLimitExceeded);
+
+    iox::xml::XmlLimits namespaceOnly;
+    namespaceOnly.maxAttributesPerElement = 1;
+    failure = parseFailure("<r xmlns:a='a' xmlns:b='b'/>", namespaceOnly);
+    IOX_CHECK(failure.has_value());
+    IOX_CHECK(failure->code() == iox::DiagnosticCode::XmlLimitExceeded);
+
+    failure = parseFailure("<r/>tail");
+    IOX_CHECK(failure.has_value());
+    IOX_CHECK(failure->code() == iox::DiagnosticCode::XmlMalformed);
+
+    iox::xml::ExpatParser unknownCallback;
+    unknownCallback.setTextHandler([](std::string_view, const auto&) {
+        throw 42;
+    });
+    bool unknownWrapped = false;
+    try {
+        unknownCallback.feed(iox::ByteView(std::string("<r>x</r>")));
+    } catch (const iox::IoxError& error) {
+        unknownWrapped = error.code() == iox::DiagnosticCode::InternalError;
+    }
+    IOX_CHECK(unknownWrapped);
+
+    iox::xml::ExpatParser directError;
+    directError.setEndHandler([](const auto&) {
+        throw iox::IoxError(iox::DiagnosticCode::InvalidArgument,
+                            "direct marker");
+    });
+    bool directPreserved = false;
+    try {
+        directError.feed(iox::ByteView(std::string("<r/>")));
+    } catch (const iox::IoxError& error) {
+        directPreserved = error.code() == iox::DiagnosticCode::InvalidArgument;
+    }
+    IOX_CHECK(directPreserved);
+
+    iox::xml::ExpatParser suspended;
+    int starts = 0;
+    suspended.setStartHandler([&](const auto&) {
+        ++starts;
+        if (starts == 1) suspended.suspend();
+    });
+    suspended.feed(iox::ByteView(std::string("<r><c/></r>")));
+    IOX_CHECK(suspended.suspended());
+    suspended.resume();
+    IOX_CHECK(!suspended.suspended());
+    suspended.finish();
+    IOX_CHECK_EQ(2, starts);
+
+    iox::xml::ExpatParser invalidSuspend;
+    bool suspendOutside = false;
+    try { invalidSuspend.suspend(); }
+    catch (const iox::IoxError& error) {
+        suspendOutside = error.code() == iox::DiagnosticCode::InvalidState;
+    }
+    IOX_CHECK(suspendOutside);
+    bool resumeOutside = false;
+    try { invalidSuspend.resume(); }
+    catch (const iox::IoxError& error) {
+        resumeOutside = error.code() == iox::DiagnosticCode::InvalidState;
+    }
+    IOX_CHECK(resumeOutside);
+}
+
+IOX_TEST(expat_covers_handler_state_and_declaration_edges) {
+    for (const auto input : {std::string("<?xml version='1.0'?><r/>"),
+                             std::string("<?xml version='1.0' encoding='UTF-8'?><r/>"),
+                             std::string("  <r/>  ")}) {
+        iox::xml::ExpatParser parser;
+        parser.feed(iox::ByteView(input));
+        parser.finish();
+        IOX_CHECK(parser.finished());
+        (void)parser.location();
+    }
+
+    for (const auto handler : {0, 1, 2}) {
+        iox::xml::ExpatParser parser;
+        parser.feed(iox::ByteView(std::string("<r/>")));
+        parser.finish();
+        bool rejected = false;
+        try {
+            if (handler == 0) parser.setStartHandler([](const auto&) {});
+            if (handler == 1) parser.setEndHandler([](const auto&) {});
+            if (handler == 2) parser.setTextHandler([](std::string_view, const auto&) {});
+        } catch (const iox::IoxError& error) {
+            rejected = error.code() == iox::DiagnosticCode::InvalidState;
+        }
+        IOX_CHECK(rejected);
+    }
+
+    for (const auto zeroField : {0, 1}) {
+        iox::xml::XmlLimits limits;
+        if (zeroField == 0) limits.maxAttributesPerElement = 0;
+        if (zeroField == 1) limits.maxTextBytesPerNode = 0;
+        bool rejected = false;
+        try { iox::xml::ExpatParser parser(limits); }
+        catch (const iox::IoxError& error) {
+            rejected = error.code() == iox::DiagnosticCode::InvalidArgument;
+        }
+        IOX_CHECK(rejected);
+    }
+}
+
 #include "iox/test/TestMain.h"

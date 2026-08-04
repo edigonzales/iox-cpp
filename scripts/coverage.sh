@@ -17,27 +17,62 @@ cmake -S "$PROJECT_DIR" -B "$BUILD_DIR" \
     -DIOX_ENABLE_COVERAGE=ON \
     "$@"
 
-cmake --build "$BUILD_DIR" --parallel
-
 mkdir -p "$PROFILE_DIR"
 find "$BUILD_DIR" -name '*.profraw' -delete
 
-(
-    cd "$BUILD_DIR"
-    LLVM_PROFILE_FILE="$PROFILE_DIR/%m-%p.profraw" ctest --output-on-failure
-)
+cmake --build "$BUILD_DIR" --target iox-test-coverage-all --parallel
 
-if command -v llvm-profdata >/dev/null 2>&1 && command -v llvm-cov >/dev/null 2>&1; then
-    LLVM_PROFDATA=llvm-profdata
-    LLVM_COV=llvm-cov
+LLVM_PROFILE_FILE="$PROFILE_DIR/coverage-%m-%p.profraw" \
+    "$BUILD_DIR/test/iox-test-coverage-all"
+
+compiler_id="$(sed -n 's/^set(CMAKE_CXX_COMPILER_ID "\([^"]*\)")/\1/p' \
+    "$BUILD_DIR/CMakeFiles/"*/CMakeCXXCompiler.cmake | head -n 1)"
+
+if [ "$compiler_id" = "GNU" ]; then
+    if ! command -v gcovr >/dev/null 2>&1; then
+        echo "GCC coverage requires gcovr." >&2
+        exit 2
+    fi
+    coverage_failed=0
+    modules=(core json xml xtf abi)
+    line_thresholds=(90 90 90 90 90)
+    branch_thresholds=(85 85 85 85 85)
+    if grep -q '^IOX_ENABLE_ILIC:BOOL=ON$' "$BUILD_DIR/CMakeCache.txt"; then
+        modules+=(ilic)
+        line_thresholds+=(85)
+        branch_thresholds+=(75)
+    fi
+    for index in "${!modules[@]}"; do
+        module="${modules[$index]}"
+        echo "=== iox-$module ==="
+        if ! gcovr --root "$PROJECT_DIR" \
+            --filter "$PROJECT_DIR/source/$module/" \
+            --exclude "$PROJECT_DIR/build" --txt \
+            --fail-under-line "${line_thresholds[$index]}" \
+            --fail-under-branch "${branch_thresholds[$index]}"; then
+            coverage_failed=1
+        fi
+    done
+    gcovr --root "$PROJECT_DIR" --filter "$PROJECT_DIR/source/" \
+        --exclude "$PROJECT_DIR/build" --html-details \
+        --html "$BUILD_DIR/coverage.html"
+    if [ "$coverage_failed" -ne 0 ]; then
+        echo "One or more per-module coverage thresholds failed." >&2
+        exit 1
+    fi
+    echo "=== Coverage build and tests complete ==="
+    exit 0
+elif command -v llvm-profdata >/dev/null 2>&1 && command -v llvm-cov >/dev/null 2>&1; then
+    LLVM_PROFDATA=(llvm-profdata)
+    LLVM_COV=(llvm-cov)
 elif command -v xcrun >/dev/null 2>&1 \
         && xcrun --find llvm-profdata >/dev/null 2>&1 \
         && xcrun --find llvm-cov >/dev/null 2>&1; then
-    LLVM_PROFDATA="xcrun llvm-profdata"
-    LLVM_COV="xcrun llvm-cov"
+    LLVM_PROFDATA=(xcrun llvm-profdata)
+    LLVM_COV=(xcrun llvm-cov)
 else
-    echo "LLVM coverage tools not found; instrumented test gate passed."
-    exit 0
+    echo "Neither LLVM coverage tools nor gcovr were found." >&2
+    exit 2
 fi
 
 shopt -s nullglob
@@ -48,47 +83,75 @@ if [ "${#profiles[@]}" -eq 0 ]; then
 fi
 
 profile_data="$BUILD_DIR/coverage.profdata"
-$LLVM_PROFDATA merge -sparse "${profiles[@]}" -o "$profile_data"
+"${LLVM_PROFDATA[@]}" merge -sparse "${profiles[@]}" -o "$profile_data"
 
-objects=()
-while IFS= read -r executable; do
-    objects+=("$executable")
-done < <(find "$BUILD_DIR" -type f -perm -111 \
-    ! -path "$BUILD_DIR/_deps/*" \
-    ! -path "$PROFILE_DIR/*" \
-    ! -path '*/ilic-core-build/*' \
-    ! -name 'iox-test-model-based' | sort)
+coverage_binary="$BUILD_DIR/test/iox-test-coverage-all"
+summary="$BUILD_DIR/coverage-summary.txt"
+warnings="$BUILD_DIR/coverage-warnings.txt"
+: > "$summary"
+: > "$warnings"
 
-if [ "${#objects[@]}" -gt 0 ]; then
-    first_object="${objects[0]}"
-    object_args=()
-    for executable in "${objects[@]:1}"; do
-        object_args+=( -object "$executable" )
-    done
-    echo "=== LLVM coverage report (core libraries; third-party, tests, factory, examples, tools, and generated sources excluded) ==="
-    report="$($LLVM_COV report "$first_object" "${object_args[@]}" \
-        -instr-profile="$profile_data" \
-        -ignore-filename-regex='/(build|_deps|test|examples|tools|factory|packages/iox-wasm)/')"
-    printf '%s\n' "$report"
-
+report_module() {
+    local module="$1"
+    local line_required="$2"
+    local branch_required="$3"
+    shift 3
+    local report
+    report="$("${LLVM_COV[@]}" report "$coverage_binary" \
+        -instr-profile="$profile_data" "$@" 2>>"$warnings")"
+    printf '=== %s ===\n%s\n' "$module" "$report" | tee -a "$summary"
+    local total_line
     total_line="$(printf '%s\n' "$report" | awk '$1 == "TOTAL" { print; exit }')"
     if [ -z "$total_line" ]; then
-        echo "No TOTAL row was produced; coverage threshold gate failed."
-        exit 1
+        echo "No TOTAL row for $module." >&2
+        return 1
     fi
+    local line_coverage branch_coverage
     line_coverage="$(printf '%s\n' "$total_line" | awk '{gsub(/%/, "", $10); print $10}')"
     branch_coverage="$(printf '%s\n' "$total_line" | awk '{gsub(/%/, "", $13); print $13}')"
-    echo "Coverage thresholds: line=${line_coverage}% (required >= 90%), branch=${branch_coverage}% (required >= 85%)."
-    if ! awk -v value="$line_coverage" 'BEGIN { exit !(value + 0 >= 90.0) }'; then
-        echo "Line coverage threshold gate failed."
-        exit 1
+    echo "$module thresholds: line=${line_coverage}% (>=${line_required}%), branch=${branch_coverage}% (>=${branch_required}%)." | tee -a "$summary"
+    awk -v value="$line_coverage" -v required="$line_required" \
+        'BEGIN { exit !(value + 0 >= required + 0) }' || return 1
+    awk -v value="$branch_coverage" -v required="$branch_required" \
+        'BEGIN { exit !(value + 0 >= required + 0) }' || return 1
+}
+
+coverage_failed=0
+for module in core json xml xtf abi; do
+    sources=()
+    while IFS= read -r source; do
+        sources+=("$source")
+    done < <(find "$PROJECT_DIR/source/$module" -type f -name '*.cpp' | sort)
+    if ! report_module "iox-$module" 90 85 "${sources[@]}"; then
+        coverage_failed=1
     fi
-    if ! awk -v value="$branch_coverage" 'BEGIN { exit !(value + 0 >= 85.0) }'; then
-        echo "Branch coverage threshold gate failed."
-        exit 1
+done
+if [ -d "$PROJECT_DIR/source/ilic" ] && \
+   grep -q '^IOX_ENABLE_ILIC:BOOL=ON$' "$BUILD_DIR/CMakeCache.txt"; then
+    sources=()
+    while IFS= read -r source; do
+        sources+=("$source")
+    done < <(find "$PROJECT_DIR/source/ilic" -type f -name '*.cpp' | sort)
+    if ! report_module "iox-ilic" 85 75 "${sources[@]}"; then
+        coverage_failed=1
     fi
-else
-    echo "No instrumented project executables found; coverage report unavailable."
+fi
+
+if grep -qi 'mismatched data' "$warnings"; then
+    cat "$warnings" >&2
+    echo "LLVM coverage reported mismatched data." >&2
+    exit 1
+fi
+if [ -s "$warnings" ]; then
+    cat "$warnings" >&2
+fi
+
+"${LLVM_COV[@]}" show "$coverage_binary" -instr-profile="$profile_data" \
+    -format=html -output-dir="$BUILD_DIR/coverage-html" \
+    "$PROJECT_DIR/source" >/dev/null
+
+if [ "$coverage_failed" -ne 0 ]; then
+    echo "One or more per-module coverage thresholds failed." >&2
     exit 1
 fi
 

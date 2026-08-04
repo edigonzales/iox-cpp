@@ -42,7 +42,7 @@ composed around the generic `XtfReader`/`XtfWriter` and does not make the
 generic XTF targets depend on `ilic-core`.
 
 Name lookup is exact: a canonical or translated scoped name and an expanded
-XML QName identify one semantic concept or fail with `model.mismatch` when
+XML QName identify one semantic concept or fail with `ilic.model_mismatch` when
 ambiguous. The selected transfer-header model chooses the target-language
 variant. The ilic layer handles transfer names, inherited properties, roles,
 embedded roles, association transferability, transient views/properties and

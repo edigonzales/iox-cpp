@@ -52,4 +52,26 @@ IOX_TEST(iomvalue_wrong_accessor_throws) {
     IOX_CHECK(objectThrew);
 }
 
+IOX_TEST(iomvalue_copy_assignment_and_nonconst_accessor) {
+    auto first = iox::IomValue::primitive("first");
+    auto second = iox::IomValue::primitive("second");
+    second = first;
+    IOX_CHECK_EQ(std::string("first"), second.primitive());
+    second = second;
+    IOX_CHECK_EQ(std::string("first"), second.primitive());
+
+    auto nested = iox::IomValue::object(
+        iox::IomObject(iox::IomName("Nested")));
+    nested.object().setPrimitive(iox::IomName("value"), "changed");
+    IOX_CHECK_EQ(std::string_view("changed"),
+                 *nested.object().primitive("value"));
+    bool threw = false;
+    try {
+        (void)second.object();
+    } catch (const iox::IoxError& error) {
+        threw = error.code() == iox::DiagnosticCode::InvalidState;
+    }
+    IOX_CHECK(threw);
+}
+
 #include "iox/test/TestMain.h"

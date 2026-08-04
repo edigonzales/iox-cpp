@@ -1,7 +1,7 @@
 // Include this AFTER all IOX_TEST definitions to generate main().
-// This file intentionally has no include guard — it is designed to
-// be included at the bottom of a single translation unit.
+// IOX_TEST_NO_MAIN lets the coverage build combine the test translation units.
 
+#ifndef IOX_TEST_NO_MAIN
 int main() {
     int passed = 0;
     int failed = 0;
@@ -25,3 +25,4 @@ int main() {
     delete[] _iox_g_tests;
     return failed > 0 ? 1 : 0;
 }
+#endif

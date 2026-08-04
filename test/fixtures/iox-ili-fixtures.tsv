@@ -11,7 +11,7 @@
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/ObjectWithBID.xtf	test/fixtures/xtf23/ObjectWithBID.xtf	MIT/X License	transfer	transfer state and error semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/Simple22a.xtf	test/fixtures/xtf23/Simple22a.xtf	MIT/X License	transfer	transfer state and error semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/StartAndEndState.xtf	test/fixtures/xtf23/StartAndEndState.xtf	MIT/X License	transfer	transfer state and error semantics
-1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/Test1.ili	test/fixtures/xtf23/Test1.ili	MIT/X License	model-input	model source for ilic-required/api-gap rows
+1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/Test1.ili	test/fixtures/xtf23/Test1.ili	MIT/X License	model-input	model source for direct ilic semantic rows
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/TextBetweenLines.xtf	test/fixtures/xtf23/TextBetweenLines.xtf	MIT/X License	transfer	transfer state and error semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/ValidTransferElement.xtf	test/fixtures/xtf23/ValidTransferElement.xtf	MIT/X License	transfer	transfer state and error semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/WrongCaseSensitiveTransferElement.xtf	test/fixtures/xtf23/WrongCaseSensitiveTransferElement.xtf	MIT/X License	transfer	transfer state and error semantics
@@ -20,7 +20,7 @@
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/WrongSpelledStartTransferElement.xtf	test/fixtures/xtf23/WrongSpelledStartTransferElement.xtf	MIT/X License	transfer	transfer state and error semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/Xml1Line.xtf	test/fixtures/xtf23/Xml1Line.xtf	MIT/X License	transfer	transfer state and error semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/associations/CommentsInsideAssociation.xtf	test/fixtures/xtf23/associations/CommentsInsideAssociation.xtf	MIT/X License	association	association event/reference semantics
-1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/associations/EmbeddedAssociationWithAttr.ili	test/fixtures/xtf23/associations/EmbeddedAssociationWithAttr.ili	MIT/X License	model-input	model source for ilic-required/api-gap rows
+1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/associations/EmbeddedAssociationWithAttr.ili	test/fixtures/xtf23/associations/EmbeddedAssociationWithAttr.ili	MIT/X License	model-input	model source for direct ilic semantic rows
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/associations/EmbeddedAssociationWithAttributes.xtf	test/fixtures/xtf23/associations/EmbeddedAssociationWithAttributes.xtf	MIT/X License	association	association event/reference semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/associations/Embedded_0_0.xtf	test/fixtures/xtf23/associations/Embedded_0_0.xtf	MIT/X License	association	association event/reference semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/associations/Embedded_0to1.xtf	test/fixtures/xtf23/associations/Embedded_0to1.xtf	MIT/X License	association	association event/reference semantics
@@ -59,14 +59,14 @@
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/SameAttrClassTopicNames.xtf	test/fixtures/xtf23/dataSection/SameAttrClassTopicNames.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/SameAttrNames.xtf	test/fixtures/xtf23/dataSection/SameAttrNames.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/SameClassNames.xtf	test/fixtures/xtf23/dataSection/SameClassNames.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
-1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/SimpleCoord23.ili	test/fixtures/xtf23/dataSection/SimpleCoord23.ili	MIT/X License	model-input	model source for ilic-required/api-gap rows
+1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/SimpleCoord23.ili	test/fixtures/xtf23/dataSection/SimpleCoord23.ili	MIT/X License	model-input	model source for direct ilic semantic rows
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/SimpleCoord23a.xtf	test/fixtures/xtf23/dataSection/SimpleCoord23a.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/SimpleCoord23noModels.xtf	test/fixtures/xtf23/dataSection/SimpleCoord23noModels.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/Structures.xtf	test/fixtures/xtf23/dataSection/Structures.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/Structures2.xtf	test/fixtures/xtf23/dataSection/Structures2.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/Surface.xtf	test/fixtures/xtf23/dataSection/Surface.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/SurfaceNoPolyline.xtf	test/fixtures/xtf23/dataSection/SurfaceNoPolyline.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
-1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/Test1.ili	test/fixtures/xtf23/dataSection/Test1.ili	MIT/X License	model-input	model source for ilic-required/api-gap rows
+1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/Test1.ili	test/fixtures/xtf23/dataSection/Test1.ili	MIT/X License	model-input	model source for direct ilic semantic rows
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/TextTypes.xtf	test/fixtures/xtf23/dataSection/TextTypes.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/TextTypesWithEmptyLine.xtf	test/fixtures/xtf23/dataSection/TextTypesWithEmptyLine.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf23Reader/dataSection/TextTypes_List.xtf	test/fixtures/xtf23/dataSection/TextTypes_List.xtf	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
@@ -118,9 +118,9 @@
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/SkipBasketFirst.xml	test/fixtures/xtf24/SkipBasketFirst.xml	MIT/X License	transfer	transfer state and error semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/SkipBasketOnly.xml	test/fixtures/xtf24/SkipBasketOnly.xml	MIT/X License	transfer	transfer state and error semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/StartAndEndState.xml	test/fixtures/xtf24/StartAndEndState.xml	MIT/X License	transfer	transfer state and error semantics
-1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/Test1.ili	test/fixtures/xtf24/Test1.ili	MIT/X License	model-input	model source for ilic-required/api-gap rows
+1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/Test1.ili	test/fixtures/xtf24/Test1.ili	MIT/X License	model-input	model source for direct ilic semantic rows
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/TextBetweenLines.xml	test/fixtures/xtf24/TextBetweenLines.xml	MIT/X License	transfer	transfer state and error semantics
-1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/Translation24.ili	test/fixtures/xtf24/Translation24.ili	MIT/X License	model-input	model source for ilic-required/api-gap rows
+1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/Translation24.ili	test/fixtures/xtf24/Translation24.ili	MIT/X License	model-input	model source for direct ilic semantic rows
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/TranslationTranslatedModelName.xml	test/fixtures/xtf24/TranslationTranslatedModelName.xml	MIT/X License	transfer	transfer state and error semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/UnexpectedCharacter.xml	test/fixtures/xtf24/UnexpectedCharacter.xml	MIT/X License	transfer	transfer state and error semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/UnexpectedEvent.xml	test/fixtures/xtf24/UnexpectedEvent.xml	MIT/X License	transfer	transfer state and error semantics
@@ -131,7 +131,7 @@
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/Xml1Line.xml	test/fixtures/xtf24/Xml1Line.xml	MIT/X License	transfer	transfer state and error semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/associations/Alone_NtoN.xml	test/fixtures/xtf24/associations/Alone_NtoN.xml	MIT/X License	association	association event/reference semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/associations/Alone_WithAttributes.xml	test/fixtures/xtf24/associations/Alone_WithAttributes.xml	MIT/X License	association	association event/reference semantics
-1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/associations/Association.ili	test/fixtures/xtf24/associations/Association.ili	MIT/X License	model-input	model source for ilic-required/api-gap rows
+1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/associations/Association.ili	test/fixtures/xtf24/associations/Association.ili	MIT/X License	model-input	model source for direct ilic semantic rows
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/associations/AssociationNotExist.xml	test/fixtures/xtf24/associations/AssociationNotExist.xml	MIT/X License	association	association event/reference semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/associations/CommentsInsideAssociation.xml	test/fixtures/xtf24/associations/CommentsInsideAssociation.xml	MIT/X License	association	association event/reference semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/associations/Embedded2_1to1.xml	test/fixtures/xtf24/associations/Embedded2_1to1.xml	MIT/X License	association	association event/reference semantics
@@ -157,7 +157,7 @@
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/dataSection/CommentsInFile.xml	test/fixtures/xtf24/dataSection/CommentsInFile.xml	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/dataSection/Coord.xml	test/fixtures/xtf24/dataSection/Coord.xml	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/dataSection/CoordNoSpace.xml	test/fixtures/xtf24/dataSection/CoordNoSpace.xml	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
-1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/dataSection/DataTest1.ili	test/fixtures/xtf24/dataSection/DataTest1.ili	MIT/X License	model-input	model source for ilic-required/api-gap rows
+1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/dataSection/DataTest1.ili	test/fixtures/xtf24/dataSection/DataTest1.ili	MIT/X License	model-input	model source for direct ilic semantic rows
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/dataSection/DateTimeTypes.xml	test/fixtures/xtf24/dataSection/DateTimeTypes.xml	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/dataSection/EnumerationOthers.xml	test/fixtures/xtf24/dataSection/EnumerationOthers.xml	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/dataSection/EnumerationTypes.xml	test/fixtures/xtf24/dataSection/EnumerationTypes.xml	MIT/X License	data	object, primitive, structure, reference, and geometry semantics
@@ -213,7 +213,7 @@
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/headerSection/WrongTypeInModel.xml	test/fixtures/xtf24/headerSection/WrongTypeInModel.xml	MIT/X License	header	header order and validation semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/headerSection/WrongTypeInModels.xml	test/fixtures/xtf24/headerSection/WrongTypeInModels.xml	MIT/X License	header	header order and validation semantics
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Reader/headerSection/Xml1Line.xml	test/fixtures/xtf24/headerSection/Xml1Line.xml	MIT/X License	header	header order and validation semantics
-1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Writer/Translation24.ili	test/fixtures/xtf24writer/Translation24.ili	MIT/X License	model-input	model source for ilic-required/api-gap rows
+1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Writer/Translation24.ili	test/fixtures/xtf24writer/Translation24.ili	MIT/X License	model-input	model source for direct ilic semantic rows
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Writer/dataSection/MultiCoord.xtf	test/fixtures/xtf24writer/dataSection/MultiCoord.xtf	MIT/X License	writer	writer event and deterministic roundtrip
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Writer/dataSection/MultiPolyline.xtf	test/fixtures/xtf24writer/dataSection/MultiPolyline.xtf	MIT/X License	writer	writer event and deterministic roundtrip
 1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f	src/test/data/Xtf24Writer/dataSection/MultiSurfaceArea.xtf	test/fixtures/xtf24writer/dataSection/MultiSurfaceArea.xtf	MIT/X License	writer	writer event and deterministic roundtrip

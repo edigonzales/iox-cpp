@@ -515,4 +515,203 @@ IOX_TEST(model_writer_failure_is_terminal) {
     IOX_CHECK(terminal);
 }
 
+IOX_TEST(model_index_negative_lookups_are_explicit) {
+    ModelFixture fixture;
+    iox::ilic::IlicModelIndex index(fixture.store);
+
+    IOX_CHECK(!index.modelLanguage("Missing"));
+    IOX_CHECK(!index.transferModel("Missing", iox::XtfVersion::V23));
+    const auto base23 = index.transferModel("BaseModel", iox::XtfVersion::V23);
+    const auto base24 = index.transferModel("BaseModel", iox::XtfVersion::V24);
+    IOX_CHECK(base23.has_value());
+    IOX_CHECK(base23->version.has_value());
+    IOX_CHECK(base23->uri.has_value());
+    IOX_CHECK(base24.has_value());
+    IOX_CHECK(base24->xmlNamespace.namespaceUri == "urn:example:base");
+
+    const iox::IomName missing("Missing");
+    const iox::IomName feature("BaseModel.Data.Feature");
+    IOX_CHECK(!index.resolveTopic(missing, "BaseModel", iox::XtfVersion::V23));
+    IOX_CHECK(!index.resolveClass(missing, "BaseModel", iox::XtfVersion::V23));
+    IOX_CHECK(!index.resolveProperty(missing, iox::IomName("Name"),
+                                     "BaseModel", iox::XtfVersion::V23));
+    IOX_CHECK(!index.resolveProperty(feature, missing, "BaseModel",
+                                     iox::XtfVersion::V23));
+    IOX_CHECK(index.transferProperties(missing, "BaseModel",
+                                       iox::XtfVersion::V23).empty());
+    IOX_CHECK(!index.referenceTargetClass(
+        missing, iox::IomName("TargetRole"), "BaseModel",
+        iox::XtfVersion::V23));
+    IOX_CHECK(!index.referenceTargetClass(
+        feature, missing, "BaseModel", iox::XtfVersion::V23));
+    IOX_CHECK(!index.referenceTargetClass(
+        feature, iox::IomName("Name"), "BaseModel",
+        iox::XtfVersion::V23));
+
+    IOX_CHECK(!index.translateEnumeration(
+        missing, iox::IomName("Status"), "Open", "BaseModel"));
+    IOX_CHECK(!index.translateEnumeration(
+        feature, missing, "Open", "BaseModel"));
+    const auto ordinary = index.translateEnumeration(
+        feature, iox::IomName("Name"), "literal", "BaseModel");
+    IOX_CHECK(ordinary.has_value());
+    IOX_CHECK_EQ(std::string("literal"), *ordinary);
+    IOX_CHECK(!index.translateEnumeration(
+        feature, iox::IomName("Status"), "Missing", "BaseModel"));
+
+    IOX_CHECK(!index.isTopLevelTransferable(missing));
+    IOX_CHECK(!index.isTransientProperty(missing, iox::IomName("Name")));
+    IOX_CHECK(!index.isTransientProperty(feature, missing));
+    IOX_CHECK(!index.isTransientProperty(feature, iox::IomName("Name")));
+    IOX_CHECK(!index.isEmbeddedRole(missing, iox::IomName("TargetRole")));
+    IOX_CHECK(!index.isEmbeddedRole(feature, missing));
+    IOX_CHECK(!index.isEmbeddedRole(feature, iox::IomName("Name")));
+
+    bool targetRejected = false;
+    try {
+        (void)index.resolveClass(feature, "Missing", iox::XtfVersion::V23);
+    } catch (const iox::IoxError& error) {
+        targetRejected = error.code() == iox::DiagnosticCode::ModelMismatch;
+    }
+    IOX_CHECK(targetRejected);
+}
+
+IOX_TEST(model_transformer_reports_topics_classes_properties_and_enums) {
+    ModelFixture fixture;
+    auto makeWriter = [&](iox::ilic::IlicXtfWriterOptions options) {
+        return std::make_unique<iox::ilic::IlicXtfWriter>(
+            fixture.store, std::make_shared<iox::StringOutputSink>(), options);
+    };
+
+    iox::ilic::IlicXtfWriterOptions options;
+    options.xtf.version = iox::XtfVersion::V23;
+    options.xtf.pretty = false;
+
+    auto mixed = makeWriter(options);
+    auto mixedStart = std::get<iox::StartTransferEvent>(
+        transferEvents(iox::XtfVersion::V23)[0]);
+    mixedStart.header.models.push_back({"BaseModel", {}, {}, {}});
+    bool languageRejected = false;
+    try { mixed->write(mixedStart); }
+    catch (const iox::IoxError& error) {
+        languageRejected = error.code() == iox::DiagnosticCode::ModelMismatch;
+    }
+    IOX_CHECK(languageRejected);
+
+    auto unknownTopic = makeWriter(options);
+    auto events = transferEvents(iox::XtfVersion::V23);
+    unknownTopic->write(events[0]);
+    auto badBasket = std::get<iox::StartBasketEvent>(events[1]);
+    badBasket.basket.topic = iox::IomName("Missing.Topic");
+    bool topicRejected = false;
+    try { unknownTopic->write(badBasket); }
+    catch (const iox::IoxError& error) {
+        topicRejected = error.code() == iox::DiagnosticCode::UnknownInterlisName;
+    }
+    IOX_CHECK(topicRejected);
+
+    auto unknownProperty = makeWriter(options);
+    unknownProperty->write(events[0]);
+    unknownProperty->write(events[1]);
+    auto badObject = std::get<iox::ObjectEvent>(events[2]);
+    badObject.object.setPrimitive(iox::IomName("Missing"), "x");
+    bool propertyRejected = false;
+    try { unknownProperty->write(badObject); }
+    catch (const iox::IoxError& error) {
+        propertyRejected = error.code() == iox::DiagnosticCode::UnknownInterlisName;
+    }
+    IOX_CHECK(propertyRejected);
+
+    auto transientProperty = makeWriter(options);
+    transientProperty->write(events[0]);
+    transientProperty->write(events[1]);
+    badObject = std::get<iox::ObjectEvent>(events[2]);
+    badObject.object.setPrimitive(iox::IomName("Calculated"), "x");
+    bool transientRejected = false;
+    try { transientProperty->write(badObject); }
+    catch (const iox::IoxError& error) {
+        transientRejected = error.code() == iox::DiagnosticCode::UnknownInterlisName;
+    }
+    IOX_CHECK(transientRejected);
+
+    auto badEnumeration = makeWriter(options);
+    badEnumeration->write(events[0]);
+    badEnumeration->write(events[1]);
+    badObject = std::get<iox::ObjectEvent>(events[2]);
+    badObject.object.replaceValue(
+        "Status", 0, iox::IomValue::primitive("Missing"));
+    bool enumRejected = false;
+    try { badEnumeration->write(badObject); }
+    catch (const iox::IoxError& error) {
+        enumRejected = error.code() == iox::DiagnosticCode::UnknownInterlisName;
+    }
+    IOX_CHECK(enumRejected);
+
+    auto structure = makeWriter(options);
+    structure->write(events[0]);
+    structure->write(events[1]);
+    badObject.object = iox::IomObject(
+        iox::IomName("BaseModel.Data.Detail"), "D");
+    bool structureRejected = false;
+    try { structure->write(badObject); }
+    catch (const iox::IoxError& error) {
+        structureRejected = error.code() == iox::DiagnosticCode::UnknownInterlisName;
+    }
+    IOX_CHECK(structureRejected);
+}
+
+IOX_TEST(model_reader_and_writer_wrapper_states_are_observable) {
+    ModelFixture fixture;
+    const auto xml = write(fixture, iox::XtfVersion::V23);
+    iox::ilic::IlicXtfReader reader(fixture.store);
+    IOX_CHECK(!reader.isFinished());
+    reader.feed(iox::ByteView(xml));
+    reader.finish();
+    while (reader.next().progress == iox::ReaderProgress::Event) {}
+    IOX_CHECK(reader.isFinished());
+    (void)reader.takeDiagnostics();
+
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::ilic::IlicXtfWriterOptions options;
+    options.xtf.version = iox::XtfVersion::V23;
+    options.xtf.pretty = false;
+    iox::ilic::IlicXtfWriter writer(fixture.store, sink, options);
+    IOX_CHECK(!writer.isClosed());
+    auto events = transferEvents(iox::XtfVersion::V23);
+    writer.write(events[0]);
+    writer.flush();
+    for (std::size_t index = 1; index < events.size(); ++index) {
+        writer.write(events[index]);
+    }
+    writer.close();
+    IOX_CHECK(writer.isClosed());
+    (void)writer.takeDiagnostics();
+
+    auto failedSink = std::make_shared<iox::StringOutputSink>();
+    iox::ilic::IlicXtfWriter failed(fixture.store, failedSink, options);
+    bool flushRejected = false;
+    try { failed.flush(); }
+    catch (const iox::IoxError& error) {
+        flushRejected = error.code() == iox::DiagnosticCode::WriterStateError;
+    }
+    IOX_CHECK(flushRejected);
+    IOX_CHECK(!failed.isClosed());
+    bool terminal = false;
+    try { failed.close(); }
+    catch (const iox::IoxError& error) {
+        terminal = error.code() == iox::DiagnosticCode::WriterStateError;
+    }
+    IOX_CHECK(terminal);
+
+    auto incompleteSink = std::make_shared<iox::StringOutputSink>();
+    iox::ilic::IlicXtfWriter incomplete(fixture.store, incompleteSink, options);
+    incomplete.write(events[0]);
+    bool closeRejected = false;
+    try { incomplete.close(); }
+    catch (const iox::IoxError& error) {
+        closeRejected = error.code() == iox::DiagnosticCode::WriterStateError;
+    }
+    IOX_CHECK(closeRejected);
+}
+
 #include "iox/test/TestMain.h"

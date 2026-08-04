@@ -2,7 +2,10 @@
 
 function(iox_set_warnings target)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /WX)
+        target_compile_options(${target} PRIVATE /W4)
+        if(DEFINED ENV{IOX_WERROR} OR IOX_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE /WX)
+        endif()
     else()
         target_compile_options(${target} PRIVATE
             -Wall
@@ -19,8 +22,6 @@ function(iox_set_warnings target)
             -Wformat=2
             -Wimplicit-fallthrough
         )
-        # Promote warnings to errors in CI-style builds; keep as
-        # warnings for local development so exploration is not blocked.
         if(DEFINED ENV{IOX_WERROR} OR IOX_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE -Werror)
         endif()

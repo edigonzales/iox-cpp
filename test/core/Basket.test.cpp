@@ -4,7 +4,10 @@
 #include "iox/test/Test.h"
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -39,6 +42,34 @@ std::unique_ptr<iox::Reader> makeReader(const std::string& data) {
     reader->feed(iox::ByteView(data));
     reader->finish();
     return reader;
+}
+
+class OutcomeReader final : public iox::Reader {
+public:
+    explicit OutcomeReader(std::vector<iox::ReadOutcome> outcomes)
+        : outcomes_(std::move(outcomes)) {}
+    iox::ReadOutcome next() override {
+        if (position_ == outcomes_.size()) {
+            return {iox::ReaderProgress::End, std::nullopt};
+        }
+        return std::move(outcomes_[position_++]);
+    }
+    void feed(iox::ByteView) override {}
+    void finish() override {}
+    bool isFinished() const noexcept override { return true; }
+    std::vector<iox::Diagnostic> takeDiagnostics() override {
+        return {{iox::DiagnosticSeverity::Warning,
+                 iox::DiagnosticCode::UnexpectedElement,
+                 "source diagnostic", {}, {}}};
+    }
+
+private:
+    std::vector<iox::ReadOutcome> outcomes_;
+    std::size_t position_ = 0;
+};
+
+iox::ReadOutcome outcome(iox::IoxEvent event) {
+    return {iox::ReaderProgress::Event, std::move(event)};
 }
 
 } // namespace
@@ -78,6 +109,37 @@ IOX_TEST(basket_reader_reports_object_limit) {
         }
     }
     IOX_CHECK(found);
+}
+
+IOX_TEST(basket_reader_reports_incomplete_and_invalid_event_sequences) {
+    auto needInput = std::make_unique<OutcomeReader>(
+        std::vector<iox::ReadOutcome>{{iox::ReaderProgress::NeedInput,
+                                       std::nullopt}});
+    iox::BasketReader unfinished(std::move(needInput));
+    IOX_CHECK(!unfinished.header().has_value());
+    IOX_CHECK(!unfinished.takeDiagnostics().empty());
+
+    iox::ObjectEvent object;
+    object.object = iox::IomObject(iox::IomName("M.T.C"), "o1");
+    iox::BasketReader wrongStart(std::make_unique<OutcomeReader>(
+        std::vector<iox::ReadOutcome>{outcome(iox::StartTransferEvent{}),
+                                      outcome(object)}));
+    IOX_CHECK(!wrongStart.readBasket().has_value());
+
+    iox::StartBasketEvent basket;
+    basket.basket.topic = iox::IomName("M.T");
+    basket.basket.basketId = "b1";
+    iox::BasketReader interrupted(std::make_unique<OutcomeReader>(
+        std::vector<iox::ReadOutcome>{outcome(iox::StartTransferEvent{}),
+                                      outcome(basket),
+                                      outcome(iox::EndTransferEvent{})}));
+    IOX_CHECK(!interrupted.readBasket().has_value());
+
+    iox::BasketReader truncated(std::make_unique<OutcomeReader>(
+        std::vector<iox::ReadOutcome>{outcome(iox::StartTransferEvent{}),
+                                      outcome(basket)}));
+    IOX_CHECK(!truncated.readBasket().has_value());
+    IOX_CHECK(!truncated.takeDiagnostics().empty());
 }
 
 #include "iox/test/TestMain.h"

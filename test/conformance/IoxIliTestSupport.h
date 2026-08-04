@@ -298,7 +298,6 @@ inline std::string writeEvents(const std::vector<IoxEvent>& events,
     xtf::XtfWriterOptions options;
     options.version = version;
     options.pretty = false;
-    options.sender = "iox-ili-porting-matrix";
     xtf::XtfWriter writer(sink, options);
     for (const auto& event : events) writer.write(event);
     writer.close();

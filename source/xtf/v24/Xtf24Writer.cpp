@@ -682,6 +682,13 @@ struct Xtf24Writer::Impl final {
 
 void Xtf24Writer::Impl::writeNamedValue(const IomName& name,
                                         const IomValue& value) {
+    if (value.isObject() && name.hasXmlName() &&
+        value.object().tag().hasXmlName() &&
+        name.xmlName() == value.object().tag().xmlName() &&
+        name.xmlName().namespaceUri == geometryNamespace) {
+        writeStructured(value.object());
+        return;
+    }
     xml.startElement(requireXmlName(name, "Attribute"));
     if (value.isPrimitive()) {
         xml.text(value.primitive());
@@ -702,6 +709,11 @@ void Xtf24Writer::Impl::writeGenericContents(const IomObject& value) {
         const auto& name = value.attributeName(attributeIndex);
         const auto count = value.valueCount(name.interlisName());
         for (std::size_t index = 0; index < count; ++index) {
+            if (!name.hasXmlName() && name.interlisName() == "text" &&
+                value.value(name.interlisName(), index).isPrimitive()) {
+                xml.text(value.value(name.interlisName(), index).primitive());
+                continue;
+            }
             writeNamedValue(name, value.value(name.interlisName(), index));
         }
     }
@@ -718,7 +730,27 @@ void Xtf24Writer::Impl::writeStructured(const IomObject& value) {
     else if (tag == "MULTISURFACE" || tag == "MULTIAREA") {
         writeMultiSurface(value);
     } else {
-        xml.startElement(requireXmlName(value.tag(), "Structured value"));
+        if (!value.tag().hasXmlName() ||
+            value.tag().xmlName().namespaceUri.empty() ||
+            value.tag().xmlName().localName.empty()) {
+            fail(DiagnosticCode::UnknownInterlisName,
+                 "Structured value requires an explicit XML QName");
+        }
+        if (value.tag().xmlName().namespaceUri == geometryNamespace) {
+            if (!options.preserveUnknownExtensions) {
+                strictOrReport(DiagnosticCode::InvalidGeometry,
+                               "Unknown geometry value was not emitted");
+                return;
+            }
+            report(DiagnosticSeverity::Warning,
+                   DiagnosticCode::UnknownExtensionPreserved,
+                   "Unknown geometry value was preserved: " +
+                       value.tag().xmlName().localName);
+        } else if (value.tag().xmlName().namespaceUri == iliNamespace) {
+            fail(DiagnosticCode::InvalidXtfNamespace,
+                 "Structured model value must not use the ili namespace");
+        }
+        xml.startElement(value.tag().xmlName());
         writeGenericContents(value);
         xml.endElement();
     }

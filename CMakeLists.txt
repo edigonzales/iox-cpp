@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 project(iox-cpp VERSION 0.2.0 LANGUAGES C CXX)
 
+# Newer CMake versions know which linkers rescan static archives. Let them
+# remove duplicate archive entries while retaining compatibility with 3.20.
+if(POLICY CMP0156)
+    cmake_policy(SET CMP0156 NEW)
+endif()
+if(POLICY CMP0179)
+    cmake_policy(SET CMP0179 NEW)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

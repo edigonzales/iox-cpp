@@ -182,15 +182,24 @@ struct Xtf23Writer::Impl final {
 
         start("MODELS");
         for (const auto& model : event.header.models) {
-            if (model.name.empty() || !model.version || model.version->empty() ||
-                !model.uri || model.uri->empty()) {
+            if (model.name.empty()) {
                 fail(DiagnosticCode::MissingModelEntry,
-                     "XTF 2.3 MODEL requires NAME, VERSION, and URI");
+                     "XTF 2.3 MODEL requires NAME");
+            }
+            if (!model.version || model.version->empty() ||
+                !model.uri || model.uri->empty()) {
+                strictOrReport(
+                    DiagnosticCode::MissingModelEntry,
+                    "XTF 2.3 MODEL should provide VERSION and URI");
             }
             start("MODEL");
             attribute("NAME", model.name);
-            attribute("VERSION", *model.version);
-            attribute("URI", *model.uri);
+            if (model.version && !model.version->empty()) {
+                attribute("VERSION", *model.version);
+            }
+            if (model.uri && !model.uri->empty()) {
+                attribute("URI", *model.uri);
+            }
             xml.endElement();
         }
         xml.endElement();

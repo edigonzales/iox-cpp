@@ -13,15 +13,21 @@
 | 8 | completed | edf2974 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 22/22 instrumentation) | Idiomatic JS API, TypeScript unions, byte/iterator/incremental tests, module-worker protocol |
 | 9 | completed | 017ab90 | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 21/21, IOX_ENABLE_ILIC=OFF); explicit ilic build (0, 22/22) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 21/21 instrumentation) | Direct concrete ilic-core integration; no provider abstraction |
 | 10 | completed | 05d3a6d | `cmake -S . -B build/phase10 ...` (0); `cmake --build build/phase10 --parallel` (0); `ctest --test-dir build/phase10 --output-on-failure` (0, 28/28) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 28/28 instrumentation) | BasketReader and limit diagnostics, scored factories, custom format, examples, iox-dump |
-| 11 | completed | 7e98bef | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 31/31) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 31/31; 93.69% line, 85.09% branch) | ASan/UBSan 25/25, standalone fuzz 50 runs plus CTest 1/1, 10,000-object streaming, Native/WASM parity, deterministic roundtrip, public-header consumer, direct ilic-core 26/26 |
-| post-11 | completed | this commit | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 33/33); `iox.test.iox_ili.porting` (4/4); fixture manifest (0) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 33/33; 93.78% line, 85.71% branch) | Pinned iox-ili method matrix, 211 XTF fixtures plus 9 model files, fixture manifest, chunk/event/diagnostic parity, semantic writer roundtrip, explicit model/API gaps |
+| 11 | completed | 7e98bef | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 31/31) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | Historical aggregate; superseded by Phase 20 module gates | ASan/UBSan 25/25, standalone fuzz 50 runs plus CTest 1/1, 10,000-object streaming, Native/WASM parity, deterministic roundtrip, public-header consumer, direct ilic-core 26/26 |
+| post-11 | completed | d4093bf | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 33/33); `iox.test.iox_ili.porting` (4/4); fixture manifest (0) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | Historical aggregate; superseded by Phase 20 module gates | Pinned iox-ili method matrix, 211 XTF fixtures plus 9 model files, fixture manifest, chunk/event/diagnostic parity, semantic writer roundtrip |
 | 13 | completed | 22f33fc | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Version 0.2.0 API reset, ABI 2, event/result schema 2, lexical IOM values, ordered COW objects, stable diagnostics, private yyjson 0.12.0 |
 | 14 | completed | 36679b5 | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Private Expat/XML implementation, callback exception containment, UTF-8 and resource limits, source positions, namespace-aware deterministic writer |
 | 15 | completed | fdfb681 | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Private XTF 2.3 dialect, exact state/header/data rules, bounded event queue, lexical objects/references/geometry, strict/lenient option coverage |
 | 16 | completed | 4687479 | Top-level warnings-as-errors build (0); CTest 34/34; direct ilic build CTest 29/29 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Terminal streaming XTF 2.3 writer, complete metadata/reference/geometry output, independent byte goldens and semantic roundtrips |
 | 17 | completed | e13dd0d | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic build CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Independent private XTF 2.4 reader/writer dialect, exact control QNames, namespace preservation, roles and multi-geometries |
 | 18 | completed | 04bac0b | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic warnings-as-errors build (0), CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Concrete MetaModelStore API, pointer-free compact index, exact translations/QNames, roles, views, transient members, enums and transfer order |
-| 19 | completed | this commit | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic build CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 10/10; real browser + module worker pass | deferred to Phase 20 | ABI/result schema 2 states, bounded JS writer output, streaming Node/browser workers, normalized diagnostic/event and exact 236-byte writer parity |
+| 19 | completed | 07ba57e | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic build CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 10/10; real browser + module worker pass | deferred to Phase 20 | ABI/result schema 2 states, bounded JS writer output, streaming Node/browser workers, normalized diagnostic/event and exact 236-byte writer parity |
+| 20 | completed | this commit | Debug 38/38; Release 38/38; ASan/UBSan 38/38; 100,000-object reader/writer smoke | Emscripten 3.1.64 build (0); Node/WASM 10/10 | core 98.12/85.81; json 97.77/87.22; xml 94.86/88.26; xtf 93.24/86.16; ABI 90.25/85.52; ilic 92.32/75.00 (line/branch %) | Five fuzz targets 5/5; 214-method matrix; seven-case pinned Java differential; macOS only, Linux/Windows open |
+
+The older Phase 11 and post-11 percentages were aggregate reports, not the
+per-module release gates required for 0.2. Phase 20 supersedes them with one
+unified instrumented test executable and exact module reports; LLVM emitted no
+profile-mismatch warning.
 
 ## Build Commands
 
@@ -185,10 +191,10 @@ remain explicitly scheduled for Phase 11.
 
 ## Phase 11 — Completed
 
-The final hardening gates passed on 2026-07-29. The coverage report includes
-the public inline API headers and excludes third-party, tests, the optional
-factory convenience module, examples/tools, and generated WASM glue. The
-result is 93.69% line and 85.09% branch coverage for the core-library report.
+The then-current hardening gates passed on 2026-07-29. Its aggregate coverage
+number is retained in Git history but is no longer release evidence: it did not
+provide the exact per-module accounting required by the 0.2 plan. Phase 20
+replaced that report and removed the profile-data mismatch warning.
 
 ### Phase 11 verification commands
 
@@ -197,7 +203,7 @@ result is 93.69% line and 85.09% branch coverage for the core-library report.
 ./scripts/test-native.sh                                       # exit 0, 31/31
 source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, Emscripten 3.1.64
 source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 8/8
-./scripts/coverage.sh                                          # exit 0, 31/31; 93.69% line, 85.09% branch
+./scripts/coverage.sh                                          # historical aggregate; superseded by Phase 20
 cmake -S . -B build/asan11 -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ASAN=ON -DIOX_ENABLE_UBSAN=ON  # exit 0
 cmake --build build/asan11 --parallel                             # exit 0
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1 ctest --test-dir build/asan11 --output-on-failure  # exit 0, 25/25
@@ -237,7 +243,7 @@ uses no Java and no network access.
 cmake -S . -B build/ilic-matrix -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork  # exit 0
 cmake --build build/ilic-matrix --parallel                     # exit 0
 ctest --test-dir build/ilic-matrix --output-on-failure         # exit 0, 28/28
-./scripts/coverage.sh                                        # exit 0, 33/33; 93.78% line, 85.71% branch
+./scripts/coverage.sh                                        # historical aggregate; superseded by Phase 20
 cmake -S . -B build/asan-matrix -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ASAN=ON -DIOX_ENABLE_UBSAN=ON  # exit 0
 cmake --build build/asan-matrix --parallel                    # exit 0
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1 ctest --test-dir build/asan-matrix --output-on-failure  # exit 0, 27/27
@@ -252,9 +258,10 @@ source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-was
 The generic C++ assertions compare the complete ordered event stream,
 copy-on-write IOM contents, ordered/repeated values, references and
 diagnostics. Writer checks compare deterministic bytes separately from the
-semantic Reader → Writer → Reader roundtrip. Model-dependent Java behavior
-is documented as `api-gap` until a concrete direct `ilic-core` capability and
-test exist; the optional `iox-ilic` build remains green with 28/28 tests.
+semantic Reader → Writer → Reader roundtrip. Phase 20 revisited every
+model-dependent row after the direct `iox-ilic` implementation. The current
+matrix now permits only `adapted`, `deliberate-difference`, or `out-of-scope`;
+no provisional gap status remains.
 
 ## Phase 13 — Core, error, and schema reset for 0.2
 
@@ -433,7 +440,7 @@ accepts the concrete `metamodel::MetaModelStore` from the pinned ilic fork.
 `IlicModelIndex` copies a compact value index once and retains no metamodel
 pointers; a lifetime regression test destroys the source store before lookup.
 Canonical, translated and expanded XML names resolve exactly, and ambiguous
-concepts fail with `model.mismatch` rather than selecting the first match.
+concepts fail with `ilic.model_mismatch` rather than selecting the first match.
 
 The index and composed reader/writer cover translated models, topics, classes,
 properties and hierarchical enumerations (including `OTHERS`), inherited
@@ -509,3 +516,66 @@ cd packages/iox-wasm && npm pack --dry-run                    # exit 0, 10 files
 Normal tests use neither Java nor network access. No Linux or Windows run,
 sanitizer pass, fuzzing, or coverage threshold is claimed for this phase;
 those independent release gates remain assigned to Phase 20.
+
+## Phase 20 — Independent conformance and release gates
+
+Phase 20 was verified on macOS on 2026-08-04. Positive release fixtures now
+assert concrete event sequences, header/basket/object fields, QNames,
+references, nested association values, and lexical primitives. Negative
+fixtures assert one exact fatal diagnostic code. The method-level verifier
+counts 214 relevant pinned iox-ili methods and 15 explicit out-of-scope
+methods; every row is `adapted`, `deliberate-difference`, or `out-of-scope`.
+The optional offline Java comparison passed all seven representative cases at
+the exact pinned commit. Normal tests still require neither Java nor network.
+
+Five separately buildable fuzz targets cover the private XML parser, XTF
+reader, event JSON, COW IOM object mutations, and writer event sequences. The
+Apple Command Line Tools installation has no libFuzzer runtime, so this run
+used the checked deterministic mutation driver for 50 inputs per target. On a
+Clang installation with compiler-rt, the same targets use libFuzzer and ASan.
+The native suite reads and writes 100,000 objects, drains a queue bounded to
+two events, and repeats reader/writer work while bounding post-warmup resident
+growth.
+
+Coverage now uses one unified instrumented executable, preventing the previous
+profile/binary mismatch. Both the model-free 179-test run and the direct-ilic
+193-test run passed. Exact ilic-enabled line/branch results were: core
+98.12/85.81, JSON 97.77/87.22, XML 94.86/88.26, XTF 93.24/86.16, C ABI
+90.25/85.52, and ilic 92.32/75.00 percent. LLVM reported no mismatched profile
+data. The script applies the same per-module thresholds when run with GCC and
+gcovr.
+
+Warnings are errors by default only when iox-cpp is the top-level project; an
+embedding-project check confirmed the default is off for consumers. Newer
+CMake versions use linker-aware archive deduplication. The remaining configure
+warning is an upstream CMake deprecation from the pinned Expat source, not a
+project compilation warning.
+
+### Phase 20 verification commands
+
+```text
+cmake -S . -B build/phase20 -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=ON -DIOX_BUILD_TOOLS=ON  # exit 0; IOX_WARNINGS_AS_ERRORS=ON by default
+cmake --build build/phase20 --parallel 8                      # exit 0
+ctest --test-dir build/phase20 --output-on-failure            # exit 0, 38/38
+cmake -S . -B build/phase20-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=ON -DIOX_BUILD_TOOLS=ON  # exit 0
+cmake --build build/phase20-release --parallel 8              # exit 0
+ctest --test-dir build/phase20-release --output-on-failure    # exit 0, 38/38
+cmake -S . -B build/phase20-sanitize -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=ON -DIOX_BUILD_TOOLS=ON -DIOX_ENABLE_ASAN=ON -DIOX_ENABLE_UBSAN=ON  # exit 0
+cmake --build build/phase20-sanitize --parallel 8             # exit 0
+ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1 ctest --test-dir build/phase20-sanitize --output-on-failure  # exit 0, 38/38
+./scripts/build-wasm.sh                                       # exit 0, Emscripten 3.1.64
+./scripts/test-wasm.sh                                        # exit 0, 10/10
+cmake -S . -B build/phase20-fuzz -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_FUZZING=ON  # exit 0
+cmake --build build/phase20-fuzz --parallel 8                 # exit 0
+ctest --test-dir build/phase20-fuzz -L fuzz --output-on-failure  # exit 0, 5/5; 50 deterministic runs each
+./scripts/coverage.sh -DIOX_ENABLE_ILIC=OFF                   # exit 0, 179/179; all five 90/85 gates
+./scripts/coverage.sh -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork  # exit 0, 193/193; ilic 92.32/75.00
+./scripts/verify-porting-matrix.sh                            # exit 0, 214 relevant + 15 out-of-scope
+IOX_ILI_DIR=/tmp/iox-cpp-java-reference-1af01d4 IOX_ILI_JAR=/tmp/iox-cpp-java-reference-build/iox-ili-1.24.5.jar IOX_ILI_CLASSPATH=/tmp/iox-cpp-java-reference-deps/ehibasics-1.3.0.jar:/tmp/iox-cpp-java-reference-deps/ili2c-core-5.6.5.jar IOX_CPP_DUMP=build/phase20/iox-dump ./scripts/differential-java.sh  # exit 0, 7/7
+```
+
+No Linux or Windows verification was run, and neither platform is marked as
+passed. The actual release evidence is macOS native Debug/Release,
+ASan/UBSan, Emscripten/Node/WASM, the Phase 19 real-browser smoke, and the
+optional local Java differential run. No CI/CD pipeline, push, package
+publication, or network-dependent normal test was added.

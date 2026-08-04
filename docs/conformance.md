@@ -120,8 +120,30 @@ recorded in `test/fixtures/iox-ili-fixtures.tsv`.
 The method-level test mapping is recorded in
 `docs/iox-ili-test-porting-matrix.md`. Model-dependent features such as
 association roles, views, translations, and model declaration validation are
-explicitly separated from the model-free event-stream tests; unresolved
-capabilities are marked as `api-gap` rather than silently treated as passed.
+explicitly separated from the model-free event-stream tests. Every inventoried
+method has exactly one release status: `adapted`, `deliberate-difference`, or
+`out-of-scope`. The offline verifier counts 214 relevant methods and 15
+out-of-scope methods and rejects any unclassified row.
+
+### Offline Java differential gate
+
+`scripts/differential-java.sh` compares seven representative XTF 2.3 and 2.4
+transfers with the pinned iox-ili revision. It requires an already available
+local checkout, jar, dependency classpath, and native `iox-dump`; it verifies
+the checkout and jar commit and deliberately never invokes Gradle, downloads a
+dependency, or participates in normal CTest.
+
+The comparison covers event order, basket topic/id/kind/consistency, object
+tag/id/operation/consistency, references, ordered values within each attribute,
+nested objects, and lexical primitive bytes. Attribute names are sorted because
+the Java IOM interface does not promise the ordered-attribute contract that
+iox-cpp exposes. Only the local tag component is compared because the pinned
+Java reader may model-enrich nested association tags. Transfer-header fields,
+QNames, source positions, and iox-cpp diagnostics are intentionally outside
+this shared subset; they have independent native assertions. These
+normalizations are explicit in `scripts/normalize-native-events.py` and
+`scripts/java/IoxIliEventDump.java`, rather than allowing a roundtrip to confirm
+itself.
 
 ### XML security comparison
 
@@ -217,7 +239,7 @@ hierarchy.
 Canonical and translated models, topics, classes, properties, roles and
 enumeration nodes are grouped by `_translationOf`. Scoped INTERLIS names and
 expanded QNames are resolved exactly; zero matches remain visible as unknown,
-while multiple semantic matches are fatal `model.mismatch` errors. For XTF
+while multiple semantic matches are fatal `ilic.model_mismatch` errors. For XTF
 2.4, translated events keep the original model's wire namespace and local XML
 name while their INTERLIS name follows the model selected in the transfer
 header. This matches the name-mapping approach inspected in the pinned

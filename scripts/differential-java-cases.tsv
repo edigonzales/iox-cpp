@@ -1,0 +1,8 @@
+# transfer	model
+test/fixtures/xtf23/dataSection/TextTypes.xtf	-
+test/fixtures/xtf23/dataSection/References.xtf	-
+test/fixtures/xtf23/dataSection/SimpleCoord23a.xtf	-
+test/fixtures/xtf24/EmptyTransfer.xml	test/fixtures/xtf24/Test1.ili
+test/fixtures/xtf24/dataSection/TextTypes.xml	test/fixtures/xtf24/dataSection/DataTest1.ili
+test/fixtures/xtf24/dataSection/MultiPolyline.xml	test/fixtures/xtf24/dataSection/DataTest1.ili
+test/fixtures/xtf24/associations/EmbeddedAssociationWithAttributes.xml	test/fixtures/xtf24/associations/Association.ili

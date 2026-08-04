@@ -74,6 +74,7 @@ std::unique_ptr<Reader> FormatRegistry::createReaderBySniffing(
     const FormatEntry* sniffed = nullptr;
     int bestScore = 0;
     for (const auto& f : formats_) {
+        if (!f.canRead || !f.readerFactory) continue;
         int score = 0;
         if (f.scoreSniffer) {
             score = std::max(0, std::min(100, f.scoreSniffer(firstChunk)));
@@ -94,7 +95,7 @@ std::unique_ptr<Reader> FormatRegistry::createReaderBySniffing(
     // Try extension match
     if (!extensionHint.empty()) {
         for (const auto& f : formats_) {
-        for (const auto& ext : f.extensions) {
+            for (const auto& ext : f.extensions) {
                 if (f.canRead && f.readerFactory &&
                     extensionMatches(ext, extensionHint)) {
                     return f.readerFactory();

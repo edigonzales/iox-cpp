@@ -1,0 +1,1 @@
+{"schema":"iox-event/2","event":"startTransfer","header":{"version":"2.3","sender":"fuzz","models":[],"oidSpaces":[],"aliases":[],"extensions":[]},"source":{"name":"","line":0,"column":0,"byteOffset":0}}

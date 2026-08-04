@@ -50,6 +50,30 @@ public:
     }
 };
 
+class UnknownThrowingSink final : public iox::OutputSink {
+public:
+    std::size_t write(const void*, std::size_t) override { throw 7; }
+};
+
+class OversizedWriteSink final : public iox::OutputSink {
+public:
+    std::size_t write(const void*, std::size_t size) override {
+        return size + 1U;
+    }
+};
+
+class ThrowingFlushSink final : public iox::OutputSink {
+public:
+    explicit ThrowingFlushSink(bool unknown) : unknown_(unknown) {}
+    std::size_t write(const void*, std::size_t size) override { return size; }
+    void flush() override {
+        if (unknown_) throw 9;
+        throw std::runtime_error("flush marker");
+    }
+private:
+    bool unknown_;
+};
+
 } // namespace
 
 IOX_TEST(xml_writer_declaration_nesting_and_escaping) {
@@ -184,7 +208,9 @@ IOX_TEST(xml_writer_completes_short_writes_and_reports_sink_failures) {
 
     for (const auto& failing : {
              std::shared_ptr<iox::OutputSink>(std::make_shared<ZeroWriteSink>()),
-             std::shared_ptr<iox::OutputSink>(std::make_shared<ThrowingSink>())}) {
+             std::shared_ptr<iox::OutputSink>(std::make_shared<ThrowingSink>()),
+             std::shared_ptr<iox::OutputSink>(std::make_shared<UnknownThrowingSink>()),
+             std::shared_ptr<iox::OutputSink>(std::make_shared<OversizedWriteSink>())}) {
         bool ioError = false;
         try {
             iox::xml::XmlWriter failed(failing, options);
@@ -193,6 +219,155 @@ IOX_TEST(xml_writer_completes_short_writes_and_reports_sink_failures) {
             ioError = error.code() == iox::DiagnosticCode::IoError;
         }
         IOX_CHECK(ioError);
+    }
+}
+
+IOX_TEST(xml_writer_covers_unicode_names_utf8_and_namespace_edges) {
+    const std::vector<std::string> validNames{
+        "_", "A", "z", "\xC3\x80", "\xC3\x98", "\xC3\xB8",
+        "\xCD\xB0", "\xE2\x80\x8C", "\xE2\x81\xB0",
+        "\xE2\xB0\x80", "\xE3\x80\x81", "\xEF\xA4\x80",
+        "\xEF\xB7\xB0", "\xF0\x90\x80\x80", "n0-._\xC2\xB7\xCC\x80\xE2\x80\xBF"};
+    for (const auto& local : validNames) {
+        auto sink = std::make_shared<iox::StringOutputSink>();
+        iox::xml::XmlWriter writer(sink, {});
+        writer.startDocument();
+        writer.startElement(name(local));
+        writer.text("\xC2\xA0\xE2\x82\xAC\xF0\x9F\x98\x80");
+        writer.endElement();
+        writer.endDocument();
+    }
+
+    const std::vector<std::string> invalidUtf8{
+        std::string("\x80", 1), std::string("\xE2\x82", 2),
+        std::string("\xE2x\x82", 3), std::string("\xE0\x80\x80", 3),
+        std::string("\xF0\x80\x80\x80", 4),
+        std::string("\xED\xA0\x80", 3),
+        std::string("\xF4\x90\x80\x80", 4)};
+    for (const auto& value : invalidUtf8) {
+        bool rejected = false;
+        try {
+            auto sink = std::make_shared<iox::StringOutputSink>();
+            iox::xml::XmlWriter writer(sink, {});
+            writer.startDocument();
+            writer.startElement(name("r"));
+            writer.text(value);
+        } catch (const iox::IoxError& error) {
+            rejected = error.code() == iox::DiagnosticCode::InvalidArgument;
+        }
+        IOX_CHECK(rejected);
+    }
+
+    const std::vector<iox::XmlQualifiedName> invalidNames{
+        name(""), name("a:b"), name("a", {}, "p"),
+        name("a", "http://www.w3.org/2000/xmlns/", "x")};
+    for (const auto& invalid : invalidNames) {
+        bool rejected = false;
+        try {
+            auto sink = std::make_shared<iox::StringOutputSink>();
+            iox::xml::XmlWriter writer(sink, {});
+            writer.startDocument();
+            writer.startElement(invalid);
+        } catch (const iox::IoxError& error) {
+            rejected = error.code() == iox::DiagnosticCode::InvalidArgument;
+        }
+        IOX_CHECK(rejected);
+    }
+
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriter namespaces(sink, {});
+    namespaces.startDocument();
+    namespaces.startElement(name("root", "urn:default"));
+    namespaces.writeNamespace("again", "urn:default");
+    namespaces.writeNamespace("again", "urn:default");
+    namespaces.writeAttribute(name("lang", "http://www.w3.org/XML/1998/namespace"), "de");
+    namespaces.startElement(name("child", "urn:default"));
+    namespaces.writeNamespace("again", "urn:default");
+    namespaces.writeAttribute(name("value", "urn:default"), "x");
+    namespaces.endElement();
+    namespaces.endElement();
+    namespaces.endDocument();
+
+    const std::vector<std::pair<std::string, std::string>> invalidDeclarations{
+        {"xmlns", "urn:x"}, {"xml", "urn:x"}, {"p", ""}};
+    for (const auto& declaration : invalidDeclarations) {
+        bool rejected = false;
+        try {
+            auto declarationSink = std::make_shared<iox::StringOutputSink>();
+            iox::xml::XmlWriter writer(declarationSink, {});
+            writer.startDocument();
+            writer.startElement(name("r"));
+            writer.writeNamespace(declaration.first, declaration.second);
+        } catch (const iox::IoxError& error) {
+            rejected = error.code() == iox::DiagnosticCode::InvalidArgument;
+        }
+        IOX_CHECK(rejected);
+    }
+}
+
+IOX_TEST(xml_writer_covers_remaining_state_and_flush_edges) {
+    bool nullSink = false;
+    try {
+        iox::xml::XmlWriter writer(nullptr, {});
+    } catch (const iox::IoxError& error) {
+        nullSink = error.code() == iox::DiagnosticCode::InvalidArgument;
+    }
+    IOX_CHECK(nullSink);
+
+    auto sink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriter writer(sink, {});
+    for (const auto action : {0, 1, 2, 3, 4}) {
+        bool failed = false;
+        try {
+            if (action == 0) writer.startElement(name("r"));
+            if (action == 1) writer.writeNamespace("p", "urn:p");
+            if (action == 2) writer.writeAttribute(name("a"), "v");
+            if (action == 3) writer.text("v");
+            if (action == 4) writer.endElement();
+        } catch (const iox::IoxError& error) {
+            failed = error.code() == iox::DiagnosticCode::WriterStateError;
+        }
+        IOX_CHECK(failed);
+        break; // the first state failure is terminal; other paths use fresh writers below
+    }
+
+    for (const auto action : {1, 2, 3, 4}) {
+        auto stateSink = std::make_shared<iox::StringOutputSink>();
+        iox::xml::XmlWriter stateWriter(stateSink, {});
+        stateWriter.startDocument();
+        bool failed = false;
+        try {
+            if (action == 1) stateWriter.writeNamespace("p", "urn:p");
+            if (action == 2) stateWriter.writeAttribute(name("a"), "v");
+            if (action == 3) stateWriter.text("v");
+            if (action == 4) stateWriter.endElement();
+        } catch (const iox::IoxError& error) {
+            failed = error.code() == iox::DiagnosticCode::WriterStateError;
+        }
+        IOX_CHECK(failed);
+    }
+
+    auto onceSink = std::make_shared<iox::StringOutputSink>();
+    iox::xml::XmlWriter once(onceSink, {});
+    once.startDocument();
+    bool twice = false;
+    try { once.startDocument(); }
+    catch (const iox::IoxError& error) {
+        twice = error.code() == iox::DiagnosticCode::WriterStateError;
+    }
+    IOX_CHECK(twice);
+
+    for (const auto unknown : {false, true}) {
+        auto flushSink = std::make_shared<ThrowingFlushSink>(unknown);
+        iox::xml::XmlWriter flushing(flushSink, {});
+        flushing.startDocument();
+        flushing.startElement(name("r"));
+        bool failed = false;
+        try { flushing.flush(); }
+        catch (const iox::IoxError& error) {
+            failed = error.code() == iox::DiagnosticCode::IoError;
+        }
+        IOX_CHECK(failed);
     }
 }
 

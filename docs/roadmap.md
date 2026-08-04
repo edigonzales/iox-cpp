@@ -22,7 +22,7 @@
 | 17 | Conformant XTF 2.4 Dialect | completed |
 | 18 | Extended Direct ilic Semantics | completed |
 | 19 | Native, WASM, Browser, and Worker Parity | completed |
-| 20 | Independent Conformance and Release Gates | pending |
+| 20 | Independent Conformance and Release Gates | completed |
 
 ## Acceptance Criteria per Phase
 
@@ -102,7 +102,8 @@ See `docs/phase-status.md` for detailed per-phase criteria and test results.
 - Complete pinned XTF fixture manifest
 - One-shot/chunked event and diagnostic parity over the XTF corpus
 - Semantic XTF 2.4 writer roundtrips and ordered-value regression coverage
-- Explicit `ilic-required`, `api-gap`, and out-of-scope model/test boundaries
+- Every method classified as `adapted`, `deliberate-difference`, or
+  `out-of-scope`
 
 ### Phase 18
 - Public ilic API accepts the concrete `metamodel::MetaModelStore`
@@ -120,3 +121,14 @@ See `docs/phase-status.md` for detailed per-phase criteria and test results.
 - Incremental JS reader/writer and keyed worker sessions without DOM or
   full-transfer buffering
 - Measured model-free Release bundle; no unmeasured ilic-WASM bundle
+
+### Phase 20
+- Independent positive event/field oracles and exact negative diagnostic codes
+- Verified 214-method iox-ili matrix plus optional pinned seven-case Java
+  differential gate
+- Five fuzz targets for XML, XTF, event JSON, IOM, and writer events
+- Per-module 90/85 coverage gates; direct ilic 85/75 with a 90/85 target
+- Debug, Release, ASan/UBSan, WASM, 100,000-object streaming, bounded queue,
+  repeated-memory, and warnings-as-errors gates
+- Platform claims limited to runs actually performed; Linux and Windows remain
+  explicitly open

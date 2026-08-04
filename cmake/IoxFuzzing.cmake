@@ -5,10 +5,13 @@
 if(IOX_ENABLE_FUZZING)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         execute_process(
-            COMMAND "${CMAKE_CXX_COMPILER}" -print-file-name=libclang_rt.fuzzer_osx.a
-            OUTPUT_VARIABLE _iox_fuzzer_runtime
+            COMMAND "${CMAKE_CXX_COMPILER}" -print-resource-dir
+            OUTPUT_VARIABLE _iox_clang_resource_dir
             OUTPUT_STRIP_TRAILING_WHITESPACE)
-        if(EXISTS "${_iox_fuzzer_runtime}")
+        file(GLOB_RECURSE _iox_fuzzer_runtimes
+            "${_iox_clang_resource_dir}/lib/libclang_rt.fuzzer*.a"
+            "${_iox_clang_resource_dir}/lib/*/libclang_rt.fuzzer*.a")
+        if(_iox_fuzzer_runtimes)
             # Dependencies use the no-link variant so the libFuzzer main
             # function is supplied only by each fuzz executable.
             set(IOX_FUZZ_LIBFUZZER_AVAILABLE ON)
@@ -33,6 +36,6 @@ if(IOX_ENABLE_FUZZING)
         if(NOT IOX_FUZZ_LIBFUZZER_AVAILABLE)
             target_compile_definitions(${name} PRIVATE IOX_STANDALONE_FUZZ=1)
         endif()
-        target_link_libraries(${name} PRIVATE iox-core iox-xtf)
+        target_link_libraries(${name} PRIVATE iox-core)
     endfunction()
 endif()

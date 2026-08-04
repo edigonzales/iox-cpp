@@ -173,4 +173,54 @@ IOX_TEST(iox_ili_writer_preserves_ordered_repeated_and_reference_values) {
     IOX_CHECK_EQ(expected, actual);
 }
 
+IOX_TEST(iox_ili_clean_reader_corpus_has_semantic_writer_roundtrip) {
+    const std::vector<std::filesystem::path> roots = {
+        fixtureRoot / "xtf23", fixtureRoot / "xtf24",
+        fixtureRoot / "xtf24writer"};
+    std::size_t eligible = 0;
+    std::size_t accepted = 0;
+    std::size_t semanticMatches = 0;
+    for (const auto& root : roots) {
+        for (const auto& path : iox::conformance::transferFixtures(root)) {
+            const auto input = iox::conformance::parseFixture(path);
+            const auto hasError = std::any_of(
+                input.diagnostics.begin(), input.diagnostics.end(),
+                [](const auto& diagnostic) {
+                    return diagnostic.severity == iox::DiagnosticSeverity::Error ||
+                           diagnostic.severity == iox::DiagnosticSeverity::Fatal;
+                });
+            if (!input.ended || hasError || input.events.empty()) continue;
+            ++eligible;
+            try {
+                const auto version =
+                    std::get<iox::StartTransferEvent>(input.events.front())
+                        .header.version;
+                const auto output =
+                    iox::conformance::writeEvents(input.events, version);
+                ++accepted;
+                iox::xtf::XtfReaderOptions options;
+                options.requireAtLeastOneModel = false;
+                const auto roundtrip =
+                    iox::conformance::parseBytes(output, 0, options);
+                if (roundtrip.ended &&
+                    iox::conformance::semanticEventFingerprints(input.events) ==
+                        iox::conformance::semanticEventFingerprints(
+                            roundtrip.events)) {
+                    ++semanticMatches;
+                } else {
+                    std::cerr << "semantic corpus roundtrip mismatch: "
+                              << path << '\n';
+                }
+            } catch (const iox::IoxError& error) {
+                std::cerr << "clean corpus writer rejection: " << path
+                          << " (" << iox::diagnosticCodeName(error.code())
+                          << ")\n";
+            }
+        }
+    }
+    IOX_CHECK(eligible > 100U);
+    IOX_CHECK_EQ(eligible, accepted);
+    IOX_CHECK_EQ(eligible, semanticMatches);
+}
+
 #include "iox/test/TestMain.h"

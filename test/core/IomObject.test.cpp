@@ -109,6 +109,70 @@ IOX_TEST(iom_object_reports_invalid_indexes) {
         threw = error.code() == iox::DiagnosticCode::InvalidArgument;
     }
     IOX_CHECK(threw);
+
+    const auto expectInvalid = [](const auto& operation) {
+        bool invalid = false;
+        try {
+            operation();
+        } catch (const iox::IoxError& error) {
+            invalid = error.code() == iox::DiagnosticCode::InvalidArgument;
+        }
+        IOX_CHECK(invalid);
+    };
+    expectInvalid([&] { (void)object.value("missing", 0); });
+    expectInvalid([&] {
+        object.insertValue(iox::IomName("new"), 1,
+                           iox::IomValue::primitive("x"));
+    });
+    expectInvalid([&] {
+        object.insertValue(iox::IomName("value"), 3,
+                           iox::IomValue::primitive("x"));
+    });
+    expectInvalid([&] {
+        object.replaceValue("missing", 0,
+                            iox::IomValue::primitive("x"));
+    });
+    IOX_CHECK(!object.primitive("value", 9).has_value());
+    IOX_CHECK(!object.object("value", 9).has_value());
+
+    object.eraseValue("value", 0);
+    IOX_CHECK_EQ(static_cast<std::size_t>(0), object.attributeCount());
+    object.eraseAttribute("missing");
+}
+
+IOX_TEST(iom_object_semantic_name_and_metadata_differences) {
+    const iox::IomName xmlOnly("", {"urn:test", "Class", "a"});
+    iox::IomObject baseline(xmlOnly, "o1");
+    baseline.setPrimitive(iox::IomName("value"), "one");
+    auto same = baseline.deepCopy();
+    same.setTag(iox::IomName("", {"urn:test", "Class", "b"}));
+    IOX_CHECK(baseline.semanticallyEquals(same));
+
+    auto different = baseline.deepCopy();
+    different.setTag(iox::IomName("", {"urn:other", "Class", "b"}));
+    IOX_CHECK(!baseline.semanticallyEquals(different));
+    different = baseline.deepCopy();
+    different.setOid("o2");
+    IOX_CHECK(!baseline.semanticallyEquals(different));
+    different = baseline.deepCopy();
+    different.setOperation(iox::ObjectOperation::Update);
+    IOX_CHECK(!baseline.semanticallyEquals(different));
+    different = baseline.deepCopy();
+    different.setConsistency(iox::Consistency::Incomplete);
+    IOX_CHECK(!baseline.semanticallyEquals(different));
+    different = baseline.deepCopy();
+    different.setReference({"target", {}, {}});
+    IOX_CHECK(!baseline.semanticallyEquals(different));
+    different = baseline.deepCopy();
+    different.appendPrimitive(iox::IomName("other"), "two");
+    IOX_CHECK(!baseline.semanticallyEquals(different));
+    different = baseline.deepCopy();
+    different.replaceValue("value", 0, iox::IomValue::primitive("two"));
+    IOX_CHECK(!baseline.semanticallyEquals(different));
+
+    iox::IomObject emptyNamed{iox::IomName{}};
+    IOX_CHECK(emptyNamed.semanticallyEquals(
+        iox::IomObject(iox::IomName{})));
 }
 
 #include "iox/test/TestMain.h"

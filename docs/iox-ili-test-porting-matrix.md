@@ -17,19 +17,17 @@ claim that Java source can be copied line-for-line.
 - Fixture provenance manifest: `test/fixtures/iox-ili-fixtures.tsv`
 - Offline manifest check: `./scripts/verify-iox-ili-fixtures.sh`
 
-Each method listed in a row has the status in that row. A method can be
-covered by an adapted generic test while its model-specific Java assertion
-remains an explicit `api-gap`; that distinction is recorded in the notes.
+Each method listed in a row has exactly one of the three release statuses
+below. The status describes the observable contract, not whether Java source
+was copied.
 
 ### Status definitions
 
 | Status | Meaning |
 |---|---|
-| `ported` | The behavior and assertion are directly represented in C++. |
 | `adapted` | The behavior is represented, but assertions use the ordered C++ event stream, COW IOM objects, structured diagnostics, or canonical XML. |
-| `ilic-required` | The assertion requires concrete model metadata and belongs in the optional `iox-ilic` build. |
-| `out-of-scope` | The Java test covers ITF, CSV, GML, JTS, or another excluded product area. |
-| `api-gap` | The behavior is relevant but the current public C++ API or direct `ilic-core` adapter does not expose the required capability. |
+| `deliberate-difference` | iox-cpp intentionally has a different, documented contract, such as preserving every basket or omitting general validation. |
+| `out-of-scope` | The Java test covers an excluded product area such as ITF, CSV, GML, JTS, or general model validation. |
 
 ## XTF 2.3 reader
 
@@ -45,28 +43,30 @@ remains an explicit `api-gap`; that distinction is recorded in the notes.
 | Java source | Java test methods | Status | C++ verification |
 |---|---|---|---|
 | `Xtf24ReaderTest.java` | `testTransfer_Ok`, `testTransferNoSpace_Ok`, `testTextBetweenLines_Fail`, `testXML1Line_Ok`, `testComments_Ok`, `testEmptyBasket_Ok`, `testMultipleBaskets_Ok`, `testMultipleBasketsNoSpace_Ok`, `testEmptyObjects_Ok`, `testDeleteObject_Ok`, `testDeleteObjectNoTid_Fail`, `testStartEndState_Ok`, `testMultipleBasketsAndObjects_Ok`, `testMultipleBasketsAndObjectsNoSpace_Ok`, `testBasketWithTransferKind_Ok`, `testBasketWithDomains_Ok`, `testBasketWithConsistency_Ok`, `testObjectOperationMode_Ok`, `testNoDataSectionDefined_Fail`, `testMultipleDataSectionsDefined_Fail`, `testWrongBasketId_Fail`, `testWrongObjectId_Fail`, `testWrongTopEleNamespace_Fail`, `testUnexpectedCharacter_Fail`, `testUnexpectedEvent_Fail`, `testWrongTopEleName_Fail` | `adapted` | `iox_ili_fixture_matrix_preserves_event_and_diagnostic_streams`; XTF 2.4 namespace and state tests |
-| `Xtf24ReaderTest.java` | `testSkipBasket_Ok`, `testSkipBasketFirst_Ok`, `testSkipBasketOnly_Ok` | `api-gap` | Requires a model-backed basket filter; the generic reader intentionally preserves the stream instead of filtering it |
+| `Xtf24ReaderTest.java` | `testSkipBasket_Ok`, `testSkipBasketFirst_Ok`, `testSkipBasketOnly_Ok` | `deliberate-difference` | Basket filtering is an explicit non-goal; the transparent reader preserves the complete stream |
 | `Xtf24ReaderHeaderTest.java` | `testCommentsInFile_Ok`, `testHeaderComments_Ok`, `testHeaderSender_Ok`, `testHeaderSenderAndComments_Ok`, `xml1Line_Ok`, `testHeaderCommentsBeforeSender_Ok`, `testDataSectionInsideHeaderSection_Fail`, `testDataBeforeHeaderSection_Fail`, `test_MultipleHeaderSection_Fail`, `test_MultipleSender_Fail`, `test_MultipleComments_Fail`, `testHeaderSenderBeforeModels_Fail`, `testHeaderCommentsBeforeModels_Fail`, `testNoSendernameFound_Fail`, `testNoCommentsnameFound_Fail` | `adapted` | Header event/diagnostic fingerprinting and chunk matrix |
-| `Xtf24ReaderHeaderTest.java` | `testHeaderMultipleModelDefined_Ok`, `testNoModelsDefined_Fail`, `testMultipleModels_Fail`, `testHeaderWrongTypeInsideModels_Fail`, `testHeaderNoModelInsideModelsDefined_Fail`, `testNoModelInsideModelDefined_Fail`, `testWrongTypeInModel_Fail`, `testNoModelnameFound_Fail` | `api-gap` | `StartTransferEvent` does not yet expose an ordered model declaration list; representative model checks are in `test/ilic/ModelBased.test.cpp` |
+| `Xtf24ReaderHeaderTest.java` | `testHeaderMultipleModelDefined_Ok`, `testNoModelsDefined_Fail`, `testMultipleModels_Fail`, `testHeaderWrongTypeInsideModels_Fail`, `testHeaderNoModelInsideModelsDefined_Fail`, `testNoModelInsideModelDefined_Fail`, `testWrongTypeInModel_Fail`, `testNoModelnameFound_Fail` | `adapted` | `StartTransferEvent.header.models` preserves ordered declarations; strict/lenient header tests assert the negative cases and stable codes |
 | `Xtf24ReaderDataTest.java` | `testTextType_Ok`, `testTextType_List_Ok`, `xml1Line_Ok`, `testSameAttrNamesInDifClasses_Ok`, `testSameClassNamesInDifTopics_Ok`, `testTopicNameLikeClassName_Ok`, `testAttrClassTopicNameSame_Ok`, `testEnumerationType_Ok`, `testOidType_Ok`, `testDateAndTimeType_Ok`, `testBlackBoxType_Ok`, `testNumericDataTypes_Ok`, `testBooleanDataTypes_Ok`, `testAlignmentDataTypes_Ok`, `testFormattedDataTypes_Ok`, `testStructureType_Ok`, `testAttributePath_Ok`, `testCoord_Ok`, `testCoordNoSpace_Ok`, `testPolylinesWithStraights_Ok`, `testPolylinesWithArcs_Ok`, `testPolylinesWithArcsNoSpace_Ok`, `testPolylinesWithArcsRadius_Ok`, `testMultiPolyline_Ok`, `testSurface_Ok`, `testCommentary_Ok`, `testArea_Ok`, `testMultiSurface_Ok`, `testMultiArea_Ok`, `testView_Ok`, `testUnsupportedGeometry_Fail`, `testSurfaceNoLinesFound_Fail`, `testMissingCoord_Fail`, `testUnexpectedCharacters_Fail`, `testReferenceAttribute_List_Ok` | `adapted` | XTF 2.4 geometry tests, fixture fingerprints, and unknown geometry preservation |
-| `Xtf24ReaderDataTest.java` | `testViewNotOfTopicView_Fail`, `testEnumerationOthers_ok`, `testSubEnumerationOthers_ok`, `testViewIsTransient_Fail` | `api-gap` | Requires model type, view, or enumeration semantics not exposed by the generic core |
+| `Xtf24ReaderDataTest.java` | `testViewNotOfTopicView_Fail`, `testEnumerationOthers_ok`, `testSubEnumerationOthers_ok`, `testViewIsTransient_Fail` | `adapted` | Direct `iox-ilic` tests cover transient views and translated enumeration trees including `OTHERS`; the generic reader remains model-free |
 | `Xtf24ReaderAssociationTest.java` | `embeddedAssociationWithAttributes_Ok`, `embedded_0to1_Ok`, `embedded_0to0_Ok`, `embedded_1to1_Ok`, `embedded_1toN_Ok`, `embedded_Nto1_Ok`, `embedded2_1to1_Ok`, `embedded_1to1_OrderPos_Ok`, `alone_NtoN_Ok`, `xml1Line_Ok`, `alone_WithAttributes_Ok`, `commentsInsideAssociation_Ok`, `sameTargetClass_Ok`, `testDeleteObjectWithRef_Fail`, `valid_0to0Association_Ok` | `adapted` | Association event/reference preservation and ordered attribute tests |
-| `Xtf24ReaderAssociationTest.java` | `noAssociationName_Ok`, `moreRolesThanDefined_Ok`, `roleNotExist_Fail`, `associationNotExist_Fail` | `api-gap` | Requires model role/cardinality and association-name validation |
+| `Xtf24ReaderAssociationTest.java` | `noAssociationName_Ok` | `adapted` | Model-free event tests preserve the wire representation; direct `iox-ilic` exposes unambiguous association and role metadata |
+| `Xtf24ReaderAssociationTest.java` | `roleNotExist_Fail`, `associationNotExist_Fail` | `adapted` | The direct model index rejects unknown or ambiguous names with stable `ilic.unknown_name`/`ilic.model_mismatch` diagnostics |
+| `Xtf24ReaderAssociationTest.java` | `moreRolesThanDefined_Ok` | `deliberate-difference` | General cardinality validation is an explicit non-goal; iox-cpp preserves the data instead of pretending to validate it |
 
 ## XTF 2.4 writer
 
 | Java source | Java test methods | Status | C++ verification |
 |---|---|---|---|
 | `Xtf24WriterTest.java` | `writePolylineObjectEvent`, `writeMultiCoordObjectEvent`, `writeReferenceAttr`, `writeMultiPolylineObjectEvent`, `writeMultiSurfaceObjectEvent` | `adapted` | `iox_ili_xtf24_writer_fixtures_have_semantic_roundtrip`; deterministic generic writer test |
-| `Xtf24ReaderTranslationTest.java` | `TranslatedModelName_Ok` | `api-gap` | Requires translated model-name mapping |
-| `Xtf24WriterTranslationTest.java` | `writeBasket_Ok`, `writeTranslatedBasket_Fail` | `api-gap` | Requires translated model mapping and model-aware writer validation |
+| `Xtf24ReaderTranslationTest.java` | `TranslatedModelName_Ok` | `adapted` | Direct `iox-ilic` reader tests map translated model, topic, class and property names without retaining model pointers |
+| `Xtf24WriterTranslationTest.java` | `writeBasket_Ok`, `writeTranslatedBasket_Fail` | `adapted` | Direct `iox-ilic` writer tests select the header language, map QNames and fail terminally on ambiguous or invalid translation |
 
 ## Factory and utility tests
 
 | Java source | Java test methods | Status | C++ verification |
 |---|---|---|---|
 | `ReaderFactoryTest.java` | `xtf23Reader_Ok`, `xtf23Reader_txtExtension_Ok`, `xtf24Reader_Ok`, `xtf24Reader_txtExtension_Ok` | `adapted` | `factory_xtf_extensions_select_xtf_reader`, existing factory sniffing tests |
-| `GetModelsTest.java` | `xtf23Reader_Ok`, `xtf23ReaderNoModels_Ok`, `xtf24Reader_Ok` | `api-gap` | No public C++ model-list accessor exists; model declarations must first be added to the normative event/header API |
+| `GetModelsTest.java` | `xtf23Reader_Ok`, `xtf23ReaderNoModels_Ok`, `xtf24Reader_Ok` | `adapted` | Ordered model declarations are available directly as `StartTransferEvent.header.models` |
 | `ReaderFactoryTest.java` | `itfReader2_Ok`, `itfReader2_txtExtension_Ok`, `itfReader2_csvExtension_Ok`, `csvReader_itfExtension_fail`, `csvReader_EmptyCsvFile_Ok`, `csvReader_Ok`, `csvReader_txtExtension_fail`, `gml20Reader_ili10_Ok`, `gml20Reader_ili10_csvFile_Ok`, `gml20Reader_ili10_txtExtension_Ok`, `gml20Reader_ili23_Ok`, `gml20Reader_ili23_txtExtension_Ok` | `out-of-scope` | ITF, CSV, and GML are excluded by the product specification |
 | `GetModelsTest.java` | `itfReader2_Ok`, `csvReader_Ok`, `gml20Reader_Ok` | `out-of-scope` | ITF, CSV, and GML are excluded by the product specification |
 
@@ -88,10 +88,10 @@ byte-for-byte. XTF 2.3 default-namespace/header-attribute differences and
 the C++ canonical `ili:` representation remain documented in
 `docs/conformance.md`.
 
-## Remaining work represented by the matrix
+## Deliberate boundaries represented by the matrix
 
-The matrix makes the remaining model-aware/API work explicit. The generic
-core does not invent a model-provider abstraction and does not reject or
-filter fachlich relevant data merely because it lacks a model. Future
-`iox-ilic` work can move individual `api-gap` rows to `ilic-required` when a
-concrete `ilic-core` model capability and a regression test exist.
+The only relevant differences are intentional: no basket filter and no
+general cardinality validator. The generic core does not invent a model
+provider and does not reject or filter fachlich relevant data merely because
+it lacks a model. Model-dependent mapping is tested in the optional, direct
+`iox-ilic` integration.
