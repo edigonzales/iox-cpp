@@ -9,6 +9,7 @@
     "index.js",
     "index.d.ts",
     "worker.js",
+    "worker.d.ts",
     "iox-wasm.mjs",
     "iox-wasm.wasm",
     "README.md",

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { Worker } from 'node:worker_threads';
 
 import {
   createIoxModule,
@@ -63,6 +64,36 @@ const events = [
   { schema: 'iox-event/2', event: 'endTransfer' },
 ];
 
+const parityEvents = [
+  {
+    schema: 'iox-event/2', event: 'startTransfer',
+    header: {
+      version: '2.3', sender: 'Browser', models: [{
+        name: 'M', version: '1', uri: 'urn:m',
+        xmlNamespace: { namespaceUri: '', localName: '', prefixHint: '' },
+      }], oidSpaces: [], extensions: [],
+    },
+  },
+  { schema: 'iox-event/2', event: 'endTransfer' },
+];
+
+const parityXtf = '<?xml version="1.0" encoding="UTF-8"?>' +
+  '<TRANSFER xmlns="http://www.interlis.ch/INTERLIS2.3">' +
+  '<HEADERSECTION VERSION="2.3" SENDER="Browser"><MODELS>' +
+  '<MODEL NAME="M" VERSION="1" URI="urn:m"/></MODELS></HEADERSECTION>' +
+  '<DATASECTION/></TRANSFER>';
+
+function concatBytes(chunks) {
+  const size = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
 test('idiomatic reader accepts string, bytes, ArrayBuffer, and iterator close', async () => {
   const mod = await createIoxModule();
   const encoded = new TextEncoder().encode(fixture);
@@ -90,6 +121,8 @@ test('incremental reader works across arbitrary chunks and repeated sessions', a
   }
   output.push(...reader.finish());
   assert.deepEqual(output.map((event) => event.event), ['startTransfer', 'endTransfer']);
+  assert.throws(() => reader.finish(), { code: 'api.invalid_state' });
+  assert.throws(() => reader.feed(''), { code: 'api.invalid_state' });
   reader.close();
 
   for (let i = 0; i < 5; i += 1) {
@@ -97,6 +130,14 @@ test('incremental reader works across arbitrary chunks and repeated sessions', a
     assert.equal(repeated.readAll().length, 2);
     repeated.close();
   }
+
+  const malformed = new IncrementalXtfReader(mod, { sourceName: 'broken.xtf' });
+  assert.throws(() => malformed.feed('<ili:TRANSFER>'), (error) => {
+    assert.equal(error.code, 'xml.malformed');
+    assert.equal(error.diagnostics[0].location.sourceName, 'broken.xtf');
+    return true;
+  });
+  malformed.close();
 });
 
 test('writer and convenience functions preserve event semantics', async () => {
@@ -114,13 +155,57 @@ test('writer and convenience functions preserve event semantics', async () => {
   assert.equal(roundtrip[2].object.attributes[2].values[0].value
     .attributes[0].values[0].value, 'four');
 
-  const writer = new XtfWriter(mod, { version: '2.4' });
-  writer.write(events[0]);
-  for (const event of events.slice(1)) writer.write(event);
+  const events24 = structuredClone(events);
+  events24[0].header.version = '2.4';
+  delete events24[0].header.models[0].version;
+  delete events24[0].header.models[0].uri;
+  events24[0].header.models[0].xmlNamespace = {
+    namespaceUri: 'urn:m', localName: 'M', prefixHint: 'm',
+  };
+  const attachModelQName = (iomName) => {
+    iomName.xml = {
+      namespaceUri: 'urn:m',
+      localName: iomName.interlisName.startsWith('M.')
+        ? iomName.interlisName.slice(2) : iomName.interlisName,
+      prefixHint: 'm',
+    };
+  };
+  attachModelQName(events24[1].basket.topic);
+  attachModelQName(events24[2].object.tag);
+  for (const attribute of events24[2].object.attributes) {
+    attachModelQName(attribute.name);
+    for (const value of attribute.values) {
+      if (value.kind !== 'object') continue;
+      attachModelQName(value.value.tag);
+      for (const nestedAttribute of value.value.attributes) {
+        attachModelQName(nestedAttribute.name);
+      }
+    }
+  }
+  const writer = new XtfWriter(mod, { version: '2.4', pretty: false });
+  writer.write(events24[0]);
+  for (const event of events24.slice(1)) writer.write(event);
   const second = writer.finish();
   assert.ok(second.length > 0);
-  assert.deepEqual(readAll(mod, second).map((event) => event.event), events.map((event) => event.event));
+  assert.match(new TextDecoder().decode(second), /ili:transfer/);
+  assert.deepEqual(readAll(mod, second).map((event) => event.event),
+    events24.map((event) => event.event));
   writer.close();
+
+  const streaming = new XtfWriter(mod, { version: '2.3', pretty: false });
+  const chunks = [];
+  for (const event of events) {
+    streaming.write(event);
+    chunks.push(streaming.takeOutput());
+  }
+  chunks.push(streaming.finish());
+  assert.throws(() => streaming.finish(), { code: 'api.invalid_state' });
+  assert.throws(() => streaming.takeOutput(), { code: 'api.invalid_state' });
+  streaming.close();
+  const batch = writeAll(mod, events, { version: '2.3', pretty: false });
+  assert.deepEqual(concatBytes(chunks), batch);
+  assert.equal(new TextDecoder().decode(
+    writeAll(mod, parityEvents, { version: '2.3', pretty: false })), parityXtf);
 });
 
 test('worker protocol returns request IDs, events, transferable bytes, and errors', async () => {
@@ -137,16 +222,107 @@ test('worker protocol returns request IDs, events, transferable bytes, and error
   ]);
 
   await handleWorkerMessage({
-    type: 'writeAll', requestId: 12, events, options: { version: '2.3' }
+    type: 'writeAll', requestId: 12, events: parityEvents,
+    options: { version: '2.3', pretty: false }
   }, post);
   assert.equal(messages.at(-1).message.ok, true);
-  assert.ok(messages.at(-1).message.bytes.byteLength > 0);
+  assert.equal(new TextDecoder().decode(messages.at(-1).message.bytes), parityXtf);
   assert.equal(messages.at(-1).transfer.length, 1);
 
   await handleWorkerMessage({ type: 'unknown', requestId: 13 }, post);
   assert.equal(messages.at(-1).message.ok, false);
-  assert.equal(messages.at(-1).message.error.code, 'invalid_argument');
+  assert.equal(messages.at(-1).message.error.code, 'api.invalid_argument');
 
-  await handleWorkerMessage({ type: 'close', requestId: 14 }, post);
+  await handleWorkerMessage({
+    type: 'readerCreate', requestId: 14, streamId: 'reader-1'
+  }, post);
+  const encoded = new TextEncoder().encode(fixture);
+  await handleWorkerMessage({
+    type: 'readerFeed', requestId: 15, streamId: 'reader-1',
+    input: encoded.subarray(0, 31),
+  }, post);
   assert.equal(messages.at(-1).message.ok, true);
+  await handleWorkerMessage({
+    type: 'readerFeed', requestId: 16, streamId: 'reader-1',
+    input: encoded.subarray(31),
+  }, post);
+  const streamedEvents = [...messages.at(-1).message.events];
+  await handleWorkerMessage({
+    type: 'readerFinish', requestId: 17, streamId: 'reader-1'
+  }, post);
+  streamedEvents.push(...messages.at(-1).message.events);
+  assert.deepEqual(streamedEvents.map((event) => event.event),
+    ['startTransfer', 'endTransfer']);
+
+  await handleWorkerMessage({
+    type: 'readerCreate', requestId: 18, streamId: 'cancel-reader'
+  }, post);
+  await handleWorkerMessage({
+    type: 'readerClose', requestId: 19, streamId: 'cancel-reader'
+  }, post);
+  assert.equal(messages.at(-1).message.ok, true);
+  await handleWorkerMessage({
+    type: 'writerCreate', requestId: 20, streamId: 'cancel-writer',
+    options: { version: '2.3' },
+  }, post);
+  await handleWorkerMessage({
+    type: 'writerClose', requestId: 21, streamId: 'cancel-writer'
+  }, post);
+  assert.equal(messages.at(-1).message.ok, true);
+
+  await handleWorkerMessage({ type: 'close', requestId: 22 }, post);
+  assert.equal(messages.at(-1).message.ok, true);
+});
+
+test('module worker executes streaming reader/writer and diagnostic parity', async () => {
+  const worker = new Worker(new URL('../worker.js', import.meta.url), {
+    type: 'module',
+  });
+  let requestId = 0;
+  const request = (payload) => new Promise((resolve, reject) => {
+    requestId += 1;
+    const timer = setTimeout(() => reject(new Error('worker timeout')), 10000);
+    const listener = (message) => {
+      if (message.requestId !== requestId) return;
+      clearTimeout(timer);
+      worker.off('message', listener);
+      resolve(message);
+    };
+    worker.on('message', listener);
+    worker.postMessage({ ...payload, requestId });
+  });
+  try {
+    const initialized = await request({ type: 'init' });
+    assert.equal(initialized.ok, true);
+    assert.equal(initialized.abiVersion, 2);
+    assert.equal((await request({
+      type: 'readerCreate', streamId: 'actual-reader'
+    })).ok, true);
+    const encoded = new TextEncoder().encode(fixture);
+    const first = await request({
+      type: 'readerFeed', streamId: 'actual-reader', input: encoded.subarray(0, 17)
+    });
+    const second = await request({
+      type: 'readerFeed', streamId: 'actual-reader', input: encoded.subarray(17)
+    });
+    const finished = await request({
+      type: 'readerFinish', streamId: 'actual-reader'
+    });
+    assert.deepEqual([
+      ...first.events, ...second.events, ...finished.events,
+    ].map((event) => event.event),
+      ['startTransfer', 'endTransfer']);
+
+    const written = await request({
+      type: 'writeAll', events: parityEvents,
+      options: { version: '2.3', pretty: false },
+    });
+    assert.equal(new TextDecoder().decode(written.bytes), parityXtf);
+
+    const malformed = await request({ type: 'readAll', input: '<ili:TRANSFER>' });
+    assert.equal(malformed.ok, false);
+    assert.equal(malformed.error.code, 'xml.malformed');
+  } finally {
+    await worker.terminate();
+  }
 });

@@ -140,20 +140,31 @@ function destroyWriter(mod, handle) {
   if (handle) mod._native._iox_writer_destroy(handle);
 }
 
-function readerFeed(mod, handle, bytes) {
+function throwReaderStatus(mod, handle, status, diagnostics) {
+  if (status === -1) {
+    const result = callResult(mod, (out) => mod._native._iox_reader_next(handle, out));
+    addDiagnostics(diagnostics, result);
+    throwResultError(result);
+  }
+  const code = status === -2 ? 'abi.invalid_argument'
+    : status === -3 ? 'api.invalid_state' : 'internal.error';
+  throw new IoxError(`Reader operation failed with status ${status}`, code, diagnostics);
+}
+
+function readerFeed(mod, handle, bytes, diagnostics) {
   const native = mod._native;
   const pointer = allocateBytes(native, bytes);
   try {
     const status = native._iox_reader_feed(handle, pointer, bytes.length);
-    if (status < 0) throw new IoxError('Reader feed failed', 'internal.error');
+    if (status < 0) throwReaderStatus(mod, handle, status, diagnostics);
   } finally {
     if (pointer) native._iox_free(pointer);
   }
 }
 
-function readerFinish(mod, handle) {
+function readerFinish(mod, handle, diagnostics) {
   const status = mod._native._iox_reader_finish(handle);
-  if (status < 0) throw new IoxError('Reader finish failed', 'internal.error');
+  if (status < 0) throwReaderStatus(mod, handle, status, diagnostics);
 }
 
 function drainReader(mod, handle, diagnostics, allowEnd = false) {
@@ -179,7 +190,7 @@ function drainReader(mod, handle, diagnostics, allowEnd = false) {
   }
 }
 
-function writerWrite(mod, handle, event) {
+function writerWrite(mod, handle, event, diagnostics) {
   const native = mod._native;
   if (!event || typeof event !== 'object' || event.schema !== 'iox-event/2' ||
       !EVENT_TYPES.has(event.event)) {
@@ -190,6 +201,7 @@ function writerWrite(mod, handle, event) {
   try {
     const result = callResult(mod, (out) =>
       native._iox_writer_write_event_json(handle, pointer, serialized.length, out));
+    addDiagnostics(diagnostics, result);
     if (result.status < 0) throwResultError(result);
   } finally {
     if (pointer) native._iox_free(pointer);
@@ -218,14 +230,14 @@ function writerTakeOutput(mod, handle, diagnostics) {
 export async function createIoxModule(options = {}) {
   const generated = new URL('./iox-wasm.mjs', import.meta.url);
   const { default: initialize } = await import(generated.href);
-  const locateFile = options.locateFile ?? ((path) => new URL(path, generated).pathname);
+  const locateFile = options.locateFile ?? ((path) => new URL(path, generated).href);
   const native = await initialize({
     ...options,
     locateFile: (path) => {
       const located = locateFile(path);
       return located.startsWith('/') || located.includes(':')
         ? located
-        : new URL(located, generated).pathname;
+        : new URL(located, generated).href;
     },
   });
   return {
@@ -271,11 +283,12 @@ export class XtfReader {
       const bytes = inputBytes(input);
       const chunkSize = 64 * 1024;
       for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-        readerFeed(mod, this._handle, bytes.subarray(offset, offset + chunkSize));
+        readerFeed(mod, this._handle,
+          bytes.subarray(offset, offset + chunkSize), this._diagnostics);
         this._events.push(...drainReader(mod, this._handle, this._diagnostics));
       }
       if (bytes.length === 0) this._events.push(...drainReader(mod, this._handle, this._diagnostics));
-      readerFinish(mod, this._handle);
+      readerFinish(mod, this._handle, this._diagnostics);
       this._events.push(...drainReader(mod, this._handle, this._diagnostics, true));
     } catch (error) {
       this.close();
@@ -318,16 +331,17 @@ export class IncrementalXtfReader {
   }
 
   feed(chunk) {
-    if (this._closed || this._finished) throw new IoxError('Reader is closed', 'api.invalid_state');
+    if (this._closed) throw new IoxError('Reader is closed', 'api.invalid_state');
+    if (this._finished) throw new IoxError('Reader is finished', 'api.invalid_state');
     const bytes = inputBytes(chunk);
-    readerFeed(this._mod, this._handle, bytes);
+    readerFeed(this._mod, this._handle, bytes, this._diagnostics);
     return drainReader(this._mod, this._handle, this._diagnostics);
   }
 
   finish() {
     if (this._closed) throw new IoxError('Reader is closed', 'api.invalid_state');
-    if (this._finished) return [];
-    readerFinish(this._mod, this._handle);
+    if (this._finished) throw new IoxError('Reader is finished', 'api.invalid_state');
+    readerFinish(this._mod, this._handle, this._diagnostics);
     this._finished = true;
     return drainReader(this._mod, this._handle, this._diagnostics, true);
   }
@@ -357,24 +371,35 @@ export class XtfWriter {
   }
 
   write(event) {
-    if (this._closed || this._finished) throw new IoxError('Writer is closed', 'api.invalid_state');
-    writerWrite(this._mod, this._handle, event);
-    this._chunks.push(writerTakeOutput(this._mod, this._handle, this._diagnostics));
+    if (this._closed) throw new IoxError('Writer is closed', 'api.invalid_state');
+    if (this._finished) throw new IoxError('Writer is finished', 'api.invalid_state');
+    writerWrite(this._mod, this._handle, event, this._diagnostics);
+    const chunk = writerTakeOutput(
+      this._mod, this._handle, this._diagnostics);
+    this._chunks.push(chunk);
   }
 
   finish() {
     if (this._closed) throw new IoxError('Writer is closed', 'api.invalid_state');
-    if (this._finished) return this._joinChunks();
+    if (this._finished) throw new IoxError('Writer is finished', 'api.invalid_state');
     const result = callResult(this._mod, (out) =>
       this._mod._native._iox_writer_finish(this._handle, out));
     addDiagnostics(this._diagnostics, result);
     if (result.status < 0) throwResultError(result);
     this._chunks.push(result.bytes);
     this._finished = true;
-    return this._joinChunks();
+    return this._takeChunks();
   }
 
-  _joinChunks() {
+  /** Return and forget output emitted since the previous take. */
+  takeOutput() {
+    if (this._closed || this._finished) {
+      throw new IoxError('Writer is not writable', 'api.invalid_state');
+    }
+    return this._takeChunks();
+  }
+
+  _takeChunks() {
     const total = this._chunks.reduce((sum, chunk) => sum + chunk.length, 0);
     const output = new Uint8Array(total);
     let offset = 0;
@@ -382,6 +407,7 @@ export class XtfWriter {
       output.set(chunk, offset);
       offset += chunk.length;
     }
+    this._chunks = [];
     return output;
   }
 
@@ -390,6 +416,7 @@ export class XtfWriter {
     if (!this._closed) {
       destroyWriter(this._mod, this._handle);
       this._handle = 0;
+      this._chunks = [];
       this._closed = true;
     }
   }

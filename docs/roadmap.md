@@ -21,7 +21,7 @@
 | 16 | Conformant XTF 2.3 Writer | completed |
 | 17 | Conformant XTF 2.4 Dialect | completed |
 | 18 | Extended Direct ilic Semantics | completed |
-| 19 | Native, WASM, Browser, and Worker Parity | pending |
+| 19 | Native, WASM, Browser, and Worker Parity | completed |
 | 20 | Independent Conformance and Release Gates | pending |
 
 ## Acceptance Criteria per Phase
@@ -112,3 +112,11 @@ See `docs/phase-status.md` for detailed per-phase criteria and test results.
   and inherited transfer-order semantics
 - Header-selected target language and XTF 2.4 origin-wire QName mapping
 - No general constraint, cardinality, or file-wide reference validator
+
+### Phase 19
+- C ABI 2 state, null-argument, option, and chunked-output coverage
+- Native, Node, browser, and module-worker event/diagnostic parity
+- Byte-identical deterministic writer vector on every exposed surface
+- Incremental JS reader/writer and keyed worker sessions without DOM or
+  full-transfer buffering
+- Measured model-free Release bundle; no unmeasured ilic-WASM bundle

@@ -1,0 +1,135 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>iox-wasm browser parity smoke</title>
+<pre id="result">running</pre>
+<script type="module">
+import { createIoxModule, readAll, writeAll } from '../index.js';
+
+const fixture =
+  '<?xml version="1.0"?><ili:TRANSFER ' +
+  'xmlns:ili="http://www.interlis.ch/INTERLIS2.3">' +
+  '<ili:HEADERSECTION VERSION="2.3" SENDER="Browser">' +
+  '<ili:MODELS><ili:MODEL NAME="M" VERSION="1" URI="urn:m"/>' +
+  '</ili:MODELS></ili:HEADERSECTION><ili:DATASECTION/>' +
+  '</ili:TRANSFER>';
+
+const events = [
+  {
+    schema: 'iox-event/2', event: 'startTransfer',
+    header: {
+      version: '2.3', sender: 'Browser', models: [{
+        name: 'M', version: '1', uri: 'urn:m',
+        xmlNamespace: { namespaceUri: '', localName: '', prefixHint: '' },
+      }], oidSpaces: [], extensions: [],
+    },
+  },
+  { schema: 'iox-event/2', event: 'endTransfer' },
+];
+
+const parityXtf = '<?xml version="1.0" encoding="UTF-8"?>' +
+  '<TRANSFER xmlns="http://www.interlis.ch/INTERLIS2.3">' +
+  '<HEADERSECTION VERSION="2.3" SENDER="Browser"><MODELS>' +
+  '<MODEL NAME="M" VERSION="1" URI="urn:m"/></MODELS></HEADERSECTION>' +
+  '<DATASECTION/></TRANSFER>';
+
+const request = (worker, payload) => new Promise((resolve, reject) => {
+  const requestId = crypto.randomUUID();
+  const timer = setTimeout(() => reject(new Error('worker timeout')), 10000);
+  const listener = (event) => {
+    if (event.data.requestId !== requestId) return;
+    clearTimeout(timer);
+    worker.removeEventListener('message', listener);
+    resolve(event.data);
+  };
+  worker.addEventListener('message', listener);
+  worker.postMessage({ ...payload, requestId });
+});
+
+const normalized = (value) => JSON.stringify(value, (key, item) =>
+  key === 'location'
+    ? { sourceName: '', byteOffset: 0, line: 0, column: 0 }
+    : item);
+
+try {
+  const module = await createIoxModule();
+  const direct = readAll(module, fixture);
+  if (module.abiVersion() !== 2 || module.version() !== '0.2.0') {
+    throw new Error('version mismatch');
+  }
+  if (direct.map((event) => event.event).join(',') !==
+      'startTransfer,endTransfer') {
+    throw new Error('direct event mismatch');
+  }
+  const bytes = writeAll(module, events, { version: '2.3', pretty: false });
+  if (new TextDecoder().decode(bytes) !== parityXtf) {
+    throw new Error('writer byte mismatch');
+  }
+  const roundtrip = readAll(module, bytes);
+  if (normalized(roundtrip) !== normalized(direct)) {
+    throw new Error('direct normalized event mismatch');
+  }
+
+  const worker = new Worker('../worker.js', { type: 'module' });
+  try {
+    const initialized = await request(worker, { type: 'init' });
+    await request(worker, { type: 'readerCreate', streamId: 'browser-reader' });
+    const workerFirst = await request(worker, {
+      type: 'readerFeed', streamId: 'browser-reader', input: fixture.slice(0, 19),
+    });
+    const workerSecond = await request(worker, {
+      type: 'readerFeed', streamId: 'browser-reader', input: fixture.slice(19),
+    });
+    const workerEnd = await request(worker, {
+      type: 'readerFinish', streamId: 'browser-reader',
+    });
+    const workerEvents = [
+      ...workerFirst.events, ...workerSecond.events, ...workerEnd.events,
+    ];
+    if (!initialized.ok || initialized.abiVersion !== 2) {
+      throw new Error('worker initialization failed');
+    }
+    if (normalized(workerEvents) !== normalized(direct)) {
+      throw new Error('worker normalized event mismatch');
+    }
+    const workerWrite = await request(worker, {
+      type: 'writeAll', events, options: { version: '2.3', pretty: false },
+    });
+    if (!workerWrite.ok ||
+        new TextDecoder().decode(workerWrite.bytes) !== parityXtf) {
+      throw new Error('worker writer byte mismatch');
+    }
+    let directErrorCode = '';
+    try {
+      readAll(module, '<ili:TRANSFER>');
+    } catch (error) {
+      directErrorCode = error.code;
+    }
+    const workerError = await request(worker, {
+      type: 'readAll', input: '<ili:TRANSFER>',
+    });
+    if (directErrorCode !== 'xml.malformed' || workerError.ok ||
+        workerError.error.code !== directErrorCode) {
+      throw new Error('worker diagnostic mismatch');
+    }
+  } finally {
+    worker.terminate();
+  }
+
+  const report = {
+    ok: true,
+    environment: 'browser',
+    abiVersion: module.abiVersion(),
+    version: module.version(),
+    events: direct.map((event) => event.event),
+    writerBytes: bytes.byteLength,
+  };
+  document.querySelector('#result').textContent = JSON.stringify(report);
+  document.body.dataset.status = 'passed';
+  globalThis.__ioxBrowserSmoke = report;
+} catch (error) {
+  const report = { ok: false, message: error?.message ?? String(error) };
+  document.querySelector('#result').textContent = JSON.stringify(report);
+  document.body.dataset.status = 'failed';
+  globalThis.__ioxBrowserSmoke = report;
+}
+</script>

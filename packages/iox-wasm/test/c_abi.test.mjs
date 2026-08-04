@@ -71,6 +71,10 @@ test('WASM C ABI preserves incremental reader states and payloads', async () => 
   assert.equal(native._iox_reader_finish(reader), 0);
   assert.equal(native._iox_reader_next(reader, out), 3);
   assert.equal(result(native, out).json.status, 'end');
+  assert.equal(native._iox_reader_next(reader, out), -3);
+  assert.equal(result(native, out).json.error.code, 'api.invalid_state');
+  assert.equal(native._iox_reader_finish(reader), -3);
+  assert.equal(native._iox_reader_feed(reader, 0, 0), -3);
 
   native._iox_free(event.pointer);
   native._iox_free(end.pointer);
@@ -109,6 +113,37 @@ test('WASM C ABI writes output chunks and returns structured errors', async () =
 
   assert.equal(native._iox_writer_finish(writer, out), -1);
   assert.equal(result(native, out).json.error.code, 'json.malformed');
+  native._iox_free(out);
+  native._iox_writer_destroy(writer);
+});
+
+test('WASM C ABI rejects output and finish calls after writer completion', async () => {
+  const mod = await createIoxModule();
+  const native = mod._native;
+  const format = cString(native, 'json-events');
+  const writer = native._iox_writer_create(format.pointer, 0);
+  freeString(native, format);
+  const out = native._iox_alloc(4);
+  const start = cString(native,
+    '{"schema":"iox-event/2","event":"startTransfer","header":' +
+    '{"version":"2.3","sender":"wasm","models":[],"oidSpaces":[],"extensions":[]}}');
+  const end = cString(native,
+    '{"schema":"iox-event/2","event":"endTransfer"}');
+  assert.equal(native._iox_writer_write_event_json(
+    writer, start.pointer, start.size, out), 0);
+  result(native, out);
+  assert.equal(native._iox_writer_write_event_json(
+    writer, end.pointer, end.size, out), 0);
+  result(native, out);
+  assert.equal(native._iox_writer_finish(writer, out), 0);
+  result(native, out);
+  assert.equal(native._iox_writer_take_output(writer, out), -3);
+  assert.equal(result(native, out).json.error.code, 'api.invalid_state');
+  assert.equal(native._iox_writer_finish(writer, out), -3);
+  assert.equal(result(native, out).json.error.code, 'api.invalid_state');
+
+  native._iox_free(start.pointer);
+  native._iox_free(end.pointer);
   native._iox_free(out);
   native._iox_writer_destroy(writer);
 });

@@ -21,6 +21,15 @@ is allowed to cross an exported function.
 
 `iox_reader_next` returns `IOX_STATUS_ERROR` for fatal diagnostics. The result
 JSON contains the first error and the complete diagnostic array.
+Feeding or finishing after `finish`, finishing twice, and calling `next` after
+the final `end` are invalid states. Destroy functions accept null handles.
+
+`xtf23` and `xtf24` select an exact dialect; a conflicting `expectedVersion`
+is rejected at creation. `xtf` auto-detects by default. Reader options expose
+strictness, source name, extension preservation, model requirement, version
+autodetection, expected version, and every XML/queue limit. Invalid option
+types or unsupported versions make creation fail without crossing the C
+boundary with an exception.
 
 ## Writer output
 
@@ -32,6 +41,11 @@ memory in both native and WASM clients.
 
 Calling `write_event_json` or `take_output` after `finish` returns
 `IOX_STATUS_INVALID_STATE` and a structured error result.
+
+Writer options expose the exact XTF version, strictness, pretty printing,
+sender/comment/software metadata, extension preservation, and deterministic
+prefix selection. `xtf24` selects the 2.4 writer even when no `version` option
+is present.
 
 ## Result schema
 

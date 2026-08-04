@@ -2,6 +2,7 @@
 
 export interface IoxModuleOptions {
   locateFile?: (path: string) => string;
+  wasmBinary?: Uint8Array;
 }
 
 export interface IoxModule {
@@ -165,6 +166,8 @@ export interface XtfWriterOptions {
   sender?: string;
   comment?: string;
   software?: string;
+  preserveUnknownExtensions?: boolean;
+  deterministicPrefixes?: boolean;
 }
 
 export class IoxError extends Error {
@@ -201,6 +204,7 @@ export class IncrementalXtfReader {
 export class XtfWriter {
   constructor(module: IoxModule, options: XtfWriterOptions);
   write(event: IoxEvent): void;
+  takeOutput(): Uint8Array;
   finish(): Uint8Array;
   diagnostics(): Diagnostic[];
   close(): void;

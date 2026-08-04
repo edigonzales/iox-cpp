@@ -11,6 +11,7 @@
 #include "iox/xtf/XtfWriter.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cctype>
 #include <cstddef>
 #include <cstdlib>
@@ -38,6 +39,8 @@ struct iox_reader {
     std::shared_ptr<iox::StringOutputSink> eventSink;
     std::unique_ptr<iox::json::JsonEventWriter> eventWriter;
     std::vector<iox::Diagnostic> diagnostics;
+    bool finished = false;
+    bool ended = false;
     bool terminal = false;
 };
 
@@ -313,6 +316,49 @@ std::optional<bool> jsonBoolOption(const char* json, std::string_view key) {
     return std::nullopt;
 }
 
+std::optional<std::size_t> jsonSizeOption(const char* json,
+                                          std::string_view key) {
+    if (json == nullptr) return std::nullopt;
+    const std::string_view input(json);
+    const std::string needle = "\"" + std::string(key) + "\"";
+    const auto keyPos = input.find(needle);
+    if (keyPos == std::string_view::npos) return std::nullopt;
+    auto pos = input.find(':', keyPos + needle.size());
+    if (pos == std::string_view::npos) return std::nullopt;
+    do { ++pos; } while (pos < input.size() &&
+                         std::isspace(static_cast<unsigned char>(input[pos])));
+    std::size_t value = 0;
+    const auto* begin = input.data() + pos;
+    const auto* end = input.data() + input.size();
+    const auto parsed = std::from_chars(begin, end, value);
+    if (parsed.ec != std::errc{} || parsed.ptr == begin) return std::nullopt;
+    auto* tail = parsed.ptr;
+    while (tail != end &&
+           std::isspace(static_cast<unsigned char>(*tail))) {
+        ++tail;
+    }
+    if (tail != end && *tail != ',' && *tail != '}') return std::nullopt;
+    return value;
+}
+
+bool hasJsonOption(const char* json, std::string_view key) {
+    if (json == nullptr) return false;
+    const std::string needle = "\"" + std::string(key) + "\"";
+    return std::string_view(json).find(needle) != std::string_view::npos;
+}
+
+bool invalidBoolOption(const char* json, std::string_view key) {
+    return hasJsonOption(json, key) && !jsonBoolOption(json, key);
+}
+
+bool invalidStringOption(const char* json, std::string_view key) {
+    return hasJsonOption(json, key) && !jsonStringOption(json, key);
+}
+
+bool invalidSizeOption(const char* json, std::string_view key) {
+    return hasJsonOption(json, key) && !jsonSizeOption(json, key);
+}
+
 } // namespace
 
 extern "C" {
@@ -329,6 +375,19 @@ iox_reader_t* iox_reader_create(const char* format, const char* optionsJson) {
         auto reader = std::make_unique<iox_reader>();
         const std::string value(format);
         if (value == "xtf" || value == "xtf23" || value == "xtf24") {
+            if (invalidStringOption(optionsJson, "sourceName") ||
+                invalidStringOption(optionsJson, "expectedVersion") ||
+                invalidBoolOption(optionsJson, "strict") ||
+                invalidBoolOption(optionsJson, "preserveUnknownExtensions") ||
+                invalidBoolOption(optionsJson, "requireAtLeastOneModel") ||
+                invalidBoolOption(optionsJson, "allowVersionAutoDetection") ||
+                invalidSizeOption(optionsJson, "maxDepth") ||
+                invalidSizeOption(optionsJson, "maxAttributesPerElement") ||
+                invalidSizeOption(optionsJson, "maxTextBytesPerNode") ||
+                invalidSizeOption(optionsJson, "maxTotalInputBytes") ||
+                invalidSizeOption(optionsJson, "maxQueuedEvents")) {
+                return nullptr;
+            }
             iox::xtf::XtfReaderOptions options;
             if (const auto strict = jsonBoolOption(optionsJson, "strict")) {
                 options.strictness = *strict ? iox::xtf::Strictness::Strict
@@ -341,12 +400,47 @@ iox_reader_t* iox_reader_create(const char* format, const char* optionsJson) {
                     jsonBoolOption(optionsJson, "preserveUnknownExtensions")) {
                 options.preserveUnknownExtensions = *preserve;
             }
+            if (const auto require =
+                    jsonBoolOption(optionsJson, "requireAtLeastOneModel")) {
+                options.requireAtLeastOneModel = *require;
+            }
+            if (const auto detect =
+                    jsonBoolOption(optionsJson, "allowVersionAutoDetection")) {
+                options.allowVersionAutoDetection = *detect;
+            }
+            if (const auto limit = jsonSizeOption(optionsJson, "maxDepth")) {
+                options.xmlLimits.maxDepth = *limit;
+            }
+            if (const auto limit =
+                    jsonSizeOption(optionsJson, "maxAttributesPerElement")) {
+                options.xmlLimits.maxAttributesPerElement = *limit;
+            }
+            if (const auto limit =
+                    jsonSizeOption(optionsJson, "maxTextBytesPerNode")) {
+                options.xmlLimits.maxTextBytesPerNode = *limit;
+            }
+            if (const auto limit =
+                    jsonSizeOption(optionsJson, "maxTotalInputBytes")) {
+                options.xmlLimits.maxTotalInputBytes = *limit;
+            }
+            if (const auto limit =
+                    jsonSizeOption(optionsJson, "maxQueuedEvents")) {
+                options.xmlLimits.maxQueuedEvents = *limit;
+            }
             if (const auto expected =
                     jsonStringOption(optionsJson, "expectedVersion")) {
                 if (*expected == "2.3" || *expected == "23") {
                     options.expectedVersion = iox::xtf::XtfVersion::V23;
                 } else if (*expected == "2.4" || *expected == "24") {
                     options.expectedVersion = iox::xtf::XtfVersion::V24;
+                } else {
+                    return nullptr;
+                }
+                if ((value == "xtf23" &&
+                     options.expectedVersion != iox::xtf::XtfVersion::V23) ||
+                    (value == "xtf24" &&
+                     options.expectedVersion != iox::xtf::XtfVersion::V24)) {
+                    return nullptr;
                 }
             } else if (value == "xtf23") {
                 options.expectedVersion = iox::xtf::XtfVersion::V23;
@@ -355,6 +449,7 @@ iox_reader_t* iox_reader_create(const char* format, const char* optionsJson) {
             }
             reader->impl = std::make_unique<iox::xtf::XtfReader>(options);
         } else if (value == "json-events") {
+            if (invalidStringOption(optionsJson, "sourceName")) return nullptr;
             iox::json::JsonReaderOptions options;
             if (const auto source = jsonStringOption(optionsJson, "sourceName")) {
                 options.sourceName = *source;
@@ -383,7 +478,9 @@ iox_status_t iox_reader_feed(iox_reader_t* handle,
         return IOX_STATUS_INVALID_ARGUMENT;
     }
     auto& reader = *reinterpret_cast<iox_reader*>(handle);
-    if (reader.terminal) return IOX_STATUS_INVALID_STATE;
+    if (reader.terminal || reader.finished || reader.ended) {
+        return IOX_STATUS_INVALID_STATE;
+    }
     try {
         reader.impl->feed(iox::ByteView(data, size));
         takeReaderDiagnostics(reader);
@@ -402,9 +499,12 @@ iox_status_t iox_reader_feed(iox_reader_t* handle,
 iox_status_t iox_reader_finish(iox_reader_t* handle) {
     if (handle == nullptr) return IOX_STATUS_INVALID_ARGUMENT;
     auto& reader = *reinterpret_cast<iox_reader*>(handle);
-    if (reader.terminal) return IOX_STATUS_INVALID_STATE;
+    if (reader.terminal || reader.finished || reader.ended) {
+        return IOX_STATUS_INVALID_STATE;
+    }
     try {
         reader.impl->finish();
+        reader.finished = true;
         takeReaderDiagnostics(reader);
         if (hasError(reader.diagnostics)) reader.terminal = true;
         return reader.terminal ? IOX_STATUS_ERROR : IOX_STATUS_OK;
@@ -429,6 +529,14 @@ iox_status_t iox_reader_next(iox_reader_t* handle, iox_result_t** output) {
             auto* result = makeResult(IOX_STATUS_ERROR, reader.diagnostics);
             setResult(output, result);
             return IOX_STATUS_ERROR;
+        }
+        if (reader.ended) {
+            std::vector<iox::Diagnostic> diagnostics{
+                diagnostic(iox::DiagnosticCode::InvalidState,
+                           "Reader has already reached end")};
+            setResult(output,
+                      makeResult(IOX_STATUS_INVALID_STATE, diagnostics));
+            return IOX_STATUS_INVALID_STATE;
         }
 
         auto outcome = reader.impl->next();
@@ -462,6 +570,7 @@ iox_status_t iox_reader_next(iox_reader_t* handle, iox_result_t** output) {
             break;
         case iox::ReaderProgress::End:
             reader.eventWriter->close();
+            reader.ended = true;
             status = IOX_STATUS_END;
             break;
         }
@@ -488,8 +597,37 @@ iox_writer_t* iox_writer_create(const char* format, const char* optionsJson) {
         const std::string value(format);
         writer->sink = std::make_shared<iox::StringOutputSink>();
         if (value == "xtf" || value == "xtf23" || value == "xtf24") {
+            if (invalidStringOption(optionsJson, "version") ||
+                invalidStringOption(optionsJson, "sender") ||
+                invalidStringOption(optionsJson, "comment") ||
+                invalidStringOption(optionsJson, "software") ||
+                invalidBoolOption(optionsJson, "strict") ||
+                invalidBoolOption(optionsJson, "pretty") ||
+                invalidBoolOption(optionsJson, "preserveUnknownExtensions") ||
+                invalidBoolOption(optionsJson, "deterministicPrefixes")) {
+                return nullptr;
+            }
             iox::xtf::XtfWriterOptions options;
-            if (value != "xtf24") options.version = iox::xtf::XtfVersion::V23;
+            options.version = value == "xtf24"
+                                  ? iox::xtf::XtfVersion::V24
+                                  : iox::xtf::XtfVersion::V23;
+            if (const auto version = jsonStringOption(optionsJson, "version")) {
+                iox::xtf::XtfVersion requested;
+                if (*version == "2.3" || *version == "23") {
+                    requested = iox::xtf::XtfVersion::V23;
+                } else if (*version == "2.4" || *version == "24") {
+                    requested = iox::xtf::XtfVersion::V24;
+                } else {
+                    return nullptr;
+                }
+                if ((value == "xtf23" &&
+                     requested != iox::xtf::XtfVersion::V23) ||
+                    (value == "xtf24" &&
+                     requested != iox::xtf::XtfVersion::V24)) {
+                    return nullptr;
+                }
+                options.version = requested;
+            }
             if (const auto strict = jsonBoolOption(optionsJson, "strict")) {
                 options.strictness = *strict ? iox::xtf::Strictness::Strict
                                              : iox::xtf::Strictness::Lenient;
@@ -505,6 +643,14 @@ iox_writer_t* iox_writer_create(const char* format, const char* optionsJson) {
             }
             if (const auto software = jsonStringOption(optionsJson, "software")) {
                 options.software = *software;
+            }
+            if (const auto preserve =
+                    jsonBoolOption(optionsJson, "preserveUnknownExtensions")) {
+                options.preserveUnknownExtensions = *preserve;
+            }
+            if (const auto deterministic =
+                    jsonBoolOption(optionsJson, "deterministicPrefixes")) {
+                options.deterministicPrefixes = *deterministic;
             }
             writer->impl =
                 std::make_unique<iox::xtf::XtfWriter>(writer->sink, options);
@@ -589,6 +735,14 @@ iox_status_t iox_writer_take_output(iox_writer_t* handle,
         return invalidArgument(output, "writer and result are required");
     }
     auto& writer = *reinterpret_cast<iox_writer*>(handle);
+    if (writer.finished) {
+        std::vector<iox::Diagnostic> diagnostics{
+            diagnostic(iox::DiagnosticCode::InvalidState,
+                       "Cannot take output from a finished writer")};
+        setResult(output,
+                  makeResult(IOX_STATUS_INVALID_STATE, diagnostics));
+        return IOX_STATUS_INVALID_STATE;
+    }
     try {
         const auto status = writer.terminal ? IOX_STATUS_ERROR : IOX_STATUS_OK;
         auto* result = makeResult(status, writer.diagnostics);

@@ -15,12 +15,13 @@
 | 10 | completed | 05d3a6d | `cmake -S . -B build/phase10 ...` (0); `cmake --build build/phase10 --parallel` (0); `ctest --test-dir build/phase10 --output-on-failure` (0, 28/28) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 28/28 instrumentation) | BasketReader and limit diagnostics, scored factories, custom format, examples, iox-dump |
 | 11 | completed | 7e98bef | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 31/31) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 31/31; 93.69% line, 85.09% branch) | ASan/UBSan 25/25, standalone fuzz 50 runs plus CTest 1/1, 10,000-object streaming, Native/WASM parity, deterministic roundtrip, public-header consumer, direct ilic-core 26/26 |
 | post-11 | completed | this commit | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 33/33); `iox.test.iox_ili.porting` (4/4); fixture manifest (0) | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 8/8) | `./scripts/coverage.sh` (0, 33/33; 93.78% line, 85.71% branch) | Pinned iox-ili method matrix, 211 XTF fixtures plus 9 model files, fixture manifest, chunk/event/diagnostic parity, semantic writer roundtrip, explicit model/API gaps |
-| 13 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Version 0.2.0 API reset, ABI 2, event/result schema 2, lexical IOM values, ordered COW objects, stable diagnostics, private yyjson 0.12.0 |
-| 14 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Private Expat/XML implementation, callback exception containment, UTF-8 and resource limits, source positions, namespace-aware deterministic writer |
-| 15 | completed | this commit | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Private XTF 2.3 dialect, exact state/header/data rules, bounded event queue, lexical objects/references/geometry, strict/lenient option coverage |
+| 13 | completed | 22f33fc | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Version 0.2.0 API reset, ABI 2, event/result schema 2, lexical IOM values, ordered COW objects, stable diagnostics, private yyjson 0.12.0 |
+| 14 | completed | 36679b5 | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Private Expat/XML implementation, callback exception containment, UTF-8 and resource limits, source positions, namespace-aware deterministic writer |
+| 15 | completed | fdfb681 | Top-level warnings-as-errors build (0); CTest 33/33; direct ilic build CTest 28/28 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Private XTF 2.3 dialect, exact state/header/data rules, bounded event queue, lexical objects/references/geometry, strict/lenient option coverage |
 | 16 | completed | 4687479 | Top-level warnings-as-errors build (0); CTest 34/34; direct ilic build CTest 29/29 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Terminal streaming XTF 2.3 writer, complete metadata/reference/geometry output, independent byte goldens and semantic roundtrips |
 | 17 | completed | e13dd0d | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic build CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Independent private XTF 2.4 reader/writer dialect, exact control QNames, namespace preservation, roles and multi-geometries |
-| 18 | completed | this commit | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic warnings-as-errors build (0), CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Concrete MetaModelStore API, pointer-free compact index, exact translations/QNames, roles, views, transient members, enums and transfer order |
+| 18 | completed | 04bac0b | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic warnings-as-errors build (0), CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Concrete MetaModelStore API, pointer-free compact index, exact translations/QNames, roles, views, transient members, enums and transfer order |
+| 19 | completed | this commit | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic build CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 10/10; real browser + module worker pass | deferred to Phase 20 | ABI/result schema 2 states, bounded JS writer output, streaming Node/browser workers, normalized diagnostic/event and exact 236-byte writer parity |
 
 ## Build Commands
 
@@ -456,6 +457,53 @@ cmake --build build/phase18-ilic --parallel 8                 # exit 0
 ctest --test-dir build/phase18-ilic --output-on-failure       # exit 0, 30/30
 source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/build-wasm.sh  # exit 0, Emscripten 3.1.64
 source /Users/stefan/sources/emsdk/emsdk_env.sh >/dev/null && ./scripts/test-wasm.sh   # exit 0, 8/8
+```
+
+Normal tests use neither Java nor network access. No Linux or Windows run,
+sanitizer pass, fuzzing, or coverage threshold is claimed for this phase;
+those independent release gates remain assigned to Phase 20.
+
+## Phase 19 — Native, WASM, browser, and worker parity
+
+Phase 19 was verified on macOS on 2026-08-04. The C ABI now maps every public
+reader resource option, rejects conflicting/invalid versions and option types,
+selects the actual 2.4 writer for `xtf24`, and reports all post-finish/end calls
+as stable structured invalid states. Fatal parser diagnostics retain their
+original code and source position across the JavaScript boundary. C entry
+points continue to catch unexpected exceptions as `internal.error`.
+
+The JavaScript writer exposes `takeOutput()` and forgets drained chunks, so it
+does not accumulate a complete transfer. Reader/writer finish is terminal.
+Browser and Node module workers now offer keyed incremental reader and writer
+sessions in addition to batch calls, transfer exact ArrayBuffers, and release
+all live handles on `close`. Type declarations cover the full worker protocol.
+A shared fixed 236-byte XTF 2.3 vector is asserted by the
+native C ABI, Node/WASM API, browser, and worker; malformed input yields the
+same `xml.malformed` code, and direct/worker events compare after source
+location normalization.
+
+The real in-app browser loaded the ES module over HTTP and passed direct
+reader/writer plus module-worker streaming checks. A separate Release build
+measured 662,998 bytes raw and 231,266 bytes with `gzip -9`. No ilic-WASM
+bundle was added: it has no exported WASM ABI yet, while the local native
+`iox-ilic` and `ilic-core` archives already measure 5,567,104 and 148,154,520
+bytes before final linking. The model-free package remains independent.
+
+### Phase 19 verification commands
+
+```text
+cmake -S . -B build/phase19 -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=ON -DIOX_BUILD_TOOLS=ON -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase19 --parallel 8                      # exit 0
+ctest --test-dir build/phase19 --output-on-failure            # exit 0, 35/35
+cmake -S . -B build/phase19-ilic -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase19-ilic --parallel 8                 # exit 0
+ctest --test-dir build/phase19-ilic --output-on-failure       # exit 0, 30/30
+./scripts/build-wasm.sh                                       # exit 0, Emscripten 3.1.64
+./scripts/test-wasm.sh                                        # exit 0, 10/10
+emcmake cmake -S . -B build/phase19-wasm-release -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DIOX_BUILD_WASM=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase19-wasm-release --target iox-wasm --parallel 8  # exit 0; 662998 raw, 231266 gzip -9
+python3 -m http.server 8765 --bind 127.0.0.1  # browser-smoke.html?phase19=2 passed in real browser and module worker
+cd packages/iox-wasm && npm pack --dry-run                    # exit 0, 10 files
 ```
 
 Normal tests use neither Java nor network access. No Linux or Windows run,

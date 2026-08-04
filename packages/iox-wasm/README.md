@@ -12,12 +12,26 @@ request-ID based module-worker protocol.
 ## Usage
 
 ```js
-import { createIoxModule, XtfReader } from '@interlis/iox-wasm';
+import {
+  createIoxModule, IncrementalXtfReader, XtfWriter
+} from '@interlis/iox-wasm';
 
 const mod = await createIoxModule();
-const reader = new XtfReader(mod, inputData);
-for (const event of reader) {
-  console.log(event);
+const reader = new IncrementalXtfReader(mod);
+for await (const chunk of inputStream) {
+  for (const event of reader.feed(chunk)) console.log(event);
 }
+for (const event of reader.finish()) console.log(event);
 reader.close();
+
+const writer = new XtfWriter(mod, { version: '2.3' });
+writer.write(startTransferEvent);
+await outputStream.write(writer.takeOutput());
+writer.write(endTransferEvent);
+await outputStream.write(writer.finish());
+writer.close();
 ```
+
+`worker.js` exposes the same batch and streaming operations to browser and
+Node module workers, including explicit cancellation of unfinished sessions.
+Its protocol types are declared in `worker.d.ts`.

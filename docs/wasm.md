@@ -30,8 +30,10 @@ packages/iox-wasm/
 ├── index.js              # ES module entry point
 ├── index.d.ts            # TypeScript declarations
 ├── worker.js             # Web Worker protocol
+├── worker.d.ts            # Worker request/response declarations
 ├── test/
-│   └── *.test.mjs        # Node.js tests
+│   ├── *.test.mjs        # Node.js tests
+│   └── browser-smoke.html # Real browser + module-worker smoke
 ├── README.md
 ├── LICENSE
 └── THIRD_PARTY_NOTICES.md
@@ -112,8 +114,13 @@ writer.write({ schema: 'iox-event/2', event: 'object', object: {
 writer.write({ schema: 'iox-event/2', event: 'endBasket' });
 writer.write({ schema: 'iox-event/2', event: 'endTransfer' });
 
-const output = writer.finish(); // Uint8Array
+// Drain bounded chunks while writing; each call forgets returned bytes.
+const available = writer.takeOutput();
+const final = writer.finish();
 ```
+
+`finish()` is terminal. A second finish, a write after finish, or a
+`takeOutput()` after finish throws `IoxError` with `api.invalid_state`.
 
 ### Web Worker
 
@@ -126,7 +133,17 @@ worker.onmessage = (e) => {
     // handle response
 };
 
-// The same request-ID protocol supports readAll, writeAll, and close.
+// Batch operations: readAll, writeAll.
+// Streaming operations:
+worker.postMessage({ type: 'readerCreate', requestId: 2, streamId: 'r1' });
+worker.postMessage({
+    type: 'readerFeed', requestId: 3, streamId: 'r1', input: chunk
+});
+worker.postMessage({ type: 'readerFinish', requestId: 4, streamId: 'r1' });
+
+// Writers analogously use writerCreate, writerWrite, and writerFinish.
+// readerClose/writerClose cancel one unfinished session.
+// close releases all streams owned by the worker.
 ```
 
 ## Supported Environments
@@ -164,13 +181,21 @@ diff native.ndjson wasm.ndjson
 
 ## Size Considerations
 
-The baseline WASM module (model-free XTF reader/writer) is expected to be
-under 500 KB gzipped. The optional `iox-ilic` integration would add the
-`ilic-core` dependency, increasing size significantly.
+The Phase 19 model-free Release build is 662,998 bytes raw and 231,266 bytes
+with `gzip -9` (Emscripten 3.1.64). The ordinary test artifact is a Debug build
+and is intentionally much larger.
+
+No ilic-WASM bundle is shipped in 0.2. The current Java-derived ilic-core has
+no WASM C-ABI contract, and the local native archives measure 5,567,104 bytes
+for `iox-ilic` plus 148,154,520 bytes for `ilic-core` before final linking.
+Adding that dependency to the model-free bundle without a measured,
+tree-shaken exported surface would be misleading. It remains an optional,
+separate future artifact and does not block the model-free package.
 
 ## Limitations
 
 - No DOM APIs used in the JavaScript layer
 - No synchronous file I/O in browser environments
-- Web Streams API not yet integrated (incremental reader provides foundation)
+- Web Streams are consumed by feeding their chunks to `IncrementalXtfReader`;
+  no DOM or full-input buffering layer is involved
 - `TextEncoder`/`TextDecoder` used for UTF-8 conversion
