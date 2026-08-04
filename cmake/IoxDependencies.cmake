@@ -5,6 +5,9 @@
 
 include(FetchContent)
 
+set(IOX_ILIC_VERSION "0.9.10")
+set(IOX_ILIC_GIT_TAG "v${IOX_ILIC_VERSION}")
+
 # ---------------------------------------------------------------------------
 # Expat — pinned immutable revision
 # ---------------------------------------------------------------------------
@@ -46,4 +49,52 @@ function(iox_fetch_yyjson)
         GIT_SHALLOW FALSE
     )
     FetchContent_MakeAvailable(yyjson)
+endfunction()
+
+# ---------------------------------------------------------------------------
+# ilic — optional direct source integration pinned to a stable release tag
+# ---------------------------------------------------------------------------
+function(iox_make_ilic_available out_source_dir)
+    set(ILIC_BUILD_CLI OFF CACHE BOOL "" FORCE)
+    set(ILIC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(ILIC_ENABLE_NATIVE_REPOSITORY OFF CACHE BOOL "" FORCE)
+
+    if(IOX_ILIC_SOURCE_DIR)
+        if(NOT EXISTS "${IOX_ILIC_SOURCE_DIR}/CMakeLists.txt")
+            message(FATAL_ERROR
+                "IOX_ILIC_SOURCE_DIR does not contain ilic-fork: ${IOX_ILIC_SOURCE_DIR}")
+        endif()
+        add_subdirectory(
+            "${IOX_ILIC_SOURCE_DIR}"
+            "${CMAKE_BINARY_DIR}/ilic-core-build"
+            EXCLUDE_FROM_ALL
+        )
+        set(_iox_ilic_source_dir "${IOX_ILIC_SOURCE_DIR}")
+    elseif(IOX_FETCH_ILIC)
+        FetchContent_Declare(ilic
+            GIT_REPOSITORY https://github.com/edigonzales/ilic-fork.git
+            GIT_TAG "${IOX_ILIC_GIT_TAG}"
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(ilic)
+        set(_iox_ilic_source_dir "${ilic_SOURCE_DIR}")
+    else()
+        message(FATAL_ERROR
+            "IOX_ENABLE_ILIC requires IOX_ILIC_SOURCE_DIR or IOX_FETCH_ILIC")
+    endif()
+
+    if(NOT TARGET ilic::core)
+        message(FATAL_ERROR
+            "ilic ${IOX_ILIC_VERSION} must provide target ilic::core")
+    endif()
+    if(TARGET ilic OR TARGET ilic-format)
+        message(FATAL_ERROR
+            "ilic CLI targets must be disabled in the iox-cpp consumer build")
+    endif()
+    if(NOT EXISTS "${_iox_ilic_source_dir}/source/metamodel/MetaModelStore.h")
+        message(FATAL_ERROR
+            "ilic ${IOX_ILIC_VERSION} does not provide the expected metamodel source API")
+    endif()
+
+    set(${out_source_dir} "${_iox_ilic_source_dir}" PARENT_SCOPE)
 endfunction()

@@ -306,6 +306,18 @@ endif()
 
 # --- ilic model-based tests --------------------------------------------------
 if(IOX_ENABLE_ILIC)
+    add_executable(iox-test-ilic-version
+        ilic/IlicDependencyVersion.test.cpp
+    )
+    target_link_libraries(iox-test-ilic-version PRIVATE
+        ilic::core
+        iox-test-support
+    )
+    target_compile_definitions(iox-test-ilic-version PRIVATE
+        IOX_EXPECTED_ILIC_VERSION="${IOX_ILIC_VERSION}"
+    )
+    add_test(NAME iox.test.ilic.version COMMAND iox-test-ilic-version)
+
     add_executable(iox-test-model-based
         ilic/ModelBased.test.cpp
     )

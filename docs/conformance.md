@@ -61,13 +61,20 @@ All dependencies are pinned to immutable revisions. No floating branches.
 ### ilic-fork
 - **Repository:** https://github.com/edigonzales/ilic-fork
 - **Purpose:** Compiler/metamodel reference for ilic-core integration
-- **Commit:** `8582fff47549f8e0ac4d1cd6ec39c66c2bb708b0` (HEAD on 2026-07-29)
+- **Semantic dependency:** `ilic 0.9.10`
+- **Release tag:** `v0.9.10`
+- **Resolved release commit:** to be recorded after the immutable tag is created
+- **Historical Phase-9 reference:** `8582fff47549f8e0ac4d1cd6ec39c66c2bb708b0` (HEAD on 2026-07-29)
 
-Phase 9 verifies this exact checkout through `IOX_ILIC_SOURCE_DIR`. The fork's
+Phase 9 verified the historical checkout through `IOX_ILIC_SOURCE_DIR`. The fork's
 public C++ model types are `metamodel::Model`, `SubModel`, `Class`, and
 `AttrOrParam`; `iox-ilic` adapts directly to those names. The regular build
-does not fetch or configure the optional module, while `IOX_FETCH_ILIC` uses
-the same immutable commit when explicitly enabled.
+does not fetch or configure the optional module, while `IOX_FETCH_ILIC` now
+uses the immutable `v0.9.10` tag when explicitly enabled. Source-level
+integration is intentional because ilic does not yet ship an installable
+native CMake package. Test `iox.test.ilic.version` verifies the exact runtime
+version; the existing model-based test also proves that the compact index does
+not retain metamodel pointers beyond construction.
 
 ### Pin verification
 

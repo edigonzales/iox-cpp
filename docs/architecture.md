@@ -28,7 +28,7 @@ iox-factory → iox-xtf + iox-json
 
 - `iox-core` has NO XML, Expat, XTF, JSON, or ilic dependency.
 - `iox-xtf` has NO ilic-core dependency.
-- `iox-ilic` links directly to concrete `ilic-core` types.
+- `iox-ilic` links directly to concrete `ilic::core` types from `v0.9.10`.
 - There is no abstract model-provider framework.
 - `iox-factory` is the convenience layer that may depend on both built-in
   formats; `iox-core` remains format-independent.
@@ -49,7 +49,9 @@ embedded roles, association transferability, transient views/properties and
 enumeration translations. It deliberately is not a general validator: it
 does not claim constraint, cardinality or file-wide reference validation.
 The CMake options `IOX_ILIC_SOURCE_DIR` and `IOX_FETCH_ILIC` select the
-immutable fork source; the default build keeps the module disabled.
+immutable fork source; the latter fetches tag `v0.9.10` and builds it as a
+library-only source subproject. `iox-core` and `iox-xtf` remain completely
+independent of ilic, and the default build keeps `iox-ilic` disabled.
 
 ## Normative Event Stream
 

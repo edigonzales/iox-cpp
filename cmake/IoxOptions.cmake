@@ -2,7 +2,7 @@
 
 option(IOX_BUILD_WASM "Build the WebAssembly ABI target" OFF)
 option(IOX_ENABLE_ILIC "Build direct ilic-core integration" OFF)
-option(IOX_FETCH_ILIC "Fetch the pinned ilic-fork dependency" OFF)
+option(IOX_FETCH_ILIC "Fetch the pinned ilic-fork v0.9.10 dependency" OFF)
 option(IOX_ENABLE_JSON_FORMAT "Register JSON events in the default factory" ON)
 option(IOX_BUILD_EXAMPLES "Build example programs" ON)
 option(IOX_BUILD_TOOLS "Build tools like iox-dump" ON)
@@ -31,4 +31,5 @@ option(IOX_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(IOX_ENABLE_LSAN "Enable LeakSanitizer (Linux only)" OFF)
 
 # ilic-core integration
-set(IOX_ILIC_SOURCE_DIR "" CACHE PATH "Path to ilic-fork source directory")
+set(IOX_ILIC_SOURCE_DIR "" CACHE PATH
+    "Path to a local ilic-fork checkout; takes precedence over IOX_FETCH_ILIC")

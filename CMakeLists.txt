@@ -119,31 +119,7 @@ iox_set_warnings(iox-factory)
 
 # --- optional ilic-core integration --------------------------------------
 if(IOX_ENABLE_ILIC)
-    set(_iox_parent_build_testing "${BUILD_TESTING}")
-    if(IOX_ILIC_SOURCE_DIR)
-        set(_IOX_ILIC_SOURCE_DIR "${IOX_ILIC_SOURCE_DIR}")
-        set(BUILD_TESTING OFF)
-        set(ILIC_ENABLE_NATIVE_REPOSITORY OFF)
-        add_subdirectory("${IOX_ILIC_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/ilic-core-build" EXCLUDE_FROM_ALL)
-    elseif(IOX_FETCH_ILIC)
-        include(FetchContent)
-        FetchContent_Declare(ilic
-            GIT_REPOSITORY https://github.com/edigonzales/ilic-fork.git
-            GIT_TAG 8582fff47549f8e0ac4d1cd6ec39c66c2bb708b0
-            GIT_SHALLOW FALSE)
-        set(BUILD_TESTING OFF)
-        set(ILIC_ENABLE_NATIVE_REPOSITORY OFF)
-        FetchContent_MakeAvailable(ilic)
-        set(_IOX_ILIC_SOURCE_DIR "${ilic_SOURCE_DIR}")
-    else()
-        message(FATAL_ERROR
-            "IOX_ENABLE_ILIC requires IOX_ILIC_SOURCE_DIR or IOX_FETCH_ILIC")
-    endif()
-    set(BUILD_TESTING "${_iox_parent_build_testing}")
-
-    if(NOT TARGET ilic-core)
-        message(FATAL_ERROR "The selected ilic-fork does not provide ilic-core")
-    endif()
+    iox_make_ilic_available(_IOX_ILIC_SOURCE_DIR)
 
     add_library(iox-ilic STATIC
         source/ilic/IlicModelIndex.cpp
@@ -157,7 +133,7 @@ if(IOX_ENABLE_ILIC)
             $<INSTALL_INTERFACE:include>
     )
 
-    target_link_libraries(iox-ilic PUBLIC iox-xtf iox-core ilic-core)
+    target_link_libraries(iox-ilic PUBLIC iox-xtf iox-core ilic::core)
     iox_set_warnings(iox-ilic)
 endif()
 

@@ -37,8 +37,10 @@ source /path/to/emsdk/emsdk_env.sh
 ```
 
 The regular build is offline after its pinned Expat source is available. It
-does not require Java. To build the optional model-aware module against an
-existing pinned checkout:
+does not require Java. The optional model-aware module has two explicit source
+paths.
+
+For local joint development against a sibling checkout:
 
 ```sh
 cmake -S . -B build/ilic \
@@ -47,6 +49,22 @@ cmake -S . -B build/ilic \
 cmake --build build/ilic --parallel
 ctest --test-dir build/ilic --output-on-failure
 ```
+
+For the reproducible release dependency:
+
+```sh
+cmake -S . -B build/ilic-release \
+  -DBUILD_TESTING=ON \
+  -DIOX_ENABLE_ILIC=ON \
+  -DIOX_FETCH_ILIC=ON
+cmake --build build/ilic-release --parallel
+ctest --test-dir build/ilic-release --output-on-failure
+```
+
+`IOX_FETCH_ILIC` fetches the immutable `v0.9.10` source tag and builds
+`ilic::core` from source; it does not download a precompiled native library.
+`iox-ilic` remains optional. In either path ilic's CLI and own tests are
+disabled, while `iox.test.ilic.version` enforces the dependency contract.
 
 ## Minimal C++ reader and writer
 

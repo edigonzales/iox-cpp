@@ -138,12 +138,13 @@ to the target include path because the metamodel header is not installed as a
 public include. No model-provider interface or invented type aliases were
 introduced.
 
-The default build does not configure or build `iox-ilic`. The explicit local
-integration build uses the immutable adjacent checkout at
-`8582fff47549f8e0ac4d1cd6ec39c66c2bb708b0`, disables the fork's tests and
-native repository, and runs the model-index, strict validation, reference
-type, and transfer-order tests. `IOX_FETCH_ILIC` is also available with the
-same immutable Git tag for an explicitly requested dependency-fetch build.
+The default build does not configure or build `iox-ilic`. The historical
+Phase-9 verification used the adjacent checkout at
+`8582fff47549f8e0ac4d1cd6ec39c66c2bb708b0`. The current release contract
+supersedes that remote pin with immutable tag `v0.9.10`; local joint
+development still uses `IOX_ILIC_SOURCE_DIR`. Both paths disable the fork's
+CLI, tests, and native repository through its dedicated CMake options and run
+the model-index, strict validation, reference type, and transfer-order tests.
 
 ### Phase 9 verification commands
 
