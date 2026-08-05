@@ -2,6 +2,11 @@
   "name": "@interlis/iox-wasm",
   "version": "0.2.0",
   "description": "INTERLIS XTF 2.3/2.4 Reader/Writer WebAssembly module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/edigonzales/iox-cpp.git",
+    "directory": "packages/iox-wasm"
+  },
   "type": "module",
   "main": "index.js",
   "types": "index.d.ts",
