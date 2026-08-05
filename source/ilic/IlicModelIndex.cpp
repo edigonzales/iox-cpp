@@ -196,7 +196,7 @@ struct IlicModelIndex::Impl final {
     };
 
     struct Lookup final {
-        std::size_t concept = 0;
+        std::size_t conceptIndex = 0;
         std::optional<std::size_t> variant;
     };
 
@@ -285,10 +285,10 @@ struct IlicModelIndex::Impl final {
         const auto collapse = [&](const std::vector<Lookup>& matches)
             -> std::optional<Lookup> {
             if (matches.empty()) return std::nullopt;
-            const auto concept = matches.front().concept;
+            const auto conceptIndex = matches.front().conceptIndex;
             if (std::any_of(
                     matches.begin(), matches.end(), [&](const auto& item) {
-                        return item.concept != concept;
+                        return item.conceptIndex != conceptIndex;
                     })) {
                 ambiguous(kind, observed);
             }
@@ -296,11 +296,11 @@ struct IlicModelIndex::Impl final {
             for (const auto& item : matches) {
                 if (item.variant != variant) variant.reset();
             }
-            return Lookup{concept, variant};
+            return Lookup{conceptIndex, variant};
         };
         const auto byName = collapse(nameMatches);
         const auto byXml = collapse(xmlMatches);
-        if (byName && byXml && byName->concept != byXml->concept) {
+        if (byName && byXml && byName->conceptIndex != byXml->conceptIndex) {
             ambiguous(kind, observed);
         }
         if (byName && byXml) {
@@ -360,7 +360,7 @@ struct IlicModelIndex::Impl final {
     std::optional<Lookup> propertyLookup(const Lookup& owner,
                                          const IomName& observed) const {
         std::vector<std::size_t> candidates;
-        for (const auto& variant : classes[owner.concept].variants) {
+        for (const auto& variant : classes[owner.conceptIndex].variants) {
             for (const auto property : variant.allProperties) {
                 appendUnique(candidates, property);
             }
@@ -372,7 +372,7 @@ struct IlicModelIndex::Impl final {
         }
         const auto found = lookup(observed, subset, "property");
         if (!found) return std::nullopt;
-        return Lookup{candidates[found->concept], found->variant};
+        return Lookup{candidates[found->conceptIndex], found->variant};
     }
 
     std::optional<std::size_t> enumConcept(
@@ -460,26 +460,26 @@ IlicModelIndex::IlicModelIndex(const metamodel::MetaModelStore& store)
             if (element == nullptr) continue;
             if (const auto* topic =
                     dynamic_cast<const metamodel::SubModel*>(element)) {
-                const auto concept = conceptFor(topicConcepts, *topic,
-                                                impl_->topics);
-                impl_->topics[concept].variants.push_back(
+                const auto conceptIndex = conceptFor(topicConcepts, *topic,
+                                                     impl_->topics);
+                impl_->topics[conceptIndex].variants.push_back(
                     makeVariant(*topic, model, scopedName(*topic)));
                 self(self, *topic, model);
                 continue;
             }
             if (const auto* klass =
                     dynamic_cast<const metamodel::Class*>(element)) {
-                const auto concept = conceptFor(classConcepts, *klass,
-                                                impl_->classes);
+                const auto conceptIndex = conceptFor(classConcepts, *klass,
+                                                     impl_->classes);
                 Impl::ClassVariant variant;
                 variant.name =
                     makeVariant(*klass, model, scopedName(*klass));
                 const auto variantIndex =
-                    impl_->classes[concept].variants.size();
-                impl_->classes[concept].variants.push_back(
+                    impl_->classes[conceptIndex].variants.size();
+                impl_->classes[conceptIndex].variants.push_back(
                     std::move(variant));
                 classVariants.emplace(klass,
-                                      std::make_pair(concept, variantIndex));
+                                      std::make_pair(conceptIndex, variantIndex));
                 concreteClasses.push_back(klass);
             }
             if (const auto* child =
@@ -502,11 +502,11 @@ IlicModelIndex::IlicModelIndex(const metamodel::MetaModelStore& store)
             if (node == nullptr) continue;
             const auto lexical = prefix.empty() ? node->Name
                                                 : prefix + "." + node->Name;
-            const auto concept = conceptFor(enumConcepts, *node,
-                                            impl_->enumerations);
-            impl_->enumerations[concept].variants.push_back(
+            const auto conceptIndex = conceptFor(enumConcepts, *node,
+                                                 impl_->enumerations);
+            impl_->enumerations[conceptIndex].variants.push_back(
                 {model.Name, model.Language, lexical});
-            property.enumerations.push_back({lexical, concept});
+            property.enumerations.push_back({lexical, conceptIndex});
             self(self, *node, lexical, model, property);
         }
     };
@@ -518,9 +518,9 @@ IlicModelIndex::IlicModelIndex(const metamodel::MetaModelStore& store)
             throw IoxError(DiagnosticCode::ModelMismatch,
                            "ilic property owner has no model");
         }
-        const auto concept = conceptFor(propertyConcepts, property,
-                                        impl_->properties);
-        auto& record = impl_->properties[concept];
+        const auto conceptIndex = conceptFor(propertyConcepts, property,
+                                             impl_->properties);
+        auto& record = impl_->properties[conceptIndex];
         Impl::PropertyVariant variant;
         variant.name = makeVariant(
             property, *model, scopedName(owner) + "." + property.Name);
@@ -529,7 +529,7 @@ IlicModelIndex::IlicModelIndex(const metamodel::MetaModelStore& store)
             [&](const auto& item) {
                 return item.name.model == variant.name.model;
             });
-        if (duplicate != record.variants.end()) return concept;
+        if (duplicate != record.variants.end()) return conceptIndex;
         if (const auto* attribute =
                 dynamic_cast<const metamodel::AttrOrParam*>(&property)) {
             record.transient = record.transient || attribute->Transient;
@@ -561,7 +561,7 @@ IlicModelIndex::IlicModelIndex(const metamodel::MetaModelStore& store)
             }
         }
         record.variants.push_back(std::move(variant));
-        return concept;
+        return conceptIndex;
     };
 
     for (const auto* klass : concreteClasses) {
@@ -586,10 +586,10 @@ IlicModelIndex::IlicModelIndex(const metamodel::MetaModelStore& store)
                                     const metamodel::Class& owner,
                                     bool includeTransient) {
         if (property == nullptr) return;
-        const auto concept = registerProperty(*property, owner);
-        if (!includeTransient && impl_->properties[concept].transient) return;
-        const auto found = std::find(result.begin(), result.end(), concept);
-        if (found == result.end()) result.push_back(concept);
+        const auto conceptIndex = registerProperty(*property, owner);
+        if (!includeTransient && impl_->properties[conceptIndex].transient) return;
+        const auto found = std::find(result.begin(), result.end(), conceptIndex);
+        if (found == result.end()) result.push_back(conceptIndex);
     };
 
     const auto classOrder = [&](const metamodel::Class& concrete,
@@ -635,8 +635,8 @@ IlicModelIndex::IlicModelIndex(const metamodel::MetaModelStore& store)
     for (const auto* klass : concreteClasses) {
         const auto found = classVariants.find(klass);
         if (found == classVariants.end()) continue;
-        auto& concept = impl_->classes[found->second.first];
-        auto& variant = concept.variants[found->second.second];
+        auto& classConcept = impl_->classes[found->second.first];
+        auto& variant = classConcept.variants[found->second.second];
         variant.allProperties = classOrder(*klass, true);
         variant.transferProperties = classOrder(*klass, false);
 
@@ -648,8 +648,8 @@ IlicModelIndex::IlicModelIndex(const metamodel::MetaModelStore& store)
         if (klass->Kind == metamodel::Class::Association) {
             transferable = transferable && standaloneAssociation(*klass);
         }
-        concept.topLevelTransferable =
-            concept.topLevelTransferable || transferable;
+        classConcept.topLevelTransferable =
+            classConcept.topLevelTransferable || transferable;
     }
 }
 
@@ -702,7 +702,7 @@ std::optional<IomName> IlicModelIndex::resolveTopic(
     const auto source = Impl::lookup(observed, impl_->topics, "topic");
     if (!source) return std::nullopt;
     const auto& variant = impl_->chooseVariant(
-        impl_->topics[source->concept].variants, *source, targetModel);
+        impl_->topics[source->conceptIndex].variants, *source, targetModel);
     return Impl::iomName(variant, version, true);
 }
 
@@ -712,7 +712,7 @@ std::optional<IomName> IlicModelIndex::resolveClass(
     const auto source = Impl::lookup(observed, impl_->classes, "class");
     if (!source) return std::nullopt;
     const auto& variant = impl_->chooseVariant(
-        impl_->classes[source->concept].variants, *source, targetModel);
+        impl_->classes[source->conceptIndex].variants, *source, targetModel);
     return Impl::iomName(variant.name, version, true);
 }
 
@@ -724,7 +724,7 @@ std::optional<IomName> IlicModelIndex::resolveProperty(
     const auto source = impl_->propertyLookup(*ownerSource, observed);
     if (!source) return std::nullopt;
     const auto& variant = impl_->chooseVariant(
-        impl_->properties[source->concept].variants, *source, targetModel);
+        impl_->properties[source->conceptIndex].variants, *source, targetModel);
     return Impl::iomName(variant.name, version, false);
 }
 
@@ -734,7 +734,7 @@ std::vector<IomName> IlicModelIndex::transferProperties(
     const auto source = Impl::lookup(owner, impl_->classes, "class");
     if (!source) return {};
     const auto& classVariant = impl_->chooseVariant(
-        impl_->classes[source->concept].variants, *source, targetModel);
+        impl_->classes[source->conceptIndex].variants, *source, targetModel);
     std::vector<IomName> result;
     result.reserve(classVariant.transferProperties.size());
     for (const auto propertyIndex : classVariant.transferProperties) {
@@ -755,7 +755,7 @@ std::optional<IomName> IlicModelIndex::referenceTargetClass(
     if (!ownerSource) return std::nullopt;
     const auto propertySource = impl_->propertyLookup(*ownerSource, property);
     if (!propertySource) return std::nullopt;
-    const auto& record = impl_->properties[propertySource->concept];
+    const auto& record = impl_->properties[propertySource->conceptIndex];
     if (!record.targetClass) return std::nullopt;
     const Impl::Lookup targetSource{*record.targetClass, std::nullopt};
     const auto& target = impl_->chooseVariant(
@@ -771,7 +771,7 @@ std::optional<std::string> IlicModelIndex::translateEnumeration(
     if (!ownerSource) return std::nullopt;
     const auto propertySource = impl_->propertyLookup(*ownerSource, property);
     if (!propertySource) return std::nullopt;
-    const auto& record = impl_->properties[propertySource->concept];
+    const auto& record = impl_->properties[propertySource->conceptIndex];
     if (!record.hasEnumeration) return std::string(lexicalValue);
     const auto enumeration =
         impl_->enumConcept(record, *propertySource, lexicalValue);
@@ -799,7 +799,7 @@ std::optional<std::string> IlicModelIndex::translateEnumeration(
 bool IlicModelIndex::isTopLevelTransferable(
     const IomName& className) const {
     const auto source = Impl::lookup(className, impl_->classes, "class");
-    return source && impl_->classes[source->concept].topLevelTransferable;
+    return source && impl_->classes[source->conceptIndex].topLevelTransferable;
 }
 
 bool IlicModelIndex::isTransientProperty(
@@ -807,7 +807,7 @@ bool IlicModelIndex::isTransientProperty(
     const auto ownerSource = Impl::lookup(owner, impl_->classes, "class");
     if (!ownerSource) return false;
     const auto source = impl_->propertyLookup(*ownerSource, property);
-    return source && impl_->properties[source->concept].transient;
+    return source && impl_->properties[source->conceptIndex].transient;
 }
 
 bool IlicModelIndex::isEmbeddedRole(
@@ -815,8 +815,8 @@ bool IlicModelIndex::isEmbeddedRole(
     const auto ownerSource = Impl::lookup(owner, impl_->classes, "class");
     if (!ownerSource) return false;
     const auto source = impl_->propertyLookup(*ownerSource, property);
-    return source && impl_->properties[source->concept].role &&
-           impl_->properties[source->concept].embedded;
+    return source && impl_->properties[source->conceptIndex].role &&
+           impl_->properties[source->conceptIndex].embedded;
 }
 
 } // namespace ilic
