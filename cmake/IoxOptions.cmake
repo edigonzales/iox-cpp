@@ -2,6 +2,7 @@
 
 option(IOX_BUILD_WASM "Build the WebAssembly ABI target" OFF)
 option(IOX_ENABLE_ILIC "Build direct ilic-core integration" OFF)
+option(IOX_ENABLE_GEOS "Enable GEOS-backed geometry assembly" OFF)
 option(IOX_FETCH_ILIC "Fetch the pinned ilic-fork v0.9.10 dependency" OFF)
 option(IOX_ENABLE_JSON_FORMAT "Register JSON events in the default factory" ON)
 option(IOX_BUILD_EXAMPLES "Build example programs" ON)

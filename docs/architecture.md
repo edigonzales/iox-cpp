@@ -9,6 +9,7 @@ INTERLIS XTF 2.3 and XTF 2.4 transfer files.
 
 ```text
 iox-core        model-independent objects, events, and interfaces
+iox-geometry    model-free IOM-to-WKB projection (optional GEOS validation)
 iox-xtf         generic XTF 2.3/2.4 reader/writer
 iox-json        test/example event format
 iox-abi         stable C ABI
@@ -20,9 +21,11 @@ iox-ilic        direct ilic-core integration (optional)
 
 ```
 iox-core  ←  iox-json
+iox-core  ←  iox-geometry
 iox-core  ←  iox-xtf
 iox-core  ←  iox-abi
 iox-xtf   ←  iox-ilic  (links ilic-core directly)
+iox-geometry ← iox-ilic (geometry descriptors and projection target)
 iox-factory → iox-xtf + iox-json
 ```
 
@@ -90,6 +93,13 @@ wildcard selection. Reads return copied primitive matches; writes require one
 non-wildcard primitive match and explicitly write updated nested children back
 through their parents so copy-on-write remains observable and correct. See
 `docs/iom-path.md`.
+
+`iox-geometry` is model-free and writes deterministic little-endian WKB for
+the supported IOM coordinate, line, and polygon forms. Arc segments are
+approximated using a bounded sagitta and the exact source endpoint; optional
+GEOS validation is isolated behind `IOX_ENABLE_GEOS` and re-entrant RAII
+contexts. No GEOS download or public GEOS type is part of the core build. See
+`docs/geometry.md`.
 
 ## XML Strategy
 

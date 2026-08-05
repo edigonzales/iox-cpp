@@ -54,6 +54,13 @@ function(iox_fetch_yyjson)
 endfunction()
 
 # ---------------------------------------------------------------------------
+# GEOS — optional system/vcpkg dependency; never downloaded here
+# ---------------------------------------------------------------------------
+function(iox_find_geos)
+    find_package(GEOS CONFIG REQUIRED)
+endfunction()
+
+# ---------------------------------------------------------------------------
 # ilic — optional direct source integration pinned to a stable release tag
 # ---------------------------------------------------------------------------
 function(iox_make_ilic_available out_source_dir)

@@ -4,6 +4,12 @@ target_include_directories(iox-test-support INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/support"
 )
 
+add_executable(iox-test-geometry
+    geometry/IomGeometryConverter.test.cpp
+)
+target_link_libraries(iox-test-geometry PRIVATE iox-geometry iox-core iox-test-support)
+add_test(NAME iox.test.geometry COMMAND iox-test-geometry)
+
 # --- Core tests (each in its own executable) -------------------------------
 set(CORE_TEST_FILES
     core/Version.test.cpp

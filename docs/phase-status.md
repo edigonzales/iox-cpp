@@ -622,3 +622,28 @@ ctest --test-dir build/phase5 --output-on-failure              # exit 0, 35/35
 
 No GEOS-backed conversion, XTF SQL integration, or release/publish action is
 claimed by this phase.
+
+## Native MVP Phase 6 — native IOM geometry projection
+
+Phase 6 was verified on macOS on 2026-08-05 with GEOS disabled because no
+GEOS CMake package is installed in the environment. The new `iox-geometry`
+target writes deterministic 2D/3D WKB for points, multi-points, lines,
+polygons, holes, and multi-polygons; it strokes arcs with bounded sagitta and
+rejects incomplete, custom-line-form, line-attribute, mixed-dimensional, and
+malformed values. The optional GEOS configure path fails clearly at
+`find_package(GEOS CONFIG REQUIRED)` until the consuming DuckDB environment
+provides GEOS.
+
+### Phase 6 verification commands
+
+```text
+cmake -S . -B build/phase6 -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_GEOS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork -DIOX_ILIC_VERSION=0.10.0-SNAPSHOT -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase6 --parallel                          # exit 0
+ctest --test-dir build/phase6 --output-on-failure              # exit 0, 36/36
+./build/phase6/test/iox-test-geometry                       # exit 0, 5/5
+/Users/stefan/bin/duckdb -c "LOAD spatial; SELECT ST_AsText(ST_GeomFromWKB(from_hex('01e9030000000000000000f03f00000000000000400000000000000840')));"  # POINT Z (1 2 3)
+cmake -S . -B build/phase6-geos -DIOX_ENABLE_GEOS=ON ...        # exit 1, GEOS package absent
+```
+
+No GEOS-enabled build, Java golden-fixture generation, release/publish action,
+or push is claimed by this phase.

@@ -44,6 +44,34 @@ target_include_directories(iox-core
 
 iox_set_warnings(iox-core)
 
+# --- geometry projection ------------------------------------------------
+add_library(iox-geometry STATIC
+    source/geometry/ArcStroker.cpp
+    source/geometry/IomGeometryConverter.cpp
+    source/geometry/WkbWriter.cpp
+)
+
+target_include_directories(iox-geometry
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/source
+)
+target_link_libraries(iox-geometry PUBLIC iox-core)
+if(IOX_ENABLE_GEOS)
+    iox_find_geos()
+    target_sources(iox-geometry PRIVATE
+        source/geometry/GeosContext.cpp
+        source/geometry/GeosGeometryAssembler.cpp
+    )
+    target_link_libraries(iox-geometry PRIVATE GEOS::geos_c)
+    target_compile_definitions(iox-geometry PUBLIC IOX_HAS_GEOS=1)
+else()
+    target_compile_definitions(iox-geometry PUBLIC IOX_HAS_GEOS=0)
+endif()
+iox_set_warnings(iox-geometry)
+
 # --- iox-json ------------------------------------------------------------
 iox_fetch_yyjson()
 
@@ -134,7 +162,7 @@ if(IOX_ENABLE_ILIC)
             $<INSTALL_INTERFACE:include>
     )
 
-    target_link_libraries(iox-ilic PUBLIC iox-xtf iox-core ilic::core)
+    target_link_libraries(iox-ilic PUBLIC iox-xtf iox-core iox-geometry ilic::core)
     iox_set_warnings(iox-ilic)
 endif()
 
@@ -199,6 +227,7 @@ endif()
 
 # Stable target aliases for consumers of the native SDK.
 add_library(iox::core ALIAS iox-core)
+add_library(iox::geometry ALIAS iox-geometry)
 add_library(iox::json ALIAS iox-json)
 add_library(iox::xtf ALIAS iox-xtf)
 add_library(iox::abi ALIAS iox-abi)
