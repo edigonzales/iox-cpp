@@ -63,7 +63,7 @@ All dependencies are pinned to immutable revisions. No floating branches.
 - **Purpose:** Compiler/metamodel reference for ilic-core integration
 - **Semantic dependency:** `ilic 0.9.10`
 - **Release tag:** `v0.9.10`
-- **Resolved release commit:** to be recorded after the immutable tag is created
+- **Resolved release commit:** `575e9d43eee460f8e1685d956c498db4425e3fc6`
 - **Historical Phase-9 reference:** `8582fff47549f8e0ac4d1cd6ec39c66c2bb708b0` (HEAD on 2026-07-29)
 
 Phase 9 verified the historical checkout through `IOX_ILIC_SOURCE_DIR`. The fork's
