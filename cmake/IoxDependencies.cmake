@@ -5,8 +5,10 @@
 
 include(FetchContent)
 
-set(IOX_ILIC_VERSION "0.9.10")
-set(IOX_ILIC_GIT_TAG "v${IOX_ILIC_VERSION}")
+set(IOX_ILIC_VERSION "0.9.10" CACHE STRING
+    "Stable ilic release version used by the optional integration")
+set(IOX_ILIC_GIT_TAG "v${IOX_ILIC_VERSION}" CACHE STRING
+    "Exact ilic tag or commit used by the optional integration")
 
 # ---------------------------------------------------------------------------
 # Expat — pinned immutable revision
@@ -74,7 +76,7 @@ function(iox_make_ilic_available out_source_dir)
         FetchContent_Declare(ilic
             GIT_REPOSITORY https://github.com/edigonzales/ilic-fork.git
             GIT_TAG "${IOX_ILIC_GIT_TAG}"
-            GIT_SHALLOW TRUE
+            GIT_SHALLOW FALSE
         )
         FetchContent_MakeAvailable(ilic)
         set(_iox_ilic_source_dir "${ilic_SOURCE_DIR}")

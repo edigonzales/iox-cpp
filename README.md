@@ -15,8 +15,10 @@ event stream containing transfers, baskets, objects, and end events.
 - optional direct `ilic-core` integration through `iox-ilic`.
 
 ITF, INTERLIS 1, GML/CSV conversion, full constraint validation, GEOS/JTS
-conversion, dynamic plugins, GUI code, and CI/CD are intentionally out of
-scope.
+conversion, dynamic plugins, and GUI code are intentionally out of scope.
+Release automation is documented in
+[`docs/build-und-publikationspipeline.md`](docs/build-und-publikationspipeline.md);
+it publishes only Source/WASM artifacts while native builds remain CI gates.
 
 ## Status
 
@@ -61,7 +63,7 @@ cmake --build build/ilic-release --parallel
 ctest --test-dir build/ilic-release --output-on-failure
 ```
 
-`IOX_FETCH_ILIC` fetches the immutable `v0.9.10` source tag and builds
+`IOX_FETCH_ILIC` fetches the immutable `IOX_ILIC_GIT_TAG` revision and builds
 `ilic::core` from source; it does not download a precompiled native library.
 `iox-ilic` remains optional. In either path ilic's CLI and own tests are
 disabled, while `iox.test.ilic.version` enforces the dependency contract.

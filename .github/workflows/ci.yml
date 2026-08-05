@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-latest
+          - name: macOS ARM64
+            os: macos-14
+          - name: Windows x86_64
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Verify runner architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ runner.os }}" in
+            Linux) test "$(uname -m)" = x86_64 ;;
+            macOS) test "$(uname -m)" = arm64 ;;
+            Windows) test "$(uname -m)" = x86_64 || test "${PROCESSOR_ARCHITECTURE:-}" = AMD64 ;;
+          esac
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libxml2-dev ninja-build
+      - name: Resolve exact ilic revision
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ilic_version=$(sed -nE 's/^set\(IOX_ILIC_VERSION "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' cmake/IoxDependencies.cmake)
+          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git "refs/tags/v${ilic_version}^{}" | awk 'NR == 1 { print $1 }')
+            [[ -n "$ilic_sha" ]] || ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git "refs/tags/v${ilic_version}" | awk 'NR == 1 { print $1 }')
+          else
+            ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git refs/heads/main | awk 'NR == 1 { print $1 }')
+          fi
+          [[ "$ilic_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Could not resolve ilic revision" >&2; exit 1; }
+          {
+            echo "IOX_ILIC_VERSION=$ilic_version"
+            echo "IOX_ILIC_GIT_TAG=$ilic_sha"
+          } >> "$GITHUB_ENV"
+      - name: Configure native build (Unix)
+        if: runner.os != 'Windows'
+        run: >-
+          cmake -S . -B build/ci -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DIOX_BUILD_EXAMPLES=ON
+          -DIOX_ENABLE_ILIC=ON
+          -DIOX_FETCH_ILIC=ON
+          -DIOX_ILIC_VERSION="$IOX_ILIC_VERSION"
+          -DIOX_ILIC_GIT_TAG="$IOX_ILIC_GIT_TAG"
+      - name: Configure native build (Windows)
+        if: runner.os == 'Windows'
+        run: >-
+          cmake -S . -B build/ci -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DIOX_BUILD_EXAMPLES=ON
+          -DIOX_ENABLE_ILIC=OFF
+      - name: Build and test native libraries
+        run: |
+          cmake --build build/ci --config Release --parallel
+          ctest --test-dir build/ci -C Release --output-on-failure
+
+  wasm:
+    name: WebAssembly package
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Install pinned Emscripten SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          emscripten_version=$(tr -d '[:space:]' < .emscripten-version)
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install "$emscripten_version"
+          "$RUNNER_TEMP/emsdk/emsdk" activate "$emscripten_version"
+      - name: Build WASM package
+        shell: bash
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          ./scripts/build-wasm.sh
+          npm test --prefix packages/iox-wasm
+      - name: Verify package contents
+        run: |
+          test -s packages/iox-wasm/iox-wasm.mjs
+          test -s packages/iox-wasm/iox-wasm.wasm
+          node --check packages/iox-wasm/index.js

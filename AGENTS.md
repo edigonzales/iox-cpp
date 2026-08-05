@@ -19,7 +19,10 @@ Every phase produces a useful, tested artifact and its own Git commit.
 ### Critical Rules
 
 1. Never destroy pre-existing user work.
-2. Never push, publish, or create CI/CD pipelines.
+2. Do not push or publish from an autonomous coding session. CI/CD definitions
+   under `.github/workflows/` are part of the repository release contract and
+   may be created or updated when the user explicitly requests release
+   automation.
 3. Read the relevant skill before each phase.
 4. Never disable or weaken a valid test to complete a phase.
 5. After three failed repair attempts, restore to last good commit and stop.
@@ -52,6 +55,13 @@ Explicitly read the relevant skill before each phase:
 - `.agents/skills/xtf-conformance/SKILL.md`
 - `.agents/skills/testing/SKILL.md`
 - `.agents/skills/phase-execution/SKILL.md`
+
+## Release automation exception
+
+The repository is mirrored from Codeberg to GitHub. Codeberg `main` remains
+the source of truth; GitHub Actions run from the mirrored GitHub repository.
+The workflows `ci.yml` and `publish-iox.yml` publish only the explicitly
+documented Source/WASM artifacts. Native builds remain mandatory CI gates.
 
 ## Module Boundaries
 

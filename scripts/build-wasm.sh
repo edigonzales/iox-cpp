@@ -38,6 +38,8 @@ emcmake cmake -S "$PROJECT_DIR" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Debug \
     -DBUILD_TESTING=OFF \
     -DIOX_BUILD_WASM=ON \
+    -DIOX_BUILD_EXAMPLES=OFF \
+    -DIOX_BUILD_TOOLS=OFF \
     "$@"
 
 cmake --build "$BUILD_DIR" --parallel
