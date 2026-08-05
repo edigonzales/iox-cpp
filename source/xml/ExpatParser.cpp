@@ -65,8 +65,8 @@ struct ExpatParser::Impl final {
         return {
             sourceName,
             byteIndex < 0 ? 0U : static_cast<std::uint64_t>(byteIndex),
-            line <= 0 ? 0U : static_cast<std::uint32_t>(line),
-            column < 0 ? 0U : static_cast<std::uint32_t>(column + 1)
+            line == 0U ? 0U : static_cast<std::uint32_t>(line),
+            column == 0U ? 0U : static_cast<std::uint32_t>(column + 1)
         };
     }
 

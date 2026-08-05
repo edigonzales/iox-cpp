@@ -80,11 +80,17 @@ enum class EventKind { StartTransfer, StartBasket, Object, EndBasket, EndTransfe
 inline EventKind eventKind(const IoxEvent& event) noexcept {
     return std::visit([](const auto& value) {
         using T = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<T, StartTransferEvent>) return EventKind::StartTransfer;
-        if constexpr (std::is_same_v<T, StartBasketEvent>) return EventKind::StartBasket;
-        if constexpr (std::is_same_v<T, ObjectEvent>) return EventKind::Object;
-        if constexpr (std::is_same_v<T, EndBasketEvent>) return EventKind::EndBasket;
-        return EventKind::EndTransfer;
+        if constexpr (std::is_same_v<T, StartTransferEvent>) {
+            return EventKind::StartTransfer;
+        } else if constexpr (std::is_same_v<T, StartBasketEvent>) {
+            return EventKind::StartBasket;
+        } else if constexpr (std::is_same_v<T, ObjectEvent>) {
+            return EventKind::Object;
+        } else if constexpr (std::is_same_v<T, EndBasketEvent>) {
+            return EventKind::EndBasket;
+        } else {
+            return EventKind::EndTransfer;
+        }
     }, event);
 }
 
