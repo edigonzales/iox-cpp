@@ -84,6 +84,13 @@ limit is exceeded.
 Mutating methods call `detach()` to copy shared state before modification,
 providing value-like semantics without deep copies on every assignment.
 
+`IomPath` provides the model-free path surface used by later value and update
+consumers. It supports only attribute steps with first, 1-based index, or
+wildcard selection. Reads return copied primitive matches; writes require one
+non-wildcard primitive match and explicitly write updated nested children back
+through their parents so copy-on-write remains observable and correct. See
+`docs/iom-path.md`.
+
 ## XML Strategy
 
 - **Reader:** Expat (pinned, static, private). Incremental chunk-based parsing.

@@ -31,6 +31,7 @@ add_library(iox-core STATIC
     source/core/Diagnostic.cpp
     source/core/Version.cpp
     source/core/IomObject.cpp
+    source/core/IomPath.cpp
     source/core/IomValue.cpp
     source/core/FormatRegistry.cpp
 )

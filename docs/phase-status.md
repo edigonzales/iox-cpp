@@ -601,3 +601,24 @@ ctest --test-dir build/phase4 --output-on-failure              # exit 0, 34/34
 
 No GEOS-backed conversion, WASM model adapter, or release/publish action is
 claimed by this phase.
+
+## Native MVP Phase 5 — minimal IOM path access
+
+Phase 5 was verified on macOS on 2026-08-05. `iox::IomPath` now parses the
+restricted attribute/selector grammar, reads primitive matches, and performs
+single-match nested replacement with explicit copy-on-write parent writeback.
+The tests cover simple and nested paths, 1-based indices, wildcards, missing
+attributes, non-primitive targets, expected-value conflicts, COW isolation,
+and invalid syntax.
+
+### Phase 5 verification commands
+
+```text
+cmake -S . -B build/phase5 -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork -DIOX_ILIC_VERSION=0.10.0-SNAPSHOT -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase5 --parallel                          # exit 0
+ctest --test-dir build/phase5 --output-on-failure              # exit 0, 35/35
+./build/phase5/test/iox-test-IomPath                         # exit 0, 5/5
+```
+
+No GEOS-backed conversion, XTF SQL integration, or release/publish action is
+claimed by this phase.

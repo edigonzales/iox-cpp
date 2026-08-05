@@ -10,6 +10,7 @@ set(CORE_TEST_FILES
     core/ByteView.test.cpp
     core/IomValue.test.cpp
     core/IomObject.test.cpp
+    core/IomPath.test.cpp
     core/FormatRegistry.test.cpp
     core/Diagnostic.test.cpp
     core/EventKind.test.cpp
