@@ -189,10 +189,24 @@ add_test(NAME iox.test.release_conformance
          COMMAND iox-test-release-conformance)
 set_tests_properties(iox.test.release_conformance PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-add_test(NAME iox.test.iox_ili.fixture_manifest
-         COMMAND "${CMAKE_SOURCE_DIR}/scripts/verify-iox-ili-fixtures.sh")
-add_test(NAME iox.test.iox_ili.method_matrix
-         COMMAND "${CMAKE_SOURCE_DIR}/scripts/verify-porting-matrix.sh")
+if(WIN32)
+    find_program(IOX_TEST_BASH_EXECUTABLE NAMES bash bash.exe)
+    if(NOT IOX_TEST_BASH_EXECUTABLE)
+        message(FATAL_ERROR
+            "The iox-ili verifier tests require bash.exe on Windows")
+    endif()
+    add_test(NAME iox.test.iox_ili.fixture_manifest
+             COMMAND "${IOX_TEST_BASH_EXECUTABLE}"
+                     "${CMAKE_SOURCE_DIR}/scripts/verify-iox-ili-fixtures.sh")
+    add_test(NAME iox.test.iox_ili.method_matrix
+             COMMAND "${IOX_TEST_BASH_EXECUTABLE}"
+                     "${CMAKE_SOURCE_DIR}/scripts/verify-porting-matrix.sh")
+else()
+    add_test(NAME iox.test.iox_ili.fixture_manifest
+             COMMAND "${CMAKE_SOURCE_DIR}/scripts/verify-iox-ili-fixtures.sh")
+    add_test(NAME iox.test.iox_ili.method_matrix
+             COMMAND "${CMAKE_SOURCE_DIR}/scripts/verify-porting-matrix.sh")
+endif()
 set_tests_properties(iox.test.iox_ili.fixture_manifest PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set_tests_properties(iox.test.iox_ili.method_matrix PROPERTIES

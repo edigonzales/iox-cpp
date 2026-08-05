@@ -33,8 +33,8 @@ struct Node final {
 };
 
 bool isWhitespace(std::string_view value) {
-    return std::all_of(value.begin(), value.end(), [](unsigned char value) {
-        return std::isspace(value) != 0;
+    return std::all_of(value.begin(), value.end(), [](unsigned char character) {
+        return std::isspace(character) != 0;
     });
 }
 
