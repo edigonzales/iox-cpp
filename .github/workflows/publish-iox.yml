@@ -64,10 +64,10 @@ jobs:
             echo "Release source is not a full commit SHA: $source_sha" >&2
             exit 1
           fi
-          if [[ "$EVENT_NAME" == workflow_run && -z "$WORKFLOW_RUN_REF" ]]; then
-            source_ref=$(git ls-remote --tags https://github.com/${GITHUB_REPOSITORY}.git 'refs/tags/v*' \
+          if [[ "$EVENT_NAME" == workflow_run && ! "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            tagged_source_ref=$(git ls-remote --tags https://github.com/${GITHUB_REPOSITORY}.git 'refs/tags/v*' \
               | awk -v sha="$source_sha" '$1 == sha && $2 ~ /\^\{\}$/ { sub("refs/tags/", "", $2); sub("\\^\\{\\}$", "", $2); print $2; exit }')
-            source_ref="${source_ref:-main}"
+            source_ref="${tagged_source_ref:-$source_ref}"
           fi
 
           base_version=$(node -p "require('./packages/iox-wasm/package.json').version")
