@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cmath>
+#include <locale>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <sstream>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
@@ -134,6 +137,228 @@ const metamodel::EnumType* enumerationType(const metamodel::Type* type) {
     return nullptr;
 }
 
+const metamodel::Type* resolveConcreteType(const metamodel::Type* type) {
+    std::unordered_set<const metamodel::Type*> seen;
+    while (type != nullptr && seen.insert(type).second) {
+        if (dynamic_cast<const metamodel::TypeRelatedType*>(type) == nullptr ||
+            dynamic_cast<const metamodel::LineType*>(type) != nullptr) {
+            if (dynamic_cast<const metamodel::DomainType*>(type) == nullptr ||
+                dynamic_cast<const metamodel::TypeRelatedType*>(type) == nullptr) {
+                return type;
+            }
+        }
+        if (const auto* related =
+                dynamic_cast<const metamodel::TypeRelatedType*>(type);
+            related != nullptr && related->BaseType != nullptr) {
+            type = related->BaseType;
+            continue;
+        }
+        if (type->_other_type != nullptr) {
+            type = type->_other_type;
+            continue;
+        }
+        if (type->Super != nullptr) {
+            type = dynamic_cast<const metamodel::Type*>(type->Super);
+            continue;
+        }
+        return type;
+    }
+    return nullptr;
+}
+
+bool isIntegralNumber(std::string_view value) {
+    if (value.empty()) return false;
+    std::size_t offset = (value.front() == '-' || value.front() == '+') ? 1 : 0;
+    if (offset == value.size()) return false;
+    return std::all_of(value.begin() + static_cast<std::ptrdiff_t>(offset),
+                       value.end(), [](const char character) {
+                           return character >= '0' && character <= '9';
+                       });
+}
+
+PropertyValueKind classifyValueKind(
+    const metamodel::MetaElement& property,
+    const metamodel::Type* concreteType) {
+    if (dynamic_cast<const metamodel::Role*>(&property) != nullptr) {
+        return PropertyValueKind::Reference;
+    }
+    if (dynamic_cast<const metamodel::LineType*>(concreteType) != nullptr ||
+        dynamic_cast<const metamodel::CoordType*>(concreteType) != nullptr) {
+        return PropertyValueKind::Geometry;
+    }
+    if (dynamic_cast<const metamodel::TextType*>(concreteType) != nullptr ||
+        dynamic_cast<const metamodel::EnumType*>(concreteType) != nullptr ||
+        dynamic_cast<const metamodel::FormattedType*>(concreteType) != nullptr) {
+        return PropertyValueKind::String;
+    }
+    if (dynamic_cast<const metamodel::BooleanType*>(concreteType) != nullptr) {
+        return PropertyValueKind::Boolean;
+    }
+    if (const auto* number =
+            dynamic_cast<const metamodel::NumType*>(concreteType);
+        number != nullptr) {
+        if (isIntegralNumber(number->Min) && isIntegralNumber(number->Max)) {
+            return PropertyValueKind::Integer;
+        }
+        return PropertyValueKind::Double;
+    }
+    if (const auto* klass =
+            dynamic_cast<const metamodel::Class*>(concreteType);
+        klass != nullptr) {
+        return klass->Kind == metamodel::Class::Structure
+                   ? PropertyValueKind::Structure
+                   : PropertyValueKind::Reference;
+    }
+    if (dynamic_cast<const metamodel::ClassRelatedType*>(concreteType) != nullptr ||
+        dynamic_cast<const metamodel::AnyOIDType*>(concreteType) != nullptr) {
+        return PropertyValueKind::Reference;
+    }
+    return PropertyValueKind::Unknown;
+}
+
+double parseMaxOverlap(std::string_view lexical) {
+    std::istringstream stream{std::string(lexical)};
+    stream.imbue(std::locale::classic());
+    stream >> std::noskipws;
+    double value = 0.0;
+    char extra = '\0';
+    if (!(stream >> value) || (stream >> extra) || !std::isfinite(value) ||
+        value <= 0.0) {
+        throw IoxError(
+            DiagnosticCode::ModelMismatch,
+            "Invalid ilic MaxOverlap value: " + std::string(lexical));
+    }
+    return value;
+}
+
+std::optional<geometry::GeometryDescriptor> describeGeometry(
+    const metamodel::Type* type) {
+    const auto* coordinate = dynamic_cast<const metamodel::CoordType*>(type);
+    const auto* line = dynamic_cast<const metamodel::LineType*>(type);
+    if (coordinate == nullptr && line == nullptr) return std::nullopt;
+
+    geometry::GeometryDescriptor result;
+    if (coordinate != nullptr) {
+        result.kind = coordinate->Multi ? geometry::GeometryKind::MultiCoord
+                                        : geometry::GeometryKind::Coord;
+        result.coordinateDomainFqn = scopedName(*coordinate);
+        result.dimension = coordinate->Axis.empty() ? 2 : coordinate->Axis.size();
+        return result;
+    }
+
+    switch (line->Kind) {
+    case metamodel::LineType::Polyline:
+        result.kind = geometry::GeometryKind::Polyline;
+        break;
+    case metamodel::LineType::DirectedPolyline:
+        result.kind = geometry::GeometryKind::DirectedPolyline;
+        break;
+    case metamodel::LineType::MultiPolyline:
+        result.kind = geometry::GeometryKind::MultiPolyline;
+        break;
+    case metamodel::LineType::DirectedMultiPolyline:
+        result.kind = geometry::GeometryKind::DirectedMultiPolyline;
+        break;
+    case metamodel::LineType::Surface:
+        result.kind = geometry::GeometryKind::Surface;
+        break;
+    case metamodel::LineType::MultiSurface:
+        result.kind = geometry::GeometryKind::MultiSurface;
+        break;
+    case metamodel::LineType::Area:
+        result.kind = geometry::GeometryKind::Area;
+        break;
+    case metamodel::LineType::MultiArea:
+        result.kind = geometry::GeometryKind::MultiArea;
+        break;
+    }
+    if (line->CoordType != nullptr) {
+        result.coordinateDomainFqn = scopedName(*line->CoordType);
+        result.dimension = line->CoordType->Axis.empty()
+                               ? 2
+                               : line->CoordType->Axis.size();
+    }
+    if (!line->MaxOverlap.empty()) {
+        result.maxOverlapLexical = line->MaxOverlap;
+        result.maxOverlap = parseMaxOverlap(line->MaxOverlap);
+    }
+    if (line->LineForm.empty()) {
+        // INTERLIS uses straight segments when no line-form clause is present.
+        result.hasStraights = true;
+    }
+    for (const auto* form : line->LineForm) {
+        if (form == nullptr) continue;
+        geometry::LineFormDescriptor descriptor;
+        descriptor.name = form->Name;
+        if (form->Name == "STRAIGHTS") {
+            descriptor.standardStraight = true;
+            result.hasStraights = true;
+        } else if (form->Name == "ARCS") {
+            descriptor.standardArc = true;
+            result.hasArcs = true;
+        } else {
+            result.hasCustomLineForms = true;
+            if (form->Structure != nullptr) {
+                descriptor.structureFqn = scopedName(*form->Structure);
+            }
+        }
+        result.lineForms.push_back(std::move(descriptor));
+    }
+    result.hasLineAttributes = line->LAStructure != nullptr;
+    return result;
+}
+
+PropertyDescriptor describeProperty(
+    const metamodel::MetaElement& property,
+    std::string_view localName, std::string_view propertyFqn,
+    const XmlQualifiedName& xmlName) {
+    PropertyDescriptor result;
+    result.name = IomName(std::string(localName), xmlName);
+    result.propertyFqn = propertyFqn;
+    result.kind = dynamic_cast<const metamodel::Role*>(&property) != nullptr
+                      ? PropertyKind::Role
+                      : PropertyKind::Attribute;
+
+    const metamodel::Type* declaredType = nullptr;
+    if (const auto* attribute =
+            dynamic_cast<const metamodel::AttrOrParam*>(&property)) {
+        declaredType = attribute->Type;
+        result.transient = attribute->Transient;
+    } else if (const auto* role = dynamic_cast<const metamodel::Role*>(&property)) {
+        declaredType = role;
+        result.mandatory = role->Mandatory;
+        result.cardinalityMin = role->Multiplicity.Min;
+        result.cardinalityMax = role->Multiplicity.Max < 0
+                                    ? std::nullopt
+                                    : std::optional<std::int64_t>(role->Multiplicity.Max);
+        result.embedded = role->EmbeddedTransfer ||
+                          (role->Association != nullptr &&
+                           role->Association->EmbeddedRoleTransfer);
+    }
+    const auto* concreteType = resolveConcreteType(declaredType);
+    result.valueKind = classifyValueKind(property, concreteType);
+    result.interlisType = concreteType == nullptr
+                              ? ""
+                              : const_cast<metamodel::Type*>(concreteType)->getClass();
+    if (const auto* domain = dynamic_cast<const metamodel::DomainType*>(concreteType)) {
+        result.mandatory = result.mandatory || domain->Mandatory;
+    }
+    if (const auto* multiple =
+            dynamic_cast<const metamodel::MultiValue*>(declaredType)) {
+        result.cardinalityMin = multiple->Multiplicity.Min;
+        result.cardinalityMax = multiple->Multiplicity.Max < 0
+                                    ? std::nullopt
+                                    : std::optional<std::int64_t>(multiple->Multiplicity.Max);
+    } else if (dynamic_cast<const metamodel::Role*>(&property) == nullptr) {
+        result.cardinalityMin = result.mandatory ? 1 : 0;
+        result.cardinalityMax = 1;
+    }
+    if (result.valueKind == PropertyValueKind::Geometry) {
+        result.geometry = describeGeometry(concreteType);
+    }
+    return result;
+}
+
 template<typename Value>
 void appendUnique(std::vector<Value>& values, Value value) {
     if (std::find(values.begin(), values.end(), value) == values.end()) {
@@ -183,6 +408,7 @@ struct IlicModelIndex::Impl final {
 
     struct PropertyVariant final {
         NameVariant name;
+        PropertyDescriptor descriptor;
         std::vector<std::pair<std::string, std::size_t>> enumerations;
     };
 
@@ -524,6 +750,12 @@ IlicModelIndex::IlicModelIndex(const metamodel::MetaModelStore& store)
         Impl::PropertyVariant variant;
         variant.name = makeVariant(
             property, *model, scopedName(owner) + "." + property.Name);
+        const auto* propertyRoot = translationRoot(&property);
+        const auto* ownerRoot = translationRoot(&owner);
+        const auto propertyFqn = scopedName(*ownerRoot) + "." +
+                                 propertyRoot->Name;
+        variant.descriptor = describeProperty(
+            property, variant.name.local, propertyFqn, variant.name.xml);
         const auto duplicate = std::find_if(
             record.variants.begin(), record.variants.end(),
             [&](const auto& item) {
@@ -550,13 +782,19 @@ IlicModelIndex::IlicModelIndex(const metamodel::MetaModelStore& store)
             if (role->_baseclass != nullptr) {
                 const auto target = classVariants.find(role->_baseclass);
                 if (target != classVariants.end()) {
-                    if (record.targetClass &&
+                if (record.targetClass &&
                         *record.targetClass != target->second.first) {
                         throw IoxError(
                             DiagnosticCode::ModelMismatch,
                             "Translated role has conflicting target classes");
                     }
                     record.targetClass = target->second.first;
+                    const auto& targetName =
+                        impl_->classes[target->second.first]
+                            .variants[target->second.second]
+                            .name;
+                    variant.descriptor.targetClass =
+                        IomName(targetName.scoped, targetName.xml);
                 }
             }
         }
@@ -746,6 +984,44 @@ std::vector<IomName> IlicModelIndex::transferProperties(
             Impl::iomName(propertyVariant.name, version, false));
     }
     return result;
+}
+
+std::vector<PropertyDescriptor>
+IlicModelIndex::transferPropertyDescriptors(
+    const IomName& owner, std::string_view targetModel,
+    XtfVersion version) const {
+    const auto source = Impl::lookup(owner, impl_->classes, "class");
+    if (!source) return {};
+    const auto& classVariant = impl_->chooseVariant(
+        impl_->classes[source->conceptIndex].variants, *source, targetModel);
+    std::vector<PropertyDescriptor> result;
+    result.reserve(classVariant.transferProperties.size());
+    for (const auto propertyIndex : classVariant.transferProperties) {
+        const Impl::Lookup propertySource{propertyIndex, std::nullopt};
+        const auto& propertyVariant = impl_->chooseVariant(
+            impl_->properties[propertyIndex].variants, propertySource,
+            targetModel);
+        auto descriptor = propertyVariant.descriptor;
+        descriptor.name = Impl::iomName(propertyVariant.name, version, false);
+        result.push_back(std::move(descriptor));
+    }
+    return result;
+}
+
+std::optional<PropertyDescriptor>
+IlicModelIndex::propertyDescriptor(
+    const IomName& owner, const IomName& property,
+    std::string_view targetModel, XtfVersion version) const {
+    const auto ownerSource = Impl::lookup(owner, impl_->classes, "class");
+    if (!ownerSource) return std::nullopt;
+    const auto propertySource = impl_->propertyLookup(*ownerSource, property);
+    if (!propertySource) return std::nullopt;
+    const auto& propertyVariant = impl_->chooseVariant(
+        impl_->properties[propertySource->conceptIndex].variants,
+        *propertySource, targetModel);
+    auto descriptor = propertyVariant.descriptor;
+    descriptor.name = Impl::iomName(propertyVariant.name, version, false);
+    return descriptor;
 }
 
 std::optional<IomName> IlicModelIndex::referenceTargetClass(

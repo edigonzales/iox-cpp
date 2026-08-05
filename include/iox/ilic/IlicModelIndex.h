@@ -4,12 +4,14 @@
 // ilic-core. This header is only available when IOX_ENABLE_ILIC is enabled.
 
 #include "metamodel/MetaModelStore.h"
+#include "iox/geometry/GeometryDescriptor.h"
 #include "iox/Reader.h"
 #include "iox/Writer.h"
 #include "iox/Events.h"
 #include "iox/xtf/XtfReaderOptions.h"
 
 #include <memory>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -17,6 +19,41 @@
 
 namespace iox {
 namespace ilic {
+
+enum class PropertyKind {
+    Attribute,
+    Role
+};
+
+enum class PropertyValueKind {
+    String,
+    Boolean,
+    Integer,
+    Double,
+    Structure,
+    Reference,
+    Geometry,
+    Unknown
+};
+
+struct PropertyDescriptor final {
+    IomName name;
+    std::string propertyFqn;
+
+    PropertyKind kind = PropertyKind::Attribute;
+    PropertyValueKind valueKind = PropertyValueKind::Unknown;
+    std::string interlisType;
+
+    bool mandatory = false;
+    std::int64_t cardinalityMin = 0;
+    std::optional<std::int64_t> cardinalityMax;
+
+    bool transient = false;
+    bool embedded = false;
+
+    std::optional<IomName> targetClass;
+    std::optional<geometry::GeometryDescriptor> geometry;
+};
 
 class IlicModelIndex final {
 public:
@@ -50,6 +87,12 @@ public:
     std::vector<IomName> transferProperties(
         const IomName& owner, std::string_view targetModel,
         XtfVersion version) const;
+    std::vector<PropertyDescriptor> transferPropertyDescriptors(
+        const IomName& owner, std::string_view targetModel,
+        XtfVersion version) const;
+    std::optional<PropertyDescriptor> propertyDescriptor(
+        const IomName& owner, const IomName& property,
+        std::string_view targetModel, XtfVersion version) const;
     /// Returns the translated target class for role properties only.
     std::optional<IomName> referenceTargetClass(
         const IomName& owner, const IomName& property,

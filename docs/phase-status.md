@@ -580,3 +580,24 @@ passed. The actual release evidence is macOS native Debug/Release,
 ASan/UBSan, Emscripten/Node/WASM, the Phase 19 real-browser smoke, and the
 optional local Java differential run. No CI/CD pipeline, push, package
 publication, or network-dependent normal test was added.
+
+## Native MVP Phase 4 — compact ilic property descriptors
+
+Phase 4 was verified on macOS on 2026-08-05. The ilic adapter now exposes
+standalone `PropertyKind`, `PropertyValueKind`, `PropertyDescriptor`, and the
+value-only `GeometryDescriptor`. Tests cover translated and inherited
+transfer order, store lifetime, surface and area overlap values, 2D/3D
+coordinates, standard and custom line forms, empty line-form defaults, and
+line attributes.
+
+### Phase 4 verification commands
+
+```text
+cmake -S . -B build/phase4 -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork -DIOX_ILIC_VERSION=0.10.0-SNAPSHOT -DIOX_WARNINGS_AS_ERRORS=ON  # exit 0
+cmake --build build/phase4 --parallel                          # exit 0
+ctest --test-dir build/phase4 --output-on-failure              # exit 0, 34/34
+./build/phase4/test/iox-test-model-based                      # exit 0, 16/16
+```
+
+No GEOS-backed conversion, WASM model adapter, or release/publish action is
+claimed by this phase.

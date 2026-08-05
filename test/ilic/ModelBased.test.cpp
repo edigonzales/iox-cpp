@@ -5,6 +5,7 @@
 #include "iox/Writer.h"
 #include "iox/xtf/XtfWriter.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -110,6 +111,73 @@ private:
         feature->Super = parent;
         target = addClass(*data, "Target", metamodel::Class::ClassVal);
         detail = addClass(*data, "Detail", metamodel::Class::Structure);
+
+        auto makeCoordinate = [&](std::string nameValue,
+                                  std::size_t dimension) {
+            auto* coordinate = store.make<metamodel::CoordType>();
+            coordinate->Name = std::move(nameValue);
+            coordinate->ElementInPackage = data;
+            for (std::size_t axis = 0; axis < dimension; ++axis) {
+                auto* number = store.make<metamodel::NumType>();
+                number->Name = "Axis" + std::to_string(axis + 1);
+                coordinate->Axis.push_back(number);
+            }
+            return coordinate;
+        };
+        auto* coordinate2 = makeCoordinate("Coord2", 2);
+        auto* coordinate3 = makeCoordinate("Coord3", 3);
+
+        auto* surfaceType = store.make<metamodel::LineType>();
+        surfaceType->Name = "SurfaceType";
+        surfaceType->ElementInPackage = data;
+        surfaceType->Kind = metamodel::LineType::Surface;
+        surfaceType->CoordType = coordinate2;
+        surfaceType->MaxOverlap = "0.02";
+        for (const auto* nameValue : {"STRAIGHTS", "ARCS"}) {
+            auto* form = store.make<metamodel::LineForm>();
+            form->Name = nameValue;
+            form->ElementInPackage = data;
+            surfaceType->LineForm.push_back(form);
+        }
+
+        auto* areaType = store.make<metamodel::LineType>();
+        areaType->Name = "AreaType";
+        areaType->ElementInPackage = data;
+        areaType->Kind = metamodel::LineType::Area;
+        areaType->CoordType = coordinate2;
+        areaType->MaxOverlap = "0.03";
+
+        auto* polylineType = store.make<metamodel::LineType>();
+        polylineType->Name = "Polyline3DType";
+        polylineType->ElementInPackage = data;
+        polylineType->Kind = metamodel::LineType::Polyline;
+        polylineType->CoordType = coordinate3;
+
+        auto* customType = store.make<metamodel::LineType>();
+        customType->Name = "CustomLineType";
+        customType->ElementInPackage = data;
+        customType->Kind = metamodel::LineType::Polyline;
+        customType->CoordType = coordinate2;
+        auto* customForm = store.make<metamodel::LineForm>();
+        customForm->Name = "CustomForm";
+        customForm->ElementInPackage = data;
+        customForm->Structure = detail;
+        customType->LineForm.push_back(customForm);
+        customType->LAStructure = detail;
+        addAttribute(*target, "Surface", surfaceType);
+        addAttribute(*target, "Area", areaType);
+        addAttribute(*target, "Polyline3D", polylineType);
+        addAttribute(*target, "CustomLine", customType);
+        auto* integerType = store.make<metamodel::NumType>();
+        integerType->Name = "IntegerType";
+        integerType->Min = "0";
+        integerType->Max = "100";
+        addAttribute(*target, "Count", integerType);
+        auto* doubleType = store.make<metamodel::NumType>();
+        doubleType->Name = "DoubleType";
+        doubleType->Min = "0.0";
+        doubleType->Max = "100.0";
+        addAttribute(*target, "Measure", doubleType);
 
         transientView = store.make<metamodel::View>();
         transientView->Name = "CalculatedView";
@@ -356,6 +424,89 @@ IOX_TEST(model_index_transfer_order_skips_transient_properties) {
     IOX_CHECK(index.isTransientProperty(
         iox::IomName("BaseModel.Data.Feature"),
         iox::IomName("Calculated")));
+}
+
+IOX_TEST(model_index_exposes_property_and_geometry_descriptors) {
+    ModelFixture fixture;
+    iox::ilic::IlicModelIndex index(fixture.store);
+    const auto descriptors = index.transferPropertyDescriptors(
+        iox::IomName("BaseModel.Data.Target"), "BaseModel",
+        iox::XtfVersion::V23);
+    IOX_CHECK_EQ(static_cast<std::size_t>(6), descriptors.size());
+    IOX_CHECK_EQ(std::string("BaseModel.Data.Target.Surface"),
+                 descriptors[0].propertyFqn);
+    IOX_CHECK(descriptors[0].kind == iox::ilic::PropertyKind::Attribute);
+    IOX_CHECK(descriptors[0].valueKind ==
+              iox::ilic::PropertyValueKind::Geometry);
+    IOX_CHECK_EQ(std::string("LineType"), descriptors[0].interlisType);
+    IOX_CHECK_EQ(static_cast<std::int64_t>(0), descriptors[0].cardinalityMin);
+    IOX_CHECK(descriptors[0].cardinalityMax.has_value());
+    IOX_CHECK_EQ(static_cast<std::int64_t>(1),
+                 *descriptors[0].cardinalityMax);
+    IOX_CHECK(descriptors[0].geometry.has_value());
+    const auto& surface = *descriptors[0].geometry;
+    IOX_CHECK(surface.kind == iox::geometry::GeometryKind::Surface);
+    IOX_CHECK_EQ(std::string("BaseModel.Data.Coord2"),
+                 surface.coordinateDomainFqn);
+    IOX_CHECK_EQ(static_cast<std::size_t>(2), surface.dimension);
+    IOX_CHECK(surface.maxOverlapLexical.has_value());
+    IOX_CHECK_EQ(std::string("0.02"), *surface.maxOverlapLexical);
+    IOX_CHECK(surface.maxOverlap.has_value());
+    IOX_CHECK_EQ(0.02, *surface.maxOverlap);
+    IOX_CHECK(surface.hasStraights);
+    IOX_CHECK(surface.hasArcs);
+    IOX_CHECK(!surface.hasCustomLineForms);
+    IOX_CHECK(!surface.hasLineAttributes);
+
+    const auto& area = *descriptors[1].geometry;
+    IOX_CHECK(area.kind == iox::geometry::GeometryKind::Area);
+    IOX_CHECK(area.maxOverlap.has_value());
+    IOX_CHECK_EQ(0.03, *area.maxOverlap);
+
+    const auto& polyline = *descriptors[2].geometry;
+    IOX_CHECK(polyline.kind == iox::geometry::GeometryKind::Polyline);
+    IOX_CHECK_EQ(static_cast<std::size_t>(3), polyline.dimension);
+    IOX_CHECK(!polyline.maxOverlap.has_value());
+    IOX_CHECK(polyline.hasStraights);
+    IOX_CHECK(polyline.lineForms.empty());
+
+    const auto& custom = *descriptors[3].geometry;
+    IOX_CHECK(custom.hasCustomLineForms);
+    IOX_CHECK(custom.hasLineAttributes);
+    IOX_CHECK_EQ(static_cast<std::size_t>(1), custom.lineForms.size());
+    IOX_CHECK(custom.lineForms[0].structureFqn.has_value());
+    IOX_CHECK_EQ(std::string("BaseModel.Data.Detail"),
+                 *custom.lineForms[0].structureFqn);
+    IOX_CHECK(descriptors[4].valueKind ==
+              iox::ilic::PropertyValueKind::Integer);
+    IOX_CHECK(descriptors[5].valueKind ==
+              iox::ilic::PropertyValueKind::Double);
+
+    const auto direct = index.propertyDescriptor(
+        iox::IomName("BaseModel.Data.Target"), iox::IomName("Surface"),
+        "BaseModel", iox::XtfVersion::V23);
+    IOX_CHECK(direct.has_value());
+    IOX_CHECK_EQ(std::string("Surface"), direct->name.interlisName());
+}
+
+IOX_TEST(model_index_descriptor_store_lifetime_and_inherited_order) {
+    std::unique_ptr<iox::ilic::IlicModelIndex> index;
+    {
+        ModelFixture fixture;
+        index = std::make_unique<iox::ilic::IlicModelIndex>(fixture.store);
+        const auto order = index->transferPropertyDescriptors(
+            iox::IomName("BaseModel.Data.Feature"), "Modele",
+            iox::XtfVersion::V23);
+        IOX_CHECK_EQ(static_cast<std::size_t>(5), order.size());
+        IOX_CHECK_EQ(std::string("BaseModel.Data.Parent.Code"),
+                     order[0].propertyFqn);
+        IOX_CHECK_EQ(std::string("DetailsFr"), order[3].name.interlisName());
+    }
+    const auto descriptor = index->propertyDescriptor(
+        iox::IomName("BaseModel.Data.Target"), iox::IomName("CustomLine"),
+        "BaseModel", iox::XtfVersion::V23);
+    IOX_CHECK(descriptor.has_value());
+    IOX_CHECK(descriptor->geometry.has_value());
 }
 
 IOX_TEST(model_index_translates_enumerations_including_others) {

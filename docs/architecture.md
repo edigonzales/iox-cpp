@@ -41,6 +41,16 @@ flags into a private index; it retains no metamodel pointers. The adapter is
 composed around the generic `XtfReader`/`XtfWriter` and does not make the
 generic XTF targets depend on `ilic-core`.
 
+`IlicModelIndex` also exposes copied `PropertyDescriptor` and
+`GeometryDescriptor` values. Property descriptors preserve stable semantic
+FQNs while selecting translated transfer names for the requested target
+model. Geometry descriptors copy coordinate dimensions, line kinds,
+`MaxOverlap`, line-form flags, custom line-form structure names, and the line
+attribute flag. Empty line-form lists are normalized to the INTERLIS default
+of straight segments. These APIs retain no pointers into the source model
+store and may safely be used after that store is destroyed; see
+`docs/model-descriptors.md`.
+
 Name lookup is exact: a canonical or translated scoped name and an expanded
 XML QName identify one semantic concept or fail with `ilic.model_mismatch` when
 ambiguous. The selected transfer-header model chooses the target-language
