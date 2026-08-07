@@ -46,14 +46,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ilic_version=$(sed -nE 's/^set\(IOX_ILIC_VERSION "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' cmake/IoxDependencies.cmake)
+          ilic_base_version=$(sed -nE 's/^set\(IOX_ILIC_VERSION "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' cmake/IoxDependencies.cmake)
           if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git "refs/tags/v${ilic_version}^{}" | awk 'NR == 1 { print $1 }')
-            [[ -n "$ilic_sha" ]] || ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git "refs/tags/v${ilic_version}" | awk 'NR == 1 { print $1 }')
+            ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git "refs/tags/v${ilic_base_version}^{}" | awk 'NR == 1 { print $1 }')
+            [[ -n "$ilic_sha" ]] || ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git "refs/tags/v${ilic_base_version}" | awk 'NR == 1 { print $1 }')
           else
             ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git refs/heads/main | awk 'NR == 1 { print $1 }')
           fi
           [[ "$ilic_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Could not resolve ilic revision" >&2; exit 1; }
+          # The main branch may be ahead of the stable ilic release pinned in
+          # IoxDependencies.cmake (for example 0.10.0-SNAPSHOT vs 0.9.10).
+          # Compile the test contract against the runtime version of the exact
+          # source revision selected above.
+          ilic_version=$(bash scripts/resolve-ilic-runtime-version.sh "$ilic_sha")
           {
             echo "IOX_ILIC_VERSION=$ilic_version"
             echo "IOX_ILIC_GIT_TAG=$ilic_sha"
