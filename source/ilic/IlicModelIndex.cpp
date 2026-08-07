@@ -231,6 +231,20 @@ double parseMaxOverlap(std::string_view lexical) {
     return value;
 }
 
+const metamodel::CoordType* namedCoordinateDomain(
+    const metamodel::CoordType* coordinate) {
+    std::unordered_set<const metamodel::Type*> seen;
+    const auto* current = coordinate;
+    while (current != nullptr && current->ElementInPackage == nullptr &&
+           current->Super != nullptr && seen.insert(current).second) {
+        const auto* parent =
+            dynamic_cast<const metamodel::CoordType*>(current->Super);
+        if (parent == nullptr) break;
+        current = parent;
+    }
+    return current;
+}
+
 std::optional<geometry::GeometryDescriptor> describeGeometry(
     const metamodel::Type* type) {
     const auto* coordinate = dynamic_cast<const metamodel::CoordType*>(type);
@@ -241,7 +255,8 @@ std::optional<geometry::GeometryDescriptor> describeGeometry(
     if (coordinate != nullptr) {
         result.kind = coordinate->Multi ? geometry::GeometryKind::MultiCoord
                                         : geometry::GeometryKind::Coord;
-        result.coordinateDomainFqn = scopedName(*coordinate);
+        result.coordinateDomainFqn =
+            scopedName(*namedCoordinateDomain(coordinate));
         result.dimension = coordinate->Axis.empty() ? 2 : coordinate->Axis.size();
         return result;
     }
