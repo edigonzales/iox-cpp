@@ -162,8 +162,13 @@ target_link_libraries(iox-test-iox-ili-porting PRIVATE iox-xtf iox-xml iox-core 
 add_test(NAME iox.test.iox_ili.porting COMMAND iox-test-iox-ili-porting)
 set_tests_properties(iox.test.iox_ili.porting PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-add_test(NAME iox.test.iox_ili.fixture_manifest
-         COMMAND "${CMAKE_SOURCE_DIR}/scripts/verify-iox-ili-fixtures.sh")
+if(WIN32)
+    add_test(NAME iox.test.iox_ili.fixture_manifest
+             COMMAND bash "${CMAKE_SOURCE_DIR}/scripts/verify-iox-ili-fixtures.sh")
+else()
+    add_test(NAME iox.test.iox_ili.fixture_manifest
+             COMMAND "${CMAKE_SOURCE_DIR}/scripts/verify-iox-ili-fixtures.sh")
+endif()
 set_tests_properties(iox.test.iox_ili.fixture_manifest PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
