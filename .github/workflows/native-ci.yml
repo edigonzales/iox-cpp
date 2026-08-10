@@ -1,0 +1,147 @@
+name: Native CI
+
+on:
+  pull_request:
+  push:
+    branches: [codex-port]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-latest
+          - name: macOS ARM64
+            os: macos-14
+          - name: Windows x86_64
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      SCCACHE_DIR: ${{ github.workspace }}/.cache/sccache
+      SCCACHE_CACHE_SIZE: 2G
+      SCCACHE_BASEDIRS: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: v0.17.0
+
+      - name: Restore sccache cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.SCCACHE_DIR }}
+          key: sccache-v1-native-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            sccache-v1-native-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Set up MSVC developer command prompt
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build/ci -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER_LAUNCHER=sccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          -DBUILD_TESTING=ON
+          -DIOX_BUILD_EXAMPLES=OFF
+
+      - name: Build
+        run: cmake --build build/ci --parallel
+
+      - name: Test
+        run: ctest --test-dir build/ci --output-on-failure
+
+      - name: Show sccache statistics
+        if: always()
+        run: sccache --show-stats
+
+  installed-ilic-smoke:
+    name: Installed ilic package smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SCCACHE_DIR: ${{ github.workspace }}/.cache/sccache
+      SCCACHE_CACHE_SIZE: 2G
+      SCCACHE_BASEDIRS: ${{ github.workspace }}
+
+    steps:
+      - name: Check out iox-cpp
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Check out ilic SDK packaging candidate
+        uses: actions/checkout@v6
+        with:
+          repository: edigonzales/ilic-fork
+          ref: 2119f0cdd14cb8e32dd9d2b6f253f4829dc54cb6
+          path: build/ilic-source
+          persist-credentials: false
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: v0.17.0
+
+      - name: Restore sccache cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.SCCACHE_DIR }}
+          key: sccache-v1-installed-ilic-linux-x64-${{ github.sha }}
+          restore-keys: |
+            sccache-v1-installed-ilic-linux-x64-
+
+      - name: Build and install ilic SDK
+        shell: bash
+        run: |
+          cmake -S build/ilic-source -B build/ilic-sdk -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+            -DBUILD_TESTING=OFF \
+            -DILIC_BUILD_TESTS=OFF \
+            -DILIC_BUILD_CLI=OFF \
+            -DILIC_ENABLE_NATIVE_REPOSITORY=OFF \
+            -DILIC_ENABLE_INSTALL=ON
+          cmake --build build/ilic-sdk --parallel
+          cmake --install build/ilic-sdk --prefix "$GITHUB_WORKSPACE/build/ilic-prefix"
+
+      - name: Configure iox-cpp against installed ilic
+        shell: bash
+        run: |
+          cmake -S . -B build/ilic-consumer -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/build/ilic-prefix" \
+            -DBUILD_TESTING=ON \
+            -DIOX_BUILD_EXAMPLES=OFF \
+            -DIOX_ENABLE_ILIC=ON
+
+      - name: Build model-aware test
+        run: cmake --build build/ilic-consumer --target iox-test-model-based --parallel
+
+      - name: Run model-aware test
+        run: ctest --test-dir build/ilic-consumer --output-on-failure -R '^iox\.test\.ilic\.model_based$'
+
+      - name: Show sccache statistics
+        if: always()
+        run: sccache --show-stats
