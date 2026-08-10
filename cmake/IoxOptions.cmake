@@ -3,6 +3,8 @@
 option(IOX_BUILD_WASM "Build the WebAssembly ABI target" OFF)
 option(IOX_ENABLE_ILIC "Build direct ilic-core integration" OFF)
 option(IOX_FETCH_ILIC "Fetch the pinned ilic-fork dependency" OFF)
+option(IOX_USE_SYSTEM_EXPAT "Use an installed Expat CMake package instead of FetchContent" OFF)
+option(IOX_ENABLE_INSTALL "Generate install rules and CMake package metadata" OFF)
 option(IOX_ENABLE_JSON_FORMAT "Register JSON events in the default factory" ON)
 option(IOX_BUILD_EXAMPLES "Build example programs" ON)
 option(IOX_BUILD_TOOLS "Build tools like iox-dump" ON)
