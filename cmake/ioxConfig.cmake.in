@@ -1,0 +1,12 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(expat CONFIG)
+if(@IOX_PACKAGE_HAS_ILIC@)
+    find_dependency(ilic CONFIG)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/ioxTargets.cmake")
+
+check_required_components(iox)
