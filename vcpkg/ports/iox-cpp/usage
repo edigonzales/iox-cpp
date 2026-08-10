@@ -1,0 +1,19 @@
+iox-cpp provides CMake targets:
+
+    find_package(iox CONFIG REQUIRED)
+
+    target_link_libraries(main PRIVATE
+        iox::core
+        iox::xtf
+    )
+
+Other targets are available as needed:
+
+    iox::json
+    iox::xml
+    iox::factory
+    iox::abi
+
+Install feature `ilic` to also provide the model-aware target:
+
+    iox::ilic
