@@ -3,15 +3,16 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO edigonzales/iox-cpp
-    REF fa2269aacdfcc5adb3a9c7ce557d73b622b3633e
-    SHA512 3a2c42a73bd0200c6485cacef8d4cb3dd9cbb39d8fd4316db873bd96d15eb9d182452e14a5bdc6debeb2938300ed73984da017a30f0c4465eac3c9a037fbb03f
-    HEAD_REF codex-port
+    REF 600d191e387405b3e957617f7a1e6dd7a29a1d94
+    SHA512 e2fe623c51c5ef35392a6af12af515c609cb82b3dd6782eea920273ac55848d1996369db83b53efbc4b34c193361a55835d9a8c3eb5be1cbd01edb9f7fda9c2c
+    HEAD_REF main
 )
 
 vcpkg_check_features(
     OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     FEATURES
         ilic IOX_ENABLE_ILIC
+        geos IOX_ENABLE_GEOS
 )
 
 vcpkg_cmake_configure(
@@ -23,6 +24,7 @@ vcpkg_cmake_configure(
         -DIOX_BUILD_TOOLS=OFF
         -DIOX_FETCH_ILIC=OFF
         -DIOX_USE_SYSTEM_EXPAT=ON
+        -DIOX_USE_SYSTEM_YYJSON=ON
         -DIOX_ENABLE_INSTALL=ON
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON
         ${FEATURE_OPTIONS}

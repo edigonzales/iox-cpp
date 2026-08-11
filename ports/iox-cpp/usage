@@ -1,19 +1,13 @@
-iox-cpp provides CMake targets:
+iox-cpp provides CMake package targets under the iox:: namespace.
+
+Basic use:
 
     find_package(iox CONFIG REQUIRED)
+    target_link_libraries(app PRIVATE iox::xtf iox::core)
 
-    target_link_libraries(main PRIVATE
-        iox::core
-        iox::xtf
-    )
+The `ilic` feature adds the model-aware target:
 
-Other targets are available as needed:
+    find_package(iox CONFIG REQUIRED)
+    target_link_libraries(app PRIVATE iox::ilic)
 
-    iox::json
-    iox::xml
-    iox::factory
-    iox::abi
-
-Install feature `ilic` to also provide the model-aware target:
-
-    iox::ilic
+The `geos` feature enables GEOS-backed geometry validation in iox::geometry.
