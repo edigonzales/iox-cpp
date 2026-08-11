@@ -118,3 +118,48 @@ jobs:
           test -s packages/iox-wasm/iox-wasm.mjs
           test -s packages/iox-wasm/iox-wasm.wasm
           node --check packages/iox-wasm/index.js
+
+  request-vcpkg-snapshot:
+    name: Request immutable vcpkg snapshot
+    needs: [native, wasm]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.native.result == 'success' &&
+      needs.wasm.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Dispatch trusted snapshot publication request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid source SHA: $SOURCE_SHA" >&2
+            exit 1
+          fi
+          if [[ ! "$RELEASE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "Invalid CI run id: $RELEASE_RUN_ID" >&2
+            exit 1
+          fi
+
+          jq -n \
+            --arg event_type "vcpkg-release-ready" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg release_kind "snapshot" \
+            --arg release_tag "snapshot" \
+            --arg release_run_id "$RELEASE_RUN_ID" \
+            '{event_type: $event_type, client_payload: {
+              source_sha: $source_sha,
+              release_kind: $release_kind,
+              release_tag: $release_tag,
+              release_run_id: $release_run_id
+            }}' |
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input -
