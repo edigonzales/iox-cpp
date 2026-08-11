@@ -3,8 +3,8 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO edigonzales/iox-cpp
-    REF 9190518e7f2e1965c946053fb171677551b5ce73
-    SHA512 ca02f3c404ea5e42f83a2e0f47b62fe1c8238c250a3f1596a1a82a465125d6d1c09de5fbedfecb6730b231f6dec1ee71a76c154b235adf7585f779142cc80c58
+    REF fa2269aacdfcc5adb3a9c7ce557d73b622b3633e
+    SHA512 3a2c42a73bd0200c6485cacef8d4cb3dd9cbb39d8fd4316db873bd96d15eb9d182452e14a5bdc6debeb2938300ed73984da017a30f0c4465eac3c9a037fbb03f
     HEAD_REF codex-port
 )
 
