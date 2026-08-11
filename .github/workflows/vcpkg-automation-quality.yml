@@ -1,0 +1,136 @@
+name: vcpkg Automation Quality
+
+on:
+  pull_request:
+    paths:
+      - "scripts/prepare-vcpkg-registry-port.mjs"
+      - "test/release/PrepareVcpkgRegistryPortTest.mjs"
+      - "vcpkg/**"
+      - "CMakeLists.txt"
+      - "source/core/Version.cpp"
+      - ".github/workflows/vcpkg-*.yml"
+  push:
+    branches: [codex-port]
+    paths:
+      - "scripts/prepare-vcpkg-registry-port.mjs"
+      - "test/release/PrepareVcpkgRegistryPortTest.mjs"
+      - "vcpkg/**"
+      - "CMakeLists.txt"
+      - "source/core/Version.cpp"
+      - ".github/workflows/vcpkg-*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  automation:
+    name: Registry automation tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VCPKG_DISABLE_METRICS: "1"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Test vcpkg version helper
+        run: node --test test/release/PrepareVcpkgRegistryPortTest.mjs
+
+      - name: Check project version consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake_version=$(sed -nE 's/.*project\(iox-cpp VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
+          runtime_version=$(sed -nE 's/^[[:space:]]*return "([0-9]+\.[0-9]+\.[0-9]+)";.*/\1/p' source/core/Version.cpp)
+          test -n "$cmake_version"
+          test "$runtime_version" = "$cmake_version"
+
+      - name: Validate dispatch contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq -- '--arg event_type "vcpkg-release-ready"' .github/workflows/vcpkg-release-gate.yml
+          grep -Fq 'types: [vcpkg-release-ready]' .github/workflows/vcpkg-version-publish.yml
+          grep -Fq 'event_type: "vcpkg-version-published"' .github/workflows/vcpkg-version-publish.yml
+          grep -Fq 'ilic_registry_baseline' .github/workflows/vcpkg-version-publish.yml
+          grep -Fq 'types: [vcpkg-version-published]' .github/workflows/vcpkg-binary-cache.yml
+          grep -Fq -- '--only-binarycaching' .github/workflows/vcpkg-binary-cache.yml
+
+      - name: Render the real iox-cpp port with synthetic immutable metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha=0123456789abcdef0123456789abcdef01234567
+          sha512=$(printf 'a%.0s' {1..128})
+          node scripts/prepare-vcpkg-registry-port.mjs \
+            --template-dir vcpkg/ports/iox-cpp \
+            --output-dir build/vcpkg-render-smoke/iox-cpp \
+            --version 0.1.0-snapshot.01234567 \
+            --source-sha "$source_sha" \
+            --sha512 "$sha512"
+          grep -Fq "REF $source_sha" build/vcpkg-render-smoke/iox-cpp/portfile.cmake
+          grep -Fq "SHA512 $sha512" build/vcpkg-render-smoke/iox-cpp/portfile.cmake
+          node - <<'NODE'
+          const p = require('./build/vcpkg-render-smoke/iox-cpp/vcpkg.json');
+          if (p['version-string'] !== '0.1.0-snapshot.01234567') process.exit(1);
+          if (!p.features?.ilic?.dependencies?.includes('ilic')) process.exit(1);
+          NODE
+
+      - name: Check out registry for local smoke test
+        uses: actions/checkout@v6
+        with:
+          ref: vcpkg-registry
+          path: build/registry-smoke
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out pinned vcpkg for registry smoke test
+        uses: actions/checkout@v6
+        with:
+          repository: microsoft/vcpkg
+          ref: 2026.05.25
+          path: build/vcpkg-version-smoke
+          persist-credentials: false
+
+      - name: Bootstrap pinned vcpkg
+        shell: bash
+        run: build/vcpkg-version-smoke/bootstrap-vcpkg.sh -disableMetrics
+
+      - name: Run x-add-version against local registry copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$GITHUB_SHA"
+          base_version=$(sed -nE 's/.*project\(iox-cpp VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
+          version="${base_version}-snapshot.${source_sha:0:8}"
+          sha512=$(printf 'a%.0s' {1..128})
+
+          node scripts/prepare-vcpkg-registry-port.mjs \
+            --template-dir vcpkg/ports/iox-cpp \
+            --output-dir build/registry-smoke/ports/iox-cpp \
+            --version "$version" \
+            --source-sha "$source_sha" \
+            --sha512 "$sha512"
+          git -C build/registry-smoke add ports/iox-cpp
+
+          (
+            cd build/registry-smoke
+            "$GITHUB_WORKSPACE/build/vcpkg-version-smoke/vcpkg" x-add-version \
+              --x-builtin-ports-root="$PWD/ports" \
+              --x-builtin-registry-versions-dir="$PWD/versions" \
+              iox-cpp \
+              --skip-version-format-check \
+              --verbose
+          )
+
+          test "$(jq -r '.default["iox-cpp"].baseline' build/registry-smoke/versions/baseline.json)" = "$version"
+          jq -e --arg version "$version" \
+            '.versions[] | select(."version-string" == $version and (."port-version" // 0) == 0 and ."git-tree" != null)' \
+            build/registry-smoke/versions/i-/iox-cpp.json >/dev/null
