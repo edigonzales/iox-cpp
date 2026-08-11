@@ -2,7 +2,7 @@ name: Request vcpkg publication
 
 on:
   workflow_run:
-    workflows: ["Native CI"]
+    workflows: ["Native CI", "CI"]
     types: [completed]
   push:
     tags: ["v*.*.*"]
@@ -18,8 +18,11 @@ jobs:
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_branch == 'codex-port' &&
-       github.event.workflow_run.head_repository.full_name == github.repository) ||
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       ((github.event.workflow_run.name == 'Native CI' &&
+         github.event.workflow_run.head_branch == 'codex-port') ||
+        (github.event.workflow_run.name == 'CI' &&
+         github.event.workflow_run.head_branch == 'main'))) ||
       github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -49,15 +52,14 @@ jobs:
               exit 1
             fi
 
-            successful_native_run=$(gh run list \
+            successful_trusted_run=$(gh run list \
               --repo "$GITHUB_REPOSITORY" \
-              --workflow "Native CI" \
               --commit "$source_sha" \
-              --limit 20 \
-              --json conclusion,event \
-              --jq 'map(select(.conclusion == "success" and .event == "push")) | length')
-            if [[ "$successful_native_run" == "0" ]]; then
-              echo "Stable tag $release_tag points at $source_sha, but no successful Native CI push run exists for that commit" >&2
+              --limit 50 \
+              --json conclusion,event,name \
+              --jq 'map(select(.conclusion == "success" and .event == "push" and (.name == "Native CI" or .name == "CI"))) | length')
+            if [[ "$successful_trusted_run" == "0" ]]; then
+              echo "Stable tag $release_tag points at $source_sha, but no successful trusted Native CI/CI push run exists for that commit" >&2
               exit 1
             fi
           fi
