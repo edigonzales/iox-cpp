@@ -4,7 +4,7 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO edigonzales/iox-cpp
     REF 266c2043174b3661030175f83e06678043d86adb
-    SHA512 0
+    SHA512 46318a413f95a7e75f9a3e451c5d74bf83ad51b7dd3dc93be86156d44ef06a7a1e23bee74919c6dd5e326833912bf5312ffd6b10a75cfa236f210b805cdab4ab
     HEAD_REF main
 )
 
