@@ -12,6 +12,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(IoxWarnings)
 include(IoxOptions)
 include(IoxDependencies)
+include(IoxPackaging)
 include(IoxSanitizers)
 include(IoxCoverage)
 include(IoxFuzzing)
@@ -48,7 +49,7 @@ target_include_directories(iox-json
 target_link_libraries(iox-json PUBLIC iox-core)
 iox_set_warnings(iox-json)
 
-# --- iox-xml (private Expat dependency) ---------------------------------
+# --- iox-xml (private implementation, public static-link dependency) ------
 iox_fetch_expat()
 
 add_library(iox-xml STATIC
@@ -62,7 +63,7 @@ target_include_directories(iox-xml
         $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(iox-xml PUBLIC iox-core expat)
+target_link_libraries(iox-xml PUBLIC iox-core ${IOX_EXPAT_TARGET})
 iox_set_warnings(iox-xml)
 
 # --- iox-xtf ------------------------------------------------------------
