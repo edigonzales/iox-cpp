@@ -56,6 +56,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          grep -Fq 'workflows: ["Native CI", "CI"]' .github/workflows/vcpkg-release-gate.yml
+          grep -Fq "github.event.workflow_run.name == 'Native CI'" .github/workflows/vcpkg-release-gate.yml
+          grep -Fq "github.event.workflow_run.head_branch == 'codex-port'" .github/workflows/vcpkg-release-gate.yml
+          grep -Fq "github.event.workflow_run.name == 'CI'" .github/workflows/vcpkg-release-gate.yml
+          grep -Fq "github.event.workflow_run.head_branch == 'main'" .github/workflows/vcpkg-release-gate.yml
+          grep -Fq -- '--workflow "Native CI"' .github/workflows/vcpkg-release-gate.yml
+          grep -Fq -- '--workflow "CI"' .github/workflows/vcpkg-release-gate.yml
           grep -Fq -- '--arg event_type "vcpkg-release-ready"' .github/workflows/vcpkg-release-gate.yml
           grep -Fq 'types: [vcpkg-release-ready]' .github/workflows/vcpkg-version-publish.yml
           grep -Fq 'event_type: "vcpkg-version-published"' .github/workflows/vcpkg-version-publish.yml
