@@ -1,0 +1,16 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(expat CONFIG)
+find_dependency(yyjson CONFIG)
+if(@IOX_PACKAGE_HAS_GEOS@)
+    find_dependency(GEOS CONFIG)
+endif()
+if(@IOX_PACKAGE_HAS_ILIC@)
+    find_dependency(ilic CONFIG)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/ioxTargets.cmake")
+
+check_required_components(iox)
