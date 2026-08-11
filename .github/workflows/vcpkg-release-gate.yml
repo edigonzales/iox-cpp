@@ -52,13 +52,21 @@ jobs:
               exit 1
             fi
 
-            successful_trusted_run=$(gh run list \
+            successful_native_run=$(gh run list \
               --repo "$GITHUB_REPOSITORY" \
+              --workflow "Native CI" \
               --commit "$source_sha" \
-              --limit 50 \
-              --json conclusion,event,name \
-              --jq 'map(select(.conclusion == "success" and .event == "push" and (.name == "Native CI" or .name == "CI"))) | length')
-            if [[ "$successful_trusted_run" == "0" ]]; then
+              --limit 20 \
+              --json conclusion,event \
+              --jq 'map(select(.conclusion == "success" and .event == "push")) | length')
+            successful_main_run=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow "CI" \
+              --commit "$source_sha" \
+              --limit 20 \
+              --json conclusion,event \
+              --jq 'map(select(.conclusion == "success" and .event == "push")) | length')
+            if [[ "$successful_native_run" == "0" && "$successful_main_run" == "0" ]]; then
               echo "Stable tag $release_tag points at $source_sha, but no successful trusted Native CI/CI push run exists for that commit" >&2
               exit 1
             fi
