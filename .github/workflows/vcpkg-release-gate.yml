@@ -1,0 +1,101 @@
+name: Request vcpkg publication
+
+on:
+  workflow_run:
+    workflows: ["Native CI"]
+    types: [completed]
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  request:
+    name: Request immutable vcpkg publication
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'codex-port' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve and validate release source
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_run" ]]; then
+            source_sha="$WORKFLOW_SOURCE_SHA"
+            release_kind=snapshot
+            release_tag=snapshot
+            release_run_id="${{ github.event.workflow_run.id }}"
+          else
+            source_sha="$GITHUB_SHA"
+            release_kind=stable
+            release_tag="$GITHUB_REF_NAME"
+            release_run_id="$GITHUB_RUN_ID"
+
+            if [[ ! "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Invalid stable release tag: $release_tag" >&2
+              exit 1
+            fi
+
+            successful_native_run=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow "Native CI" \
+              --commit "$source_sha" \
+              --limit 20 \
+              --json conclusion,event \
+              --jq 'map(select(.conclusion == "success" and .event == "push")) | length')
+            if [[ "$successful_native_run" == "0" ]]; then
+              echo "Stable tag $release_tag points at $source_sha, but no successful Native CI push run exists for that commit" >&2
+              exit 1
+            fi
+          fi
+
+          if [[ ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid release source SHA: $source_sha" >&2
+            exit 1
+          fi
+          if [[ ! "$release_run_id" =~ ^[0-9]+$ ]]; then
+            echo "Invalid source workflow run id: $release_run_id" >&2
+            exit 1
+          fi
+
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "release_kind=$release_kind" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "release_run_id=$release_run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch trusted publication request
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          RELEASE_KIND: ${{ steps.release.outputs.release_kind }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          RELEASE_RUN_ID: ${{ steps.release.outputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg event_type "vcpkg-release-ready" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg release_kind "$RELEASE_KIND" \
+            --arg release_tag "$RELEASE_TAG" \
+            --arg release_run_id "$RELEASE_RUN_ID" \
+            '{event_type: $event_type, client_payload: {
+              source_sha: $source_sha,
+              release_kind: $release_kind,
+              release_tag: $release_tag,
+              release_run_id: $release_run_id
+            }}' |
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input -
