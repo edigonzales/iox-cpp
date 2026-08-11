@@ -188,6 +188,8 @@ jobs:
               --source-sha "$SOURCE_SHA" \
               --sha512 "$SOURCE_SHA512"
 
+            "$GITHUB_WORKSPACE/build/vcpkg-version-tool/vcpkg" format-manifest \
+              registry/ports/iox-cpp/vcpkg.json
             git -C registry add ports/iox-cpp
             (
               cd registry
