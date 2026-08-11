@@ -105,11 +105,15 @@ iox_set_warnings(iox-factory)
 # --- optional ilic-core integration --------------------------------------
 if(IOX_ENABLE_ILIC)
     set(_iox_parent_build_testing "${BUILD_TESTING}")
+    set(_iox_ilic_target "")
+    set(_iox_ilic_source_include "")
+
     if(IOX_ILIC_SOURCE_DIR)
-        set(_IOX_ILIC_SOURCE_DIR "${IOX_ILIC_SOURCE_DIR}")
         set(BUILD_TESTING OFF)
         set(ILIC_ENABLE_NATIVE_REPOSITORY OFF)
         add_subdirectory("${IOX_ILIC_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/ilic-core-build" EXCLUDE_FROM_ALL)
+        set(_iox_ilic_target ilic-core)
+        set(_iox_ilic_source_include "${IOX_ILIC_SOURCE_DIR}/source")
     elseif(IOX_FETCH_ILIC)
         include(FetchContent)
         FetchContent_Declare(ilic
@@ -119,15 +123,16 @@ if(IOX_ENABLE_ILIC)
         set(BUILD_TESTING OFF)
         set(ILIC_ENABLE_NATIVE_REPOSITORY OFF)
         FetchContent_MakeAvailable(ilic)
-        set(_IOX_ILIC_SOURCE_DIR "${ilic_SOURCE_DIR}")
+        set(_iox_ilic_target ilic-core)
+        set(_iox_ilic_source_include "${ilic_SOURCE_DIR}/source")
     else()
-        message(FATAL_ERROR
-            "IOX_ENABLE_ILIC requires IOX_ILIC_SOURCE_DIR or IOX_FETCH_ILIC")
+        find_package(ilic CONFIG REQUIRED)
+        set(_iox_ilic_target ilic::core)
     endif()
     set(BUILD_TESTING "${_iox_parent_build_testing}")
 
-    if(NOT TARGET ilic-core)
-        message(FATAL_ERROR "The selected ilic-fork does not provide ilic-core")
+    if(NOT TARGET ${_iox_ilic_target})
+        message(FATAL_ERROR "The selected ilic dependency does not provide ${_iox_ilic_target}")
     endif()
 
     add_library(iox-ilic STATIC
@@ -138,11 +143,14 @@ if(IOX_ENABLE_ILIC)
     target_include_directories(iox-ilic
         PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-            $<BUILD_INTERFACE:${_IOX_ILIC_SOURCE_DIR}/source>
             $<INSTALL_INTERFACE:include>
     )
+    if(_iox_ilic_source_include)
+        target_include_directories(iox-ilic PUBLIC
+            $<BUILD_INTERFACE:${_iox_ilic_source_include}>)
+    endif()
 
-    target_link_libraries(iox-ilic PUBLIC iox-xtf iox-core ilic-core)
+    target_link_libraries(iox-ilic PUBLIC iox-xtf iox-core ${_iox_ilic_target})
     iox_set_warnings(iox-ilic)
 endif()
 
