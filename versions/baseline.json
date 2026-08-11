@@ -1,3 +1,8 @@
 {
-  "default": {}
+  "default": {
+    "iox-cpp": {
+      "baseline": "0.1.0-snapshot.ba024ea7",
+      "port-version": 0
+    }
+  }
 }
