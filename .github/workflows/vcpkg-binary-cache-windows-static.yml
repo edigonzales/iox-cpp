@@ -1,0 +1,171 @@
+name: Publish vcpkg Windows static cache
+
+on:
+  repository_dispatch:
+    types: [vcpkg-version-published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Immutable iox-cpp vcpkg version to publish
+        required: true
+        type: string
+      registry_baseline:
+        description: iox-cpp vcpkg-registry commit containing the version
+        required: true
+        type: string
+      ilic_registry_baseline:
+        description: ilic vcpkg-registry commit used to resolve the ilic feature dependency
+        required: true
+        type: string
+      source_sha:
+        description: Optional iox-cpp source commit for traceability
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  metadata:
+    name: Validate publication request
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      registry_baseline: ${{ steps.resolve.outputs.registry_baseline }}
+      ilic_registry_baseline: ${{ steps.resolve.outputs.ilic_registry_baseline }}
+    steps:
+      - name: Resolve and validate request
+        id: resolve
+        shell: bash
+        env:
+          EVENT_VERSION: ${{ github.event.client_payload.version }}
+          EVENT_REGISTRY_BASELINE: ${{ github.event.client_payload.registry_baseline }}
+          EVENT_ILIC_REGISTRY_BASELINE: ${{ github.event.client_payload.ilic_registry_baseline }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_REGISTRY_BASELINE: ${{ inputs.registry_baseline }}
+          INPUT_ILIC_REGISTRY_BASELINE: ${{ inputs.ilic_registry_baseline }}
+        run: |
+          set -euo pipefail
+          version=${EVENT_VERSION:-$INPUT_VERSION}
+          registry_baseline=${EVENT_REGISTRY_BASELINE:-$INPUT_REGISTRY_BASELINE}
+          ilic_registry_baseline=${EVENT_ILIC_REGISTRY_BASELINE:-$INPUT_ILIC_REGISTRY_BASELINE}
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && \
+             [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-snapshot\.[0-9a-f]{8}$ ]]; then
+            echo "Invalid iox-cpp vcpkg version: $version" >&2
+            exit 1
+          fi
+          if [[ ! "$registry_baseline" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid iox-cpp registry baseline: $registry_baseline" >&2
+            exit 1
+          fi
+          if [[ ! "$ilic_registry_baseline" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid ilic registry baseline: $ilic_registry_baseline" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "registry_baseline=$registry_baseline" >> "$GITHUB_OUTPUT"
+          echo "ilic_registry_baseline=$ilic_registry_baseline" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish iox-cpp[ilic] (x64-windows-static)
+    needs: metadata
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      VCPKG_ROOT_DIR: ${{ github.workspace }}/build/vcpkg-cache
+      IOX_VERSION: ${{ needs.metadata.outputs.version }}
+      IOX_REGISTRY_BASELINE: ${{ needs.metadata.outputs.registry_baseline }}
+      ILIC_REGISTRY_BASELINE: ${{ needs.metadata.outputs.ilic_registry_baseline }}
+      VCPKG_BUILTIN_BASELINE: d015e31e90838a4c9dfa3eed45979bc70d9357fc
+      VCPKG_FEED_URL: https://nuget.pkg.github.com/edigonzales/index.json
+      VCPKG_BINARY_SOURCES: clear;nuget,https://nuget.pkg.github.com/edigonzales/index.json,readwrite
+      VCPKG_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out pinned vcpkg
+        uses: actions/checkout@v6
+        with:
+          repository: microsoft/vcpkg
+          ref: 2026.05.25
+          path: build/vcpkg-cache
+          persist-credentials: false
+      - name: Set up MSVC developer command prompt
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Clear Visual Studio vcpkg root
+        shell: pwsh
+        run: '"VCPKG_ROOT=" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: '& "$env:VCPKG_ROOT_DIR\bootstrap-vcpkg.bat" -disableMetrics'
+      - name: Configure manifest
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:GITHUB_WORKSPACE 'build\vcpkg-publisher-static'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          @{name='iox-cpp-binary-cache-publisher'; 'version-string'='0'; dependencies=@(@{name='iox-cpp'; features=@('ilic')}); overrides=@(@{name='iox-cpp'; 'version-string'=$env:IOX_VERSION})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg.json')
+          @{'default-registry'=@{kind='builtin'; baseline=$env:VCPKG_BUILTIN_BASELINE}; registries=@(@{kind='git'; repository='https://github.com/edigonzales/iox-cpp.git'; reference='vcpkg-registry'; baseline=$env:IOX_REGISTRY_BASELINE; packages=@('iox-cpp')}, @{kind='git'; repository='https://github.com/edigonzales/ilic-fork.git'; reference='vcpkg-registry'; baseline=$env:ILIC_REGISTRY_BASELINE; packages=@('ilic')})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg-configuration.json')
+      - name: Authenticate NuGet source
+        shell: pwsh
+        run: |
+          $nuget = (& "$env:VCPKG_ROOT_DIR\vcpkg.exe" fetch nuget | Select-Object -Last 1)
+          & $nuget sources add -Source "$env:VCPKG_FEED_URL" -StorePasswordInClearText -Name GitHubPackages -UserName "$env:GITHUB_ACTOR" -Password "$env:VCPKG_GITHUB_TOKEN"
+          & $nuget setapikey "$env:VCPKG_GITHUB_TOKEN" -Source "$env:VCPKG_FEED_URL"
+      - name: Build and publish static CRT package closure
+        shell: pwsh
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'build\vcpkg-publisher-static')
+          try { & "$env:VCPKG_ROOT_DIR\vcpkg.exe" install --triplet=x64-windows-static } finally { Pop-Location }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  verify-restore:
+    name: Verify remote restore (x64-windows-static)
+    needs: [metadata, publish]
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      VCPKG_ROOT_DIR: ${{ github.workspace }}/build/vcpkg-restore
+      IOX_VERSION: ${{ needs.metadata.outputs.version }}
+      IOX_REGISTRY_BASELINE: ${{ needs.metadata.outputs.registry_baseline }}
+      ILIC_REGISTRY_BASELINE: ${{ needs.metadata.outputs.ilic_registry_baseline }}
+      VCPKG_BUILTIN_BASELINE: d015e31e90838a4c9dfa3eed45979bc70d9357fc
+      VCPKG_FEED_URL: https://nuget.pkg.github.com/edigonzales/index.json
+      VCPKG_BINARY_SOURCES: clear;nuget,https://nuget.pkg.github.com/edigonzales/index.json,read
+      VCPKG_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out pinned vcpkg
+        uses: actions/checkout@v6
+        with:
+          repository: microsoft/vcpkg
+          ref: 2026.05.25
+          path: build/vcpkg-restore
+          persist-credentials: false
+      - name: Set up MSVC developer command prompt
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Clear Visual Studio vcpkg root
+        shell: pwsh
+        run: '"VCPKG_ROOT=" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: '& "$env:VCPKG_ROOT_DIR\bootstrap-vcpkg.bat" -disableMetrics'
+      - name: Configure restore manifest
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:GITHUB_WORKSPACE 'build\vcpkg-restore-static'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          @{name='iox-cpp-binary-cache-restore'; 'version-string'='0'; dependencies=@(@{name='iox-cpp'; features=@('ilic')}); overrides=@(@{name='iox-cpp'; 'version-string'=$env:IOX_VERSION})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg.json')
+          @{'default-registry'=@{kind='builtin'; baseline=$env:VCPKG_BUILTIN_BASELINE}; registries=@(@{kind='git'; repository='https://github.com/edigonzales/iox-cpp.git'; reference='vcpkg-registry'; baseline=$env:IOX_REGISTRY_BASELINE; packages=@('iox-cpp')}, @{kind='git'; repository='https://github.com/edigonzales/ilic-fork.git'; reference='vcpkg-registry'; baseline=$env:ILIC_REGISTRY_BASELINE; packages=@('ilic')})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg-configuration.json')
+      - name: Authenticate NuGet source
+        shell: pwsh
+        run: |
+          $nuget = (& "$env:VCPKG_ROOT_DIR\vcpkg.exe" fetch nuget | Select-Object -Last 1)
+          & $nuget sources add -Source "$env:VCPKG_FEED_URL" -StorePasswordInClearText -Name GitHubPackages -UserName "$env:GITHUB_ACTOR" -Password "$env:VCPKG_GITHUB_TOKEN"
+      - name: Restore without building
+        shell: pwsh
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'build\vcpkg-restore-static')
+          try { & "$env:VCPKG_ROOT_DIR\vcpkg.exe" install --triplet=x64-windows-static --only-binarycaching } finally { Pop-Location }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
