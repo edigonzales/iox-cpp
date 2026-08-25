@@ -666,6 +666,9 @@ ctest --test-dir build/vcpkg-source-check --output-on-failure  # exit 0, 34/34
 cmake -S test/consumer/installed-package -B build/vcpkg-installed-consumer -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=build/vcpkg-smoke/vcpkg_installed/arm64-osx -DCMAKE_TOOLCHAIN_FILE=build/vcpkg-local/scripts/buildsystems/vcpkg.cmake -DVCPKG_MANIFEST_MODE=OFF -DIOX_CONSUMER_REQUIRE_ILIC=ON  # exit 0
 cmake --build build/vcpkg-installed-consumer --parallel 8  # exit 0
 ctest --test-dir build/vcpkg-installed-consumer --output-on-failure  # exit 0, 1/1
+cmake -S . -B build/current-core-package-2 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DIOX_ENABLE_ILIC=OFF -DIOX_ENABLE_INSTALL=ON -DIOX_USE_SYSTEM_EXPAT=ON -DIOX_USE_SYSTEM_YYJSON=ON -DCMAKE_PREFIX_PATH=build/vcpkg-smoke/vcpkg_installed/arm64-osx -DCMAKE_INSTALL_PREFIX=$PWD/build/current-core-prefix-2  # exit 0
+cmake --build build/current-core-package-2 --parallel 4 && cmake --install build/current-core-package-2  # exit 0, core-only SDK omits iox/ilic headers
+cmake -S test/consumer/installed-package -B build/current-core-consumer-2 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/build/current-core-prefix-2;$PWD/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DIOX_CONSUMER_REQUIRE_ILIC=OFF && cmake --build build/current-core-consumer-2 --parallel 4 && ctest --test-dir build/current-core-consumer-2 --output-on-failure  # exit 0, 1/1
 ```
 
 The local vcpkg run required a temporary `pkg-config` shim because the
