@@ -30,6 +30,8 @@ jobs:
             triplet: arm64-osx
           - os: windows-2022
             triplet: x64-windows
+          - os: windows-2022
+            triplet: x64-windows-static
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:

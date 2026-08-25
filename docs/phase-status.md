@@ -647,3 +647,29 @@ cmake -S . -B build/phase6-geos -DIOX_ENABLE_GEOS=ON ...        # exit 1, GEOS p
 
 No GEOS-enabled build, Java golden-fixture generation, release/publish action,
 or push is claimed by this phase.
+
+## Native vcpkg SDK packaging — Phase 21
+
+Phase 21 adds the installable native CMake SDK, the `iox-cpp` vcpkg port with
+`ilic` and `geos` features, installed-consumer coverage, and the release
+workflow boundary for the shared `ilic-fork` registry and GitHub Packages
+binary cache. Source builds remain the default. The local package smoke test
+used the ARM64 macOS triplet and the ilic overlay port.
+
+### Phase 21 verification commands
+
+```text
+cmake -S . -B build/vcpkg-source-check -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=OFF  # exit 0
+cmake --build build/vcpkg-source-check --parallel 8  # exit 0
+ctest --test-dir build/vcpkg-source-check --output-on-failure  # exit 0, 34/34
+(cd build/vcpkg-smoke && PATH=/tmp:$PATH ../vcpkg-local/vcpkg install --triplet=arm64-osx --overlay-ports=../../vcpkg/ports --overlay-ports=/Users/stefan/sources/ilic-fork/ports)  # exit 0, iox-cpp[ilic] plus ilic, Expat, yyjson
+cmake -S test/consumer/installed-package -B build/vcpkg-installed-consumer -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=build/vcpkg-smoke/vcpkg_installed/arm64-osx -DCMAKE_TOOLCHAIN_FILE=build/vcpkg-local/scripts/buildsystems/vcpkg.cmake -DVCPKG_MANIFEST_MODE=OFF -DIOX_CONSUMER_REQUIRE_ILIC=ON  # exit 0
+cmake --build build/vcpkg-installed-consumer --parallel 8  # exit 0
+ctest --test-dir build/vcpkg-installed-consumer --output-on-failure  # exit 0, 1/1
+```
+
+The local vcpkg run required a temporary `pkg-config` shim because the
+developer macOS environment has neither Homebrew nor pkg-config. GitHub
+Actions install the native package as part of their runner setup. Cross
+platform workflow execution and actual registry/package publication require
+the configured GitHub secret and are not claimed by this local run.

@@ -315,3 +315,42 @@ jobs:
               gh release upload "$tag" "$asset" --clobber
             fi
           done
+
+  request-vcpkg-publication:
+    name: Request native vcpkg publication
+    needs:
+      - resolve
+      - build
+      - publish-npm
+      - github-release
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Dispatch immutable vcpkg release request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+          RELEASE_KIND: ${{ needs.resolve.outputs.channel }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="${RELEASE_TAG:-snapshot}"
+          jq -n \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg release_kind "$RELEASE_KIND" \
+            --arg release_tag "$RELEASE_TAG" \
+            --arg release_run_id "$RELEASE_RUN_ID" \
+            '{
+              event_type: "vcpkg-release-ready",
+              client_payload: {
+                source_sha: $source_sha,
+                release_kind: $release_kind,
+                release_tag: $release_tag,
+                release_run_id: $release_run_id
+              }
+            }' |
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input -
