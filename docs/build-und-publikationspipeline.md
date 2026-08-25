@@ -44,9 +44,11 @@ Registry konfigurieren müssen.
 
 Die vcpkg-Pipeline publiziert immutable Snapshot- oder Stable-Versionen. Ein
 Snapshot verwendet \`0.2.0-snapshot.<source-sha8>\`. Für jede Version werden
-\`x64-linux\`, \`arm64-osx\`, \`x64-windows\` und \`x64-windows-static\` gebaut und
-anschließend mit \`--only-binarycaching\` wiederhergestellt. Die Binary-Pakete
-liegen im GitHub-NuGet-Feed \`nuget.pkg.github.com/edigonzales\`.
+die eigenständigen Features \`ilic\` und \`geos\` sowie die Downstream-
+Kombination \`ilic,geos\` für \`x64-linux\`, \`arm64-osx\`, \`x64-windows\` und
+\`x64-windows-static\` gebaut und anschließend mit \`--only-binarycaching\`
+wiederhergestellt. Die Binary-Pakete liegen im GitHub-NuGet-Feed
+\`nuget.pkg.github.com/edigonzales\`.
 
 Die vcpkg-Publikation wird nach einem erfolgreichen \`Publish iox-cpp\`-Lauf
 über \`repository_dispatch\` angefordert. Der Workflow benötigt das Secret

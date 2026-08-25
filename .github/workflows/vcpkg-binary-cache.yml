@@ -74,6 +74,10 @@ jobs:
             triplet: x64-linux
             feature_name: geos
             features: '["geos"]'
+          - os: ubuntu-latest
+            triplet: x64-linux
+            feature_name: ilic-geos
+            features: '["ilic","geos"]'
           - os: macos-14
             triplet: arm64-osx
             feature_name: ilic
@@ -82,6 +86,10 @@ jobs:
             triplet: arm64-osx
             feature_name: geos
             features: '["geos"]'
+          - os: macos-14
+            triplet: arm64-osx
+            feature_name: ilic-geos
+            features: '["ilic","geos"]'
           - os: windows-2022
             triplet: x64-windows
             feature_name: ilic
@@ -91,6 +99,10 @@ jobs:
             feature_name: geos
             features: '["geos"]'
           - os: windows-2022
+            triplet: x64-windows
+            feature_name: ilic-geos
+            features: '["ilic","geos"]'
+          - os: windows-2022
             triplet: x64-windows-static
             feature_name: ilic
             features: '["ilic"]'
@@ -98,6 +110,10 @@ jobs:
             triplet: x64-windows-static
             feature_name: geos
             features: '["geos"]'
+          - os: windows-2022
+            triplet: x64-windows-static
+            feature_name: ilic-geos
+            features: '["ilic","geos"]'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
