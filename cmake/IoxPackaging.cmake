@@ -62,7 +62,16 @@ function(iox_configure_packaging)
 
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/iox"
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+        FILES_MATCHING
+            PATTERN "*.h"
+            PATTERN "ilic" EXCLUDE
     )
+    if(IOX_ENABLE_ILIC)
+        install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/iox/ilic"
+            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/iox"
+            FILES_MATCHING PATTERN "*.h"
+        )
+    endif()
 
     set(IOX_PACKAGE_HAS_ILIC "${IOX_ENABLE_ILIC}")
     set(IOX_PACKAGE_HAS_GEOS "${IOX_ENABLE_GEOS}")
