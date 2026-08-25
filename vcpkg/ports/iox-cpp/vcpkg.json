@@ -6,7 +6,6 @@
   "license": "MIT",
   "dependencies": [
     "expat",
-    "yyjson",
     {
       "name": "vcpkg-cmake",
       "host": true
@@ -14,16 +13,21 @@
     {
       "name": "vcpkg-cmake-config",
       "host": true
-    }
+    },
+    "yyjson"
   ],
   "features": {
-    "ilic": {
-      "description": "Build the model-aware iox::ilic integration",
-      "dependencies": ["ilic"]
-    },
     "geos": {
       "description": "Build GEOS-backed geometry validation",
-      "dependencies": ["geos"]
+      "dependencies": [
+        "geos"
+      ]
+    },
+    "ilic": {
+      "description": "Build the model-aware iox::ilic integration",
+      "dependencies": [
+        "ilic"
+      ]
     }
   }
 }
