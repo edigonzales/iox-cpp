@@ -672,4 +672,8 @@ The local vcpkg run required a temporary `pkg-config` shim because the
 developer macOS environment has neither Homebrew nor pkg-config. GitHub
 Actions install the native package as part of their runner setup. Cross
 platform workflow execution and actual registry/package publication require
-the configured GitHub secret and are not claimed by this local run.
+the configured GitHub secret and are not claimed by this local run. The
+overlay workflow now renders the port for the checked-out source commit and
+its GitHub archive SHA512; the binary-cache workflow covers standalone
+`ilic`, standalone `geos`, and the combined `ilic,geos` variant on all four
+triplets, including `x64-windows-static`.
