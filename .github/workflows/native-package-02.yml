@@ -1,0 +1,222 @@
+name: Native package compatibility 0.2
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "include/**"
+      - "source/**"
+      - "test/consumer/**"
+      - "vcpkg/**"
+      - ".github/workflows/native-package-02.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  installed-sdk:
+    name: Installed SDK (${{ matrix.triplet }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            triplet: x64-linux
+          - os: macos-14
+            triplet: arm64-osx
+          - os: windows-2022
+            triplet: x64-windows
+          - os: windows-2022
+            triplet: x64-windows-static
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      IOX_VCPKG_ROOT: ${{ github.workspace }}/build/vcpkg
+      VCPKG_TRIPLET: ${{ matrix.triplet }}
+      ILIC_VERSION: 0.10.0-snapshot.cd74490b
+      VCPKG_BUILTIN_BASELINE: d015e31e90838a4c9dfa3eed45979bc70d9357fc
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/.cache/vcpkg/downloads
+      VCPKG_DISABLE_METRICS: "1"
+      VCPKG_FEED_URL: https://nuget.pkg.github.com/edigonzales/index.json
+      VCPKG_BINARY_SOURCES: clear;nuget,https://nuget.pkg.github.com/edigonzales/index.json,read
+      VCPKG_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SCCACHE_DIR: ${{ github.workspace }}/.cache/sccache
+      SCCACHE_CACHE_SIZE: 2G
+      SCCACHE_BASEDIRS: ${{ github.workspace }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@v6
+        with:
+          repository: microsoft/vcpkg
+          ref: 2026.05.25
+          path: build/vcpkg
+          persist-credentials: false
+
+      - uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: v0.17.0
+
+      - uses: actions/cache@v5
+        with:
+          path: ${{ env.SCCACHE_DIR }}
+          key: sccache-v1-iox02-package-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            sccache-v1-iox02-package-${{ runner.os }}-${{ runner.arch }}-
+
+      - if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Mono for NuGet
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if ! command -v mono >/dev/null 2>&1; then
+            if [[ "$RUNNER_OS" == "Linux" ]]; then
+              sudo apt-get update && sudo apt-get install --yes mono-complete
+            else
+              brew install mono
+            fi
+          fi
+
+      - name: Bootstrap vcpkg (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "$VCPKG_DOWNLOADS"
+          "$IOX_VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: Bootstrap vcpkg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DOWNLOADS | Out-Null
+          & "$env:IOX_VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Resolve ilic registry baseline (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          baseline="$(git ls-remote https://github.com/edigonzales/ilic-fork.git refs/heads/vcpkg-registry | awk '{print $1}')"
+          [[ "$baseline" =~ ^[0-9a-f]{40}$ ]]
+          echo "ILIC_REGISTRY_BASELINE=$baseline" >> "$GITHUB_ENV"
+
+      - name: Resolve ilic registry baseline (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $baseline = ((git ls-remote https://github.com/edigonzales/ilic-fork.git refs/heads/vcpkg-registry) -split '\s+')[0]
+          if ($baseline -notmatch '^[0-9a-f]{40}$') { throw 'Could not resolve ilic registry baseline' }
+          "ILIC_REGISTRY_BASELINE=$baseline" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure dependency manifest (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          root="$GITHUB_WORKSPACE/build/sdk-deps"
+          mkdir -p "$root"
+          cat > "$root/vcpkg.json" <<EOF
+          {
+            "name": "iox02-sdk-dependencies",
+            "version-string": "0",
+            "dependencies": ["expat", "yyjson", "ilic"],
+            "overrides": [{"name":"ilic","version-string":"$ILIC_VERSION"}]
+          }
+          EOF
+          cat > "$root/vcpkg-configuration.json" <<EOF
+          {
+            "default-registry": {"kind":"builtin","baseline":"$VCPKG_BUILTIN_BASELINE"},
+            "registries": [{
+              "kind":"git",
+              "repository":"https://github.com/edigonzales/ilic-fork.git",
+              "reference":"vcpkg-registry",
+              "baseline":"$ILIC_REGISTRY_BASELINE",
+              "packages":["ilic"]
+            }]
+          }
+          EOF
+
+      - name: Configure dependency manifest (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:GITHUB_WORKSPACE 'build\sdk-deps'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          @{name='iox02-sdk-dependencies'; 'version-string'='0'; dependencies=@('expat','yyjson','ilic'); overrides=@(@{name='ilic'; 'version-string'=$env:ILIC_VERSION})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg.json')
+          @{'default-registry'=@{kind='builtin'; baseline=$env:VCPKG_BUILTIN_BASELINE}; registries=@(@{kind='git'; repository='https://github.com/edigonzales/ilic-fork.git'; reference='vcpkg-registry'; baseline=$env:ILIC_REGISTRY_BASELINE; packages=@('ilic')})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg-configuration.json')
+
+      - name: Authenticate GitHub Packages (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          NUGET_PATH="$("$IOX_VCPKG_ROOT/vcpkg" fetch nuget | tail -n 1)"
+          mono "$NUGET_PATH" sources add -Source "$VCPKG_FEED_URL" -StorePasswordInClearText -Name GitHubPackages -UserName "$GITHUB_ACTOR" -Password "$VCPKG_GITHUB_TOKEN"
+
+      - name: Authenticate GitHub Packages (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $nuget = (& "$env:IOX_VCPKG_ROOT\vcpkg.exe" fetch nuget | Select-Object -Last 1)
+          & $nuget sources add -Source "$env:VCPKG_FEED_URL" -StorePasswordInClearText -Name GitHubPackages -UserName "$env:GITHUB_ACTOR" -Password "$env:VCPKG_GITHUB_TOKEN"
+
+      - name: Install SDK dependencies (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cd "$GITHUB_WORKSPACE/build/sdk-deps" && "$IOX_VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET"
+
+      - name: Install SDK dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Push-Location "$env:GITHUB_WORKSPACE\build\sdk-deps"
+          try { & "$env:IOX_VCPKG_ROOT\vcpkg.exe" install "--triplet=$env:VCPKG_TRIPLET" } finally { Pop-Location }
+
+      - name: Configure installable SDK
+        run: >-
+          cmake -S . -B build/package -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          -DCMAKE_INSTALL_LIBDIR=lib
+          -DCMAKE_C_COMPILER_LAUNCHER=sccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          -DCMAKE_TOOLCHAIN_FILE=${{ env.IOX_VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+          -DVCPKG_MANIFEST_MODE=OFF
+          -DVCPKG_INSTALLED_DIR=${{ github.workspace }}/build/sdk-deps/vcpkg_installed
+          -DBUILD_TESTING=OFF
+          -DIOX_BUILD_EXAMPLES=OFF
+          -DIOX_BUILD_TOOLS=OFF
+          -DIOX_USE_SYSTEM_EXPAT=ON
+          -DIOX_USE_SYSTEM_YYJSON=ON
+          -DIOX_ENABLE_ILIC=ON
+          -DIOX_ENABLE_INSTALL=ON
+
+      - name: Build and install SDK
+        run: |
+          cmake --build build/package --parallel
+          cmake --install build/package --prefix "${{ github.workspace }}/build/iox-prefix"
+
+      - name: Configure clean consumer
+        run: >-
+          cmake -S test/consumer/installed-package -B build/package-consumer -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/build/iox-prefix
+          -DCMAKE_TOOLCHAIN_FILE=${{ env.IOX_VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+          -DVCPKG_MANIFEST_MODE=OFF
+          -DVCPKG_INSTALLED_DIR=${{ github.workspace }}/build/sdk-deps/vcpkg_installed
+          -DIOX_CONSUMER_REQUIRE_ILIC=ON
+
+      - run: cmake --build build/package-consumer --parallel
+      - run: ctest --test-dir build/package-consumer --output-on-failure
+      - if: always()
+        run: sccache --show-stats

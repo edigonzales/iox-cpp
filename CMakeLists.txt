@@ -21,6 +21,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(IoxWarnings)
 include(IoxOptions)
 include(IoxDependencies)
+include(IoxPackaging)
 include(IoxSanitizers)
 include(IoxCoverage)
 include(IoxFuzzing)
@@ -86,7 +87,7 @@ target_include_directories(iox-json
         $<INSTALL_INTERFACE:include>
 )
 
-target_link_libraries(iox-json PUBLIC iox-core PRIVATE yyjson)
+target_link_libraries(iox-json PUBLIC iox-core PRIVATE ${IOX_YYJSON_TARGET})
 iox_set_warnings(iox-json)
 
 # --- iox-xml (private Expat dependency) ---------------------------------
@@ -102,7 +103,7 @@ target_include_directories(iox-xml
         ${CMAKE_CURRENT_SOURCE_DIR}/source
 )
 
-target_link_libraries(iox-xml PRIVATE iox-core expat)
+target_link_libraries(iox-xml PRIVATE iox-core ${IOX_EXPAT_TARGET})
 iox_set_warnings(iox-xml)
 
 # --- iox-xtf ------------------------------------------------------------
@@ -158,9 +159,12 @@ if(IOX_ENABLE_ILIC)
     target_include_directories(iox-ilic
         PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-            $<BUILD_INTERFACE:${_IOX_ILIC_SOURCE_DIR}/source>
             $<INSTALL_INTERFACE:include>
     )
+    if(_IOX_ILIC_SOURCE_DIR)
+        target_include_directories(iox-ilic PUBLIC
+            $<BUILD_INTERFACE:${_IOX_ILIC_SOURCE_DIR}/source>)
+    endif()
 
     target_link_libraries(iox-ilic PUBLIC iox-xtf iox-core iox-geometry ilic::core)
     iox_set_warnings(iox-ilic)

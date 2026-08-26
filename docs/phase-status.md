@@ -647,3 +647,39 @@ cmake -S . -B build/phase6-geos -DIOX_ENABLE_GEOS=ON ...        # exit 1, GEOS p
 
 No GEOS-enabled build, Java golden-fixture generation, release/publish action,
 or push is claimed by this phase.
+
+## Native vcpkg SDK packaging — Phase 21
+
+Phase 21 adds the installable native CMake SDK, the `iox-cpp` vcpkg port with
+`ilic` and `geos` features, installed-consumer coverage, and the release
+workflow boundary for the shared `ilic-fork` registry and GitHub Packages
+binary cache. Source builds remain the default. The local package smoke test
+used the ARM64 macOS triplet and the ilic overlay port.
+
+### Phase 21 verification commands
+
+```text
+cmake -S . -B build/vcpkg-source-check -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=OFF  # exit 0
+cmake --build build/vcpkg-source-check --parallel 8  # exit 0
+ctest --test-dir build/vcpkg-source-check --output-on-failure  # exit 0, 34/34
+(cd build/vcpkg-smoke && PATH=/tmp:$PATH ../vcpkg-local/vcpkg install --triplet=arm64-osx --overlay-ports=../../vcpkg/ports --overlay-ports=/Users/stefan/sources/ilic-fork/ports)  # exit 0, iox-cpp[ilic] plus ilic, Expat, yyjson
+cmake -S test/consumer/installed-package -B build/vcpkg-installed-consumer -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=build/vcpkg-smoke/vcpkg_installed/arm64-osx -DCMAKE_TOOLCHAIN_FILE=build/vcpkg-local/scripts/buildsystems/vcpkg.cmake -DVCPKG_MANIFEST_MODE=OFF -DIOX_CONSUMER_REQUIRE_ILIC=ON  # exit 0
+cmake --build build/vcpkg-installed-consumer --parallel 8  # exit 0
+ctest --test-dir build/vcpkg-installed-consumer --output-on-failure  # exit 0, 1/1
+cmake -S . -B build/current-core-package-2 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DIOX_ENABLE_ILIC=OFF -DIOX_ENABLE_INSTALL=ON -DIOX_USE_SYSTEM_EXPAT=ON -DIOX_USE_SYSTEM_YYJSON=ON -DCMAKE_PREFIX_PATH=build/vcpkg-smoke/vcpkg_installed/arm64-osx -DCMAKE_INSTALL_PREFIX=$PWD/build/current-core-prefix-2  # exit 0
+cmake --build build/current-core-package-2 --parallel 4 && cmake --install build/current-core-package-2  # exit 0, core-only SDK omits iox/ilic headers
+cmake -S test/consumer/installed-package -B build/current-core-consumer-2 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/build/current-core-prefix-2;$PWD/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DIOX_CONSUMER_REQUIRE_ILIC=OFF && cmake --build build/current-core-consumer-2 --parallel 4 && ctest --test-dir build/current-core-consumer-2 --output-on-failure  # exit 0, 1/1
+cmake -S . -B build/current-ilic-package-2 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ENABLE_INSTALL=ON -DIOX_USE_SYSTEM_EXPAT=ON -DIOX_USE_SYSTEM_YYJSON=ON -DCMAKE_PREFIX_PATH="/Users/stefan/sources/ilic-fork/build/package-sdk-semantic-checker-prefix;/Users/stefan/sources/iox-cpp/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DCMAKE_INSTALL_PREFIX=$PWD/build/current-ilic-prefix-2  # exit 0
+cmake --build build/current-ilic-package-2 --parallel 4 && cmake --install build/current-ilic-package-2  # exit 0, optional ilic headers/target installed
+cmake -S test/consumer/installed-package -B build/current-ilic-consumer-2 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/build/current-ilic-prefix-2;/Users/stefan/sources/ilic-fork/build/package-sdk-semantic-checker-prefix;/Users/stefan/sources/iox-cpp/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DIOX_CONSUMER_REQUIRE_ILIC=ON && cmake --build build/current-ilic-consumer-2 --parallel 4 && ctest --test-dir build/current-ilic-consumer-2 --output-on-failure  # exit 0, 1/1
+```
+
+The local vcpkg run required a temporary `pkg-config` shim because the
+developer macOS environment has neither Homebrew nor pkg-config. GitHub
+Actions install the native package as part of their runner setup. Cross
+platform workflow execution and actual registry/package publication require
+the configured GitHub secret and are not claimed by this local run. The
+overlay workflow now renders the port for the checked-out source commit and
+its GitHub archive SHA512; the binary-cache workflow covers standalone
+`ilic`, standalone `geos`, and the combined `ilic,geos` variant on all four
+triplets, including `x64-windows-static`.

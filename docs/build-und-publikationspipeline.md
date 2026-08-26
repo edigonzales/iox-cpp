@@ -36,8 +36,24 @@ Die GitHub-Release enthält:
 - ein Source-Archiv;
 - `SHA256SUMS` und `release-manifest.json`.
 
-Native Bibliotheken und Programme werden auf allen CI-Plattformen getestet,
-aber nicht als SDK- oder Binary-Release verteilt.
+Native SDKs werden zusätzlich über vcpkg verteilt. Das CMake-Package heißt
+\`iox\`, der vcpkg-Port \`iox-cpp\`; die optionale Modellintegration wird über das
+Feature \`ilic\` aktiviert. Die veröffentlichte Registry ist die gemeinsame
+\`vcpkg-registry\`-Branch von \`ilic-fork\`, damit Downstream-Projekte nur eine
+Registry konfigurieren müssen.
+
+Die vcpkg-Pipeline publiziert immutable Snapshot- oder Stable-Versionen. Ein
+Snapshot verwendet \`0.2.0-snapshot.<source-sha8>\`. Für jede Version werden
+die eigenständigen Features \`ilic\` und \`geos\` sowie die Downstream-
+Kombination \`ilic,geos\` für \`x64-linux\`, \`arm64-osx\`, \`x64-windows\` und
+\`x64-windows-static\` gebaut und anschließend mit \`--only-binarycaching\`
+wiederhergestellt. Die Binary-Pakete liegen im GitHub-NuGet-Feed
+\`nuget.pkg.github.com/edigonzales\`.
+
+Die vcpkg-Publikation wird nach einem erfolgreichen \`Publish iox-cpp\`-Lauf
+über \`repository_dispatch\` angefordert. Der Workflow benötigt das Secret
+\`VCPKG_REGISTRY_TOKEN\` mit Schreibzugriff auf die \`ilic-fork\`-Registry-Branch.
+Downstream-GitHub-Actions benötigen Leserechte auf die GitHub-Packages.
 
 ## Trusted Publisher und Mirror-Prüfung
 

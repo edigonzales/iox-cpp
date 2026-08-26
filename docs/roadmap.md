@@ -23,6 +23,7 @@
 | 18 | Extended Direct ilic Semantics | completed |
 | 19 | Native, WASM, Browser, and Worker Parity | completed |
 | 20 | Independent Conformance and Release Gates | completed |
+| 21 | Native vcpkg SDK Packaging and Binary Cache | completed |
 
 ## Acceptance Criteria per Phase
 

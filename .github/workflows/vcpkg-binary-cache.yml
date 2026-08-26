@@ -1,0 +1,247 @@
+name: Publish iox-cpp vcpkg binary cache
+
+on:
+  repository_dispatch:
+    types: [vcpkg-version-published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Immutable iox-cpp vcpkg version
+        required: true
+        type: string
+      registry_baseline:
+        description: Shared registry commit containing the version
+        required: true
+        type: string
+      source_sha:
+        description: Optional iox-cpp source commit for traceability
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  metadata:
+    name: Validate publication request
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      registry_baseline: ${{ steps.resolve.outputs.registry_baseline }}
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+    steps:
+      - name: Resolve and validate request
+        id: resolve
+        shell: bash
+        env:
+          EVENT_VERSION: ${{ github.event.client_payload.version }}
+          EVENT_REGISTRY_BASELINE: ${{ github.event.client_payload.registry_baseline }}
+          EVENT_SOURCE_SHA: ${{ github.event.client_payload.source_sha }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_REGISTRY_BASELINE: ${{ inputs.registry_baseline }}
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          version=$EVENT_VERSION
+          registry_baseline=$EVENT_REGISTRY_BASELINE
+          source_sha=$EVENT_SOURCE_SHA
+          [[ -n "$version" ]] || version=$INPUT_VERSION
+          [[ -n "$registry_baseline" ]] || registry_baseline=$INPUT_REGISTRY_BASELINE
+          [[ -n "$source_sha" ]] || source_sha=$INPUT_SOURCE_SHA
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ || "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-snapshot\.[0-9a-f]{8}$ ]] || { echo "Invalid iox-cpp vcpkg version: $version" >&2; exit 1; }
+          [[ "$registry_baseline" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid registry baseline: $registry_baseline" >&2; exit 1; }
+          if [[ -n "$source_sha" && ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid source SHA: $source_sha" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "registry_baseline=$registry_baseline" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish iox-cpp (${{ matrix.triplet }}, ${{ matrix.feature_name }})
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            triplet: x64-linux
+            feature_name: ilic
+            features: '["ilic"]'
+          - os: ubuntu-latest
+            triplet: x64-linux
+            feature_name: geos
+            features: '["geos"]'
+          - os: ubuntu-latest
+            triplet: x64-linux
+            feature_name: ilic-geos
+            features: '["ilic","geos"]'
+          - os: macos-14
+            triplet: arm64-osx
+            feature_name: ilic
+            features: '["ilic"]'
+          - os: macos-14
+            triplet: arm64-osx
+            feature_name: geos
+            features: '["geos"]'
+          - os: macos-14
+            triplet: arm64-osx
+            feature_name: ilic-geos
+            features: '["ilic","geos"]'
+          - os: windows-2022
+            triplet: x64-windows
+            feature_name: ilic
+            features: '["ilic"]'
+          - os: windows-2022
+            triplet: x64-windows
+            feature_name: geos
+            features: '["geos"]'
+          - os: windows-2022
+            triplet: x64-windows
+            feature_name: ilic-geos
+            features: '["ilic","geos"]'
+          - os: windows-2022
+            triplet: x64-windows-static
+            feature_name: ilic
+            features: '["ilic"]'
+          - os: windows-2022
+            triplet: x64-windows-static
+            feature_name: geos
+            features: '["geos"]'
+          - os: windows-2022
+            triplet: x64-windows-static
+            feature_name: ilic-geos
+            features: '["ilic","geos"]'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      VCPKG_ROOT_DIR: ${{ github.workspace }}/build/vcpkg
+      VCPKG_TRIPLET: ${{ matrix.triplet }}
+      IOX_VERSION: ${{ needs.metadata.outputs.version }}
+      IOX_REGISTRY_BASELINE: ${{ needs.metadata.outputs.registry_baseline }}
+      IOX_FEATURES: ${{ matrix.features }}
+      VCPKG_BUILTIN_BASELINE: d015e31e90838a4c9dfa3eed45979bc70d9357fc
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/.cache/vcpkg/downloads
+      VCPKG_DISABLE_METRICS: "1"
+      VCPKG_FEED_URL: https://nuget.pkg.github.com/edigonzales/index.json
+      VCPKG_BINARY_SOURCES: clear;nuget,https://nuget.pkg.github.com/edigonzales/index.json,readwrite
+      VCPKG_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out pinned vcpkg
+        uses: actions/checkout@v6
+        with:
+          repository: microsoft/vcpkg
+          ref: 2026.05.25
+          path: build/vcpkg
+          persist-credentials: false
+
+      - name: Set up MSVC developer command prompt
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Clear Visual Studio vcpkg root
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"VCPKG_ROOT=" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+
+      - name: Install Mono for NuGet
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if ! command -v mono >/dev/null 2>&1; then
+            if [[ "$RUNNER_OS" == "Linux" ]]; then
+              sudo apt-get update && sudo apt-get install --yes mono-complete
+            else
+              brew install mono
+            fi
+          fi
+
+      - name: Bootstrap vcpkg (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "$VCPKG_DOWNLOADS"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: Bootstrap vcpkg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DOWNLOADS | Out-Null
+          & "$env:VCPKG_ROOT_DIR\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Configure publisher manifest (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          root="$GITHUB_WORKSPACE/build/iox-publisher"
+          mkdir -p "$root"
+          printf '{"name":"iox-binary-cache-publisher","version-string":"0","dependencies":[{"name":"iox-cpp","features":%s}],"overrides":[{"name":"iox-cpp","version-string":"%s"}]}\n' "$IOX_FEATURES" "$IOX_VERSION" > "$root/vcpkg.json"
+          printf '{"default-registry":{"kind":"builtin","baseline":"%s"},"registries":[{"kind":"git","repository":"https://github.com/edigonzales/ilic-fork.git","reference":"vcpkg-registry","baseline":"%s","packages":["ilic","iox-cpp"]}]}\n' "$VCPKG_BUILTIN_BASELINE" "$IOX_REGISTRY_BASELINE" > "$root/vcpkg-configuration.json"
+
+      - name: Configure publisher manifest (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:GITHUB_WORKSPACE 'build\iox-publisher'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $features = $env:IOX_FEATURES | ConvertFrom-Json
+          @{name='iox-binary-cache-publisher'; 'version-string'='0'; dependencies=@(@{name='iox-cpp'; features=$features}); overrides=@(@{name='iox-cpp'; 'version-string'=$env:IOX_VERSION})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg.json')
+          @{ 'default-registry'=@{kind='builtin'; baseline=$env:VCPKG_BUILTIN_BASELINE}; registries=@(@{kind='git'; repository='https://github.com/edigonzales/ilic-fork.git'; reference='vcpkg-registry'; baseline=$env:IOX_REGISTRY_BASELINE; packages=@('ilic','iox-cpp')}) } | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg-configuration.json')
+
+      - name: Authenticate NuGet source (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          nuget_path="$($VCPKG_ROOT_DIR/vcpkg fetch nuget | tail -n 1)"
+          mono "$nuget_path" sources add -Source "$VCPKG_FEED_URL" -StorePasswordInClearText -Name GitHubPackages -UserName "$GITHUB_ACTOR" -Password "$VCPKG_GITHUB_TOKEN"
+          mono "$nuget_path" setapikey "$VCPKG_GITHUB_TOKEN" -Source "$VCPKG_FEED_URL"
+
+      - name: Authenticate NuGet source (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $nuget = (& "$env:VCPKG_ROOT_DIR\vcpkg.exe" fetch nuget | Select-Object -Last 1)
+          & $nuget sources add -Source "$env:VCPKG_FEED_URL" -StorePasswordInClearText -Name GitHubPackages -UserName "$env:GITHUB_ACTOR" -Password "$env:VCPKG_GITHUB_TOKEN"
+          & $nuget setapikey "$env:VCPKG_GITHUB_TOKEN" -Source "$env:VCPKG_FEED_URL"
+
+      - name: Build and publish binary package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd "$GITHUB_WORKSPACE/build/iox-publisher"
+          "$VCPKG_ROOT_DIR/vcpkg" install --triplet "$VCPKG_TRIPLET"
+
+      - name: Build and publish binary package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Push-Location (Join-Path $env:GITHUB_WORKSPACE 'build\iox-publisher')
+          try { & "$env:VCPKG_ROOT_DIR\vcpkg.exe" install "--triplet=$env:VCPKG_TRIPLET" } finally { Pop-Location }
+
+      - name: Verify binary-only restore (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          root="$GITHUB_WORKSPACE/build/iox-restore"
+          mkdir -p "$root"
+          printf '{"name":"iox-binary-cache-restore","version-string":"0","dependencies":[{"name":"iox-cpp","features":%s}],"overrides":[{"name":"iox-cpp","version-string":"%s"}]}\n' "$IOX_FEATURES" "$IOX_VERSION" > "$root/vcpkg.json"
+          printf '{"default-registry":{"kind":"builtin","baseline":"%s"},"registries":[{"kind":"git","repository":"https://github.com/edigonzales/ilic-fork.git","reference":"vcpkg-registry","baseline":"%s","packages":["ilic","iox-cpp"]}]}\n' "$VCPKG_BUILTIN_BASELINE" "$IOX_REGISTRY_BASELINE" > "$root/vcpkg-configuration.json"
+          cd "$root"
+          "$VCPKG_ROOT_DIR/vcpkg" install --triplet "$VCPKG_TRIPLET" --only-binarycaching
+
+      - name: Verify binary-only restore (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:GITHUB_WORKSPACE 'build\iox-restore'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $features = $env:IOX_FEATURES | ConvertFrom-Json
+          @{name='iox-binary-cache-restore'; 'version-string'='0'; dependencies=@(@{name='iox-cpp'; features=$features}); overrides=@(@{name='iox-cpp'; 'version-string'=$env:IOX_VERSION})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg.json')
+          @{ 'default-registry'=@{kind='builtin'; baseline=$env:VCPKG_BUILTIN_BASELINE}; registries=@(@{kind='git'; repository='https://github.com/edigonzales/ilic-fork.git'; reference='vcpkg-registry'; baseline=$env:IOX_REGISTRY_BASELINE; packages=@('ilic','iox-cpp')}) } | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg-configuration.json')
+          Push-Location $root
+          try { & "$env:VCPKG_ROOT_DIR\vcpkg.exe" install "--triplet=$env:VCPKG_TRIPLET" --only-binarycaching } finally { Pop-Location }

@@ -1,7 +1,8 @@
 # IoxDependencies.cmake — pinned third-party dependencies for iox-cpp
 #
-# Expat is fetched with a pinned, immutable revision recorded in
-# docs/conformance.md.  Never use a floating branch here.
+# Source builds keep the historical pinned FetchContent dependencies. Installed
+# package builds can explicitly use package-managed dependencies so exported
+# static targets remain relocatable.
 
 include(FetchContent)
 
@@ -11,7 +12,7 @@ set(IOX_ILIC_GIT_TAG "v${IOX_ILIC_VERSION}" CACHE STRING
     "Exact ilic tag or commit used by the optional integration")
 
 # ---------------------------------------------------------------------------
-# Expat — pinned immutable revision
+# Expat — pinned immutable revision or package-managed dependency
 # ---------------------------------------------------------------------------
 set(IOX_EXPAT_VERSION "R_2_6_4")
 set(IOX_EXPAT_SHA "a695629dae047055b37d50a0ff4776d1d45d0a4c842cf4ccee158441f55ff7ee")
@@ -23,9 +24,17 @@ FetchContent_Declare(
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
-# We only fetch Expat when actually needed (Phase 2+).
-# For Phase 0/1 we do not pull it.
 function(iox_fetch_expat)
+    if(IOX_USE_SYSTEM_EXPAT)
+        find_package(expat CONFIG REQUIRED)
+        if(NOT TARGET expat::expat)
+            message(FATAL_ERROR
+                "IOX_USE_SYSTEM_EXPAT requires the expat::expat CMake target")
+        endif()
+        set(IOX_EXPAT_TARGET expat::expat PARENT_SCOPE)
+        return()
+    endif()
+
     set(EXPAT_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
     set(EXPAT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(EXPAT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -33,12 +42,23 @@ function(iox_fetch_expat)
     set(EXPAT_SHARED_LIBS OFF CACHE BOOL "" FORCE)
     set(EXPAT_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(expat)
+    set(IOX_EXPAT_TARGET expat PARENT_SCOPE)
 endfunction()
 
 # ---------------------------------------------------------------------------
-# yyjson — small private JSON parser/writer used only by iox-json
+# yyjson — private JSON parser/writer, fetched by default or package-managed
 # ---------------------------------------------------------------------------
 function(iox_fetch_yyjson)
+    if(IOX_USE_SYSTEM_YYJSON)
+        find_package(yyjson CONFIG REQUIRED)
+        if(NOT TARGET yyjson::yyjson)
+            message(FATAL_ERROR
+                "IOX_USE_SYSTEM_YYJSON requires the yyjson::yyjson CMake target")
+        endif()
+        set(IOX_YYJSON_TARGET yyjson::yyjson PARENT_SCOPE)
+        return()
+    endif()
+
     set(YYJSON_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(YYJSON_BUILD_FUZZER OFF CACHE BOOL "" FORCE)
     set(YYJSON_BUILD_MISC OFF CACHE BOOL "" FORCE)
@@ -51,6 +71,7 @@ function(iox_fetch_yyjson)
         GIT_SHALLOW FALSE
     )
     FetchContent_MakeAvailable(yyjson)
+    set(IOX_YYJSON_TARGET yyjson PARENT_SCOPE)
 endfunction()
 
 # ---------------------------------------------------------------------------
@@ -61,7 +82,7 @@ function(iox_find_geos)
 endfunction()
 
 # ---------------------------------------------------------------------------
-# ilic — optional direct source integration pinned to a stable release tag
+# ilic — source integration by default, installed package when explicitly used
 # ---------------------------------------------------------------------------
 function(iox_make_ilic_available out_source_dir)
     set(ILIC_BUILD_CLI OFF CACHE BOOL "" FORCE)
@@ -88,8 +109,8 @@ function(iox_make_ilic_available out_source_dir)
         FetchContent_MakeAvailable(ilic)
         set(_iox_ilic_source_dir "${ilic_SOURCE_DIR}")
     else()
-        message(FATAL_ERROR
-            "IOX_ENABLE_ILIC requires IOX_ILIC_SOURCE_DIR or IOX_FETCH_ILIC")
+        find_package(ilic CONFIG REQUIRED)
+        set(_iox_ilic_source_dir "")
     endif()
 
     if(NOT TARGET ilic::core)
@@ -100,7 +121,8 @@ function(iox_make_ilic_available out_source_dir)
         message(FATAL_ERROR
             "ilic CLI targets must be disabled in the iox-cpp consumer build")
     endif()
-    if(NOT EXISTS "${_iox_ilic_source_dir}/source/metamodel/MetaModelStore.h")
+    if(_iox_ilic_source_dir AND
+       NOT EXISTS "${_iox_ilic_source_dir}/source/metamodel/MetaModelStore.h")
         message(FATAL_ERROR
             "ilic ${IOX_ILIC_VERSION} does not provide the expected metamodel source API")
     endif()
