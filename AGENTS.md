@@ -58,8 +58,8 @@ Explicitly read the relevant skill before each phase:
 
 ## Release automation exception
 
-The repository is mirrored from Codeberg to GitHub. Codeberg `main` remains
-the source of truth; GitHub Actions run from the mirrored GitHub repository.
+GitHub is the canonical repository and `main` is the source of truth. GitHub
+Actions run from this repository.
 The workflows `ci.yml` and `publish-iox.yml` publish only the explicitly
 documented Source/WASM artifacts. Native builds remain mandatory CI gates.
 

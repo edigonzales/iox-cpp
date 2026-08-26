@@ -669,9 +669,9 @@ ctest --test-dir build/vcpkg-installed-consumer --output-on-failure  # exit 0, 1
 cmake -S . -B build/current-core-package-2 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DIOX_ENABLE_ILIC=OFF -DIOX_ENABLE_INSTALL=ON -DIOX_USE_SYSTEM_EXPAT=ON -DIOX_USE_SYSTEM_YYJSON=ON -DCMAKE_PREFIX_PATH=build/vcpkg-smoke/vcpkg_installed/arm64-osx -DCMAKE_INSTALL_PREFIX=$PWD/build/current-core-prefix-2  # exit 0
 cmake --build build/current-core-package-2 --parallel 4 && cmake --install build/current-core-package-2  # exit 0, core-only SDK omits iox/ilic headers
 cmake -S test/consumer/installed-package -B build/current-core-consumer-2 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/build/current-core-prefix-2;$PWD/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DIOX_CONSUMER_REQUIRE_ILIC=OFF && cmake --build build/current-core-consumer-2 --parallel 4 && ctest --test-dir build/current-core-consumer-2 --output-on-failure  # exit 0, 1/1
-cmake -S . -B build/current-ilic-package-2 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ENABLE_INSTALL=ON -DIOX_USE_SYSTEM_EXPAT=ON -DIOX_USE_SYSTEM_YYJSON=ON -DCMAKE_PREFIX_PATH="/Users/stefan/sources/ilic-fork/build/package-sdk-semantic-checker-prefix;/Users/stefan/sources/iox-cpp/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DCMAKE_INSTALL_PREFIX=$PWD/build/current-ilic-prefix-2  # exit 0
+cmake -S . -B build/current-ilic-package-2 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ENABLE_INSTALL=ON -DIOX_USE_SYSTEM_EXPAT=ON -DIOX_USE_SYSTEM_YYJSON=ON -DCMAKE_PREFIX_PATH="/Users/stefan/sources/ilic-fork/build/package-sdk-semantic-checker-prefix;/Users/stefan/sources/iox-cpp-github/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DCMAKE_INSTALL_PREFIX=$PWD/build/current-ilic-prefix-2  # exit 0
 cmake --build build/current-ilic-package-2 --parallel 4 && cmake --install build/current-ilic-package-2  # exit 0, optional ilic headers/target installed
-cmake -S test/consumer/installed-package -B build/current-ilic-consumer-2 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/build/current-ilic-prefix-2;/Users/stefan/sources/ilic-fork/build/package-sdk-semantic-checker-prefix;/Users/stefan/sources/iox-cpp/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DIOX_CONSUMER_REQUIRE_ILIC=ON && cmake --build build/current-ilic-consumer-2 --parallel 4 && ctest --test-dir build/current-ilic-consumer-2 --output-on-failure  # exit 0, 1/1
+cmake -S test/consumer/installed-package -B build/current-ilic-consumer-2 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/build/current-ilic-prefix-2;/Users/stefan/sources/ilic-fork/build/package-sdk-semantic-checker-prefix;/Users/stefan/sources/iox-cpp-github/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DIOX_CONSUMER_REQUIRE_ILIC=ON && cmake --build build/current-ilic-consumer-2 --parallel 4 && ctest --test-dir build/current-ilic-consumer-2 --output-on-failure  # exit 0, 1/1
 ```
 
 The local vcpkg run required a temporary `pkg-config` shim because the
@@ -703,3 +703,21 @@ git commit -m "publish iox-cpp 0.2.0-snapshot.c82fd5f5"  # 4c1fcfd5feec69019f2dd
 The registry commit contains `iox-cpp` beside the existing `ilic` snapshot;
 the final GitHub branch update and binary-cache publication remain external
 release actions.
+
+### Phase 21 canonical GitHub checkout alignment
+
+The canonical local checkout for the GitHub repository is
+`/Users/stefan/sources/iox-cpp-github` on branch
+`codex/vcpkg-binary-pipeline` at `8106a6cb1385c9a8026236d60c00a2b88e46f035`.
+The same commit is already available as `origin/codex/vcpkg-binary-pipeline`;
+it still requires a normal pull request merge into GitHub `main` before the
+release workflow can publish it.
+
+Additional current validation against this checkout:
+
+```text
+cmake -S . -B build/native -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF  # exit 0
+ctest --test-dir build/native --output-on-failure  # exit 0, 34/34
+cmake -S . -B build/ilic-github -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork -DIOX_ILIC_VERSION=0.10.0-SNAPSHOT -DIOX_ILIC_GIT_TAG=e901af64247082b5164252b675d87bd7a2aa829d  # exit 0
+ctest --test-dir build/ilic-github --output-on-failure  # exit 0, 36/36
+```

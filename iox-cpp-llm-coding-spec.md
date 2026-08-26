@@ -4,7 +4,7 @@
 
 Diese Spezifikation beschreibt den vollständigen Aufbau des neuen Git-Repositories **`iox-cpp`**. Sie ist als ausführbare Arbeitsanweisung für einen autonomen Coding-Client gedacht, insbesondere für ChatGPT/Codex-basierte Coding-Agents und OpenCode. Der Agent arbeitet das Vorhaben phasenweise, ohne menschliche Eingriffe und ohne Rückfragen ab.
 
-Das Repository ist beim Start bereits vorhanden. Der Agent darf es **nicht neu anlegen**, keinen Remote konfigurieren und nichts pushen. CI/CD-Pipelines und Release-Automation sind ausdrücklich zulässig, wenn sie vom Auftrag verlangt werden; sie müssen dem Codeberg-zu-GitHub-Mirror-Modell und dem unten beschriebenen Source/WASM-Releasevertrag folgen. Jede abgeschlossene Phase endet mit einem getesteten, praktisch nutzbaren Artefakt und einem eigenen Git-Commit.
+Das Repository ist beim Start bereits vorhanden. Der Agent darf es **nicht neu anlegen**, keinen Remote konfigurieren und nichts pushen. CI/CD-Pipelines und Release-Automation sind ausdrücklich zulässig, wenn sie vom Auftrag verlangt werden; sie müssen dem kanonischen GitHub-Repository und dem unten beschriebenen Source/WASM-Releasevertrag folgen. Jede abgeschlossene Phase endet mit einem getesteten, praktisch nutzbaren Artefakt und einem eigenen Git-Commit.
 
 Der funktionale Fokus liegt ausschliesslich auf einem modernen, nativen und WebAssembly-tauglichen **INTERLIS-XTF-Reader/Writer-Framework**. INTERLIS 1 beziehungsweise ITF ist ausdrücklich nicht Bestandteil dieses Vorhabens.
 

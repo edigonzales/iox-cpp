@@ -1,9 +1,8 @@
 # Build- und Publikationspipeline
 
-`iox-cpp` wird auf Codeberg entwickelt und nach GitHub gespiegelt. Die GitHub
-Actions laufen deshalb erst, wenn der gewünschte Commit auf dem GitHub-Mirror
-unter `main` angekommen ist. Native Builds sind CI-Gates; veröffentlicht werden
-Source und WASM.
+`iox-cpp` wird im kanonischen GitHub-Repository entwickelt. Die GitHub Actions
+laufen auf `main` und auf Pull Requests. Native Builds sind CI-Gates;
+veröffentlicht werden Source und WASM.
 
 ## Workflows
 
@@ -55,9 +54,9 @@ Die vcpkg-Publikation wird nach einem erfolgreichen \`Publish iox-cpp\`-Lauf
 \`VCPKG_REGISTRY_TOKEN\` mit Schreibzugriff auf die \`ilic-fork\`-Registry-Branch.
 Downstream-GitHub-Actions benötigen Leserechte auf die GitHub-Packages.
 
-## Trusted Publisher und Mirror-Prüfung
+## Trusted Publisher und Repository-Prüfung
 
 Der npm Trusted Publisher für `@interlis/iox-wasm` muss auf
-`edigonzales/iox-cpp` und `.github/workflows/publish-iox.yml` zeigen. Vor dem
-ersten Lauf muss der GitHub-Mirror denselben `main`-Commit wie Codeberg besitzen;
-der Mirror sollte `main` als Default-Branch verwenden.
+`edigonzales/iox-cpp` und `.github/workflows/publish-iox.yml` zeigen. Das
+Repository muss `main` als Default-Branch verwenden; Veröffentlichungen werden
+erst nach dem Merge des Release-Kandidaten nach `main` gestartet.
