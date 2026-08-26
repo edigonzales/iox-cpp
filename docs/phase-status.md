@@ -683,3 +683,23 @@ overlay workflow now renders the port for the checked-out source commit and
 its GitHub archive SHA512; the binary-cache workflow covers standalone
 `ilic`, standalone `geos`, and the combined `ilic,geos` variant on all four
 triplets, including `x64-windows-static`.
+
+### Phase 21 current release-candidate alignment
+
+The packaging source of truth for the first current snapshot is
+`c82fd5f5a2cd8c1a06eef7b98f492055fb954460`, with version
+`0.2.0-snapshot.c82fd5f5`. The corresponding GitHub archive SHA512 is
+`ef03614d2c1b3d048187e47d966e3174121f97e6a2bed6d0430487951ac8282c9dbe8813a17334fa0bdfb438da4821d80c01d31e15503c66656b80a9bae4898b`.
+The stale ilic snapshot pins in the overlay and native-package workflows were
+updated to `0.10.0-snapshot.e901af64`.
+
+The shared-registry port was prepared from the current remote registry head:
+
+```text
+vcpkg x-add-version --x-builtin-ports-root="$PWD/ports" --x-builtin-registry-versions-dir="$PWD/versions" iox-cpp --skip-version-format-check --verbose  # exit 0
+git commit -m "publish iox-cpp 0.2.0-snapshot.c82fd5f5"  # 4c1fcfd5feec69019f2dd87b5f28390ff618b667
+```
+
+The registry commit contains `iox-cpp` beside the existing `ilic` snapshot;
+the final GitHub branch update and binary-cache publication remain external
+release actions.
