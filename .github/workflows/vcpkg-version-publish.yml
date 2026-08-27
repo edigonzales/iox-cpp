@@ -122,7 +122,14 @@ jobs:
           curl --fail --location --retry 3 \
             "https://github.com/$GITHUB_REPOSITORY/archive/$SOURCE_SHA.tar.gz" \
             --output "$archive"
-          sha512=$(sha512sum "$archive" | awk '{print $1}')
+          if command -v sha512sum >/dev/null 2>&1; then
+            sha512=$(sha512sum "$archive" | awk '{print $1}')
+          elif command -v shasum >/dev/null 2>&1; then
+            sha512=$(shasum -a 512 "$archive" | awk '{print $1}')
+          else
+            echo "No SHA-512 utility available on this runner" >&2
+            exit 1
+          fi
           [[ "$sha512" =~ ^[0-9a-f]{128}$ ]] || { echo "Invalid source archive SHA512: $sha512" >&2; exit 1; }
           echo "sha512=$sha512" >> "$GITHUB_OUTPUT"
 

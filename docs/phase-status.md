@@ -713,6 +713,22 @@ The same commit is already available as `origin/codex/vcpkg-binary-pipeline`;
 it still requires a normal pull request merge into GitHub `main` before the
 release workflow can publish it.
 
+### Phase 21 CI portability repair
+
+The Unix vcpkg overlay and registry-publish workflows now calculate source
+archive SHA512 values with `sha512sum` when available and fall back to
+macOS's `shasum -a 512`. This keeps the generated digest format unchanged and
+fixes the `arm64-osx` runner failure caused by the missing `sha512sum`
+executable.
+
+Validation on macOS:
+
+```text
+PATH=/usr/bin:/bin bash -c 'if command -v sha512sum >/dev/null 2>&1; then sha512=$(sha512sum LICENSE | awk "{print \$1}"); tool=sha512sum; elif command -v shasum >/dev/null 2>&1; then sha512=$(shasum -a 512 LICENSE | awk "{print \$1}"); tool=shasum; else exit 1; fi; [[ "$sha512" =~ ^[0-9a-f]{128}$ ]] && echo "Portable SHA-512 OK via $tool"'  # exit 0, fallback via shasum
+ruby -e 'require "yaml"; ARGV.each { |path| YAML.load_file(path) }' .github/workflows/vcpkg-overlay-02.yml .github/workflows/vcpkg-version-publish.yml  # exit 0
+git diff --check  # exit 0
+```
+
 Additional current validation against this checkout:
 
 ```text

@@ -106,7 +106,14 @@ jobs:
           curl --fail --location --retry 3 \
             "https://github.com/$GITHUB_REPOSITORY/archive/$source_sha.tar.gz" \
             --output "$archive"
-          sha512=$(sha512sum "$archive" | awk '{print $1}')
+          if command -v sha512sum >/dev/null 2>&1; then
+            sha512=$(sha512sum "$archive" | awk '{print $1}')
+          elif command -v shasum >/dev/null 2>&1; then
+            sha512=$(shasum -a 512 "$archive" | awk '{print $1}')
+          else
+            echo "No SHA-512 utility available on this runner" >&2
+            exit 1
+          fi
           node scripts/prepare-vcpkg-registry-port.mjs \
             --template-dir vcpkg/ports/iox-cpp \
             --output-dir "$GITHUB_WORKSPACE/build/current-overlay/iox-cpp" \
