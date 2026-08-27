@@ -729,6 +729,12 @@ ruby -e 'require "yaml"; ARGV.each { |path| YAML.load_file(path) }' .github/work
 git diff --check  # exit 0
 ```
 
+The Windows static-triplet consumer checks then exposed a separate CRT
+configuration mismatch: vcpkg's `x64-windows-static` libraries use `/MT`,
+while a standalone CMake consumer defaults to `/MD`. Both CI consumer
+configurations now pass `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` only for
+that static triplet; the dynamic Windows triplet remains unchanged.
+
 Additional current validation against this checkout:
 
 ```text

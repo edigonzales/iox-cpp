@@ -227,6 +227,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_TOOLCHAIN_FILE=${{ env.IOX_VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
           -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+          ${{ matrix.triplet == 'x64-windows-static' && '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded' || '' }}
           -DVCPKG_MANIFEST_MODE=OFF
           -DVCPKG_INSTALLED_DIR=${{ github.workspace }}/build/vcpkg-consumer/vcpkg_installed
           -DIOX_CONSUMER_REQUIRE_ILIC=ON
