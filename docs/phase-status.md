@@ -669,9 +669,9 @@ ctest --test-dir build/vcpkg-installed-consumer --output-on-failure  # exit 0, 1
 cmake -S . -B build/current-core-package-2 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DIOX_ENABLE_ILIC=OFF -DIOX_ENABLE_INSTALL=ON -DIOX_USE_SYSTEM_EXPAT=ON -DIOX_USE_SYSTEM_YYJSON=ON -DCMAKE_PREFIX_PATH=build/vcpkg-smoke/vcpkg_installed/arm64-osx -DCMAKE_INSTALL_PREFIX=$PWD/build/current-core-prefix-2  # exit 0
 cmake --build build/current-core-package-2 --parallel 4 && cmake --install build/current-core-package-2  # exit 0, core-only SDK omits iox/ilic headers
 cmake -S test/consumer/installed-package -B build/current-core-consumer-2 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/build/current-core-prefix-2;$PWD/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DIOX_CONSUMER_REQUIRE_ILIC=OFF && cmake --build build/current-core-consumer-2 --parallel 4 && ctest --test-dir build/current-core-consumer-2 --output-on-failure  # exit 0, 1/1
-cmake -S . -B build/current-ilic-package-2 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ENABLE_INSTALL=ON -DIOX_USE_SYSTEM_EXPAT=ON -DIOX_USE_SYSTEM_YYJSON=ON -DCMAKE_PREFIX_PATH="/Users/stefan/sources/ilic-fork/build/package-sdk-semantic-checker-prefix;/Users/stefan/sources/iox-cpp/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DCMAKE_INSTALL_PREFIX=$PWD/build/current-ilic-prefix-2  # exit 0
+cmake -S . -B build/current-ilic-package-2 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ENABLE_INSTALL=ON -DIOX_USE_SYSTEM_EXPAT=ON -DIOX_USE_SYSTEM_YYJSON=ON -DCMAKE_PREFIX_PATH="/Users/stefan/sources/ilic-fork/build/package-sdk-semantic-checker-prefix;/Users/stefan/sources/iox-cpp-github/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DCMAKE_INSTALL_PREFIX=$PWD/build/current-ilic-prefix-2  # exit 0
 cmake --build build/current-ilic-package-2 --parallel 4 && cmake --install build/current-ilic-package-2  # exit 0, optional ilic headers/target installed
-cmake -S test/consumer/installed-package -B build/current-ilic-consumer-2 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/build/current-ilic-prefix-2;/Users/stefan/sources/ilic-fork/build/package-sdk-semantic-checker-prefix;/Users/stefan/sources/iox-cpp/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DIOX_CONSUMER_REQUIRE_ILIC=ON && cmake --build build/current-ilic-consumer-2 --parallel 4 && ctest --test-dir build/current-ilic-consumer-2 --output-on-failure  # exit 0, 1/1
+cmake -S test/consumer/installed-package -B build/current-ilic-consumer-2 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/build/current-ilic-prefix-2;/Users/stefan/sources/ilic-fork/build/package-sdk-semantic-checker-prefix;/Users/stefan/sources/iox-cpp-github/build/vcpkg-smoke/vcpkg_installed/arm64-osx" -DIOX_CONSUMER_REQUIRE_ILIC=ON && cmake --build build/current-ilic-consumer-2 --parallel 4 && ctest --test-dir build/current-ilic-consumer-2 --output-on-failure  # exit 0, 1/1
 ```
 
 The local vcpkg run required a temporary `pkg-config` shim because the
@@ -683,3 +683,63 @@ overlay workflow now renders the port for the checked-out source commit and
 its GitHub archive SHA512; the binary-cache workflow covers standalone
 `ilic`, standalone `geos`, and the combined `ilic,geos` variant on all four
 triplets, including `x64-windows-static`.
+
+### Phase 21 current release-candidate alignment
+
+The packaging source of truth for the first current snapshot is
+`c82fd5f5a2cd8c1a06eef7b98f492055fb954460`, with version
+`0.2.0-snapshot.c82fd5f5`. The corresponding GitHub archive SHA512 is
+`ef03614d2c1b3d048187e47d966e3174121f97e6a2bed6d0430487951ac8282c9dbe8813a17334fa0bdfb438da4821d80c01d31e15503c66656b80a9bae4898b`.
+The stale ilic snapshot pins in the overlay and native-package workflows were
+updated to `0.10.0-snapshot.e901af64`.
+
+The shared-registry port was prepared from the current remote registry head:
+
+```text
+vcpkg x-add-version --x-builtin-ports-root="$PWD/ports" --x-builtin-registry-versions-dir="$PWD/versions" iox-cpp --skip-version-format-check --verbose  # exit 0
+git commit -m "publish iox-cpp 0.2.0-snapshot.c82fd5f5"  # 4c1fcfd5feec69019f2dd87b5f28390ff618b667
+```
+
+The registry commit contains `iox-cpp` beside the existing `ilic` snapshot;
+the final GitHub branch update and binary-cache publication remain external
+release actions.
+
+### Phase 21 canonical GitHub checkout alignment
+
+The canonical local checkout for the GitHub repository is
+`/Users/stefan/sources/iox-cpp-github` on branch
+`codex/vcpkg-binary-pipeline` at `8106a6cb1385c9a8026236d60c00a2b88e46f035`.
+The same commit is already available as `origin/codex/vcpkg-binary-pipeline`;
+it still requires a normal pull request merge into GitHub `main` before the
+release workflow can publish it.
+
+### Phase 21 CI portability repair
+
+The Unix vcpkg overlay and registry-publish workflows now calculate source
+archive SHA512 values with `sha512sum` when available and fall back to
+macOS's `shasum -a 512`. This keeps the generated digest format unchanged and
+fixes the `arm64-osx` runner failure caused by the missing `sha512sum`
+executable.
+
+Validation on macOS:
+
+```text
+PATH=/usr/bin:/bin bash -c 'if command -v sha512sum >/dev/null 2>&1; then sha512=$(sha512sum LICENSE | awk "{print \$1}"); tool=sha512sum; elif command -v shasum >/dev/null 2>&1; then sha512=$(shasum -a 512 LICENSE | awk "{print \$1}"); tool=shasum; else exit 1; fi; [[ "$sha512" =~ ^[0-9a-f]{128}$ ]] && echo "Portable SHA-512 OK via $tool"'  # exit 0, fallback via shasum
+ruby -e 'require "yaml"; ARGV.each { |path| YAML.load_file(path) }' .github/workflows/vcpkg-overlay-02.yml .github/workflows/vcpkg-version-publish.yml  # exit 0
+git diff --check  # exit 0
+```
+
+The Windows static-triplet consumer checks then exposed a separate CRT
+configuration mismatch: vcpkg's `x64-windows-static` libraries use `/MT`,
+while a standalone CMake consumer defaults to `/MD`. Both CI consumer
+configurations now pass `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` only for
+that static triplet; the dynamic Windows triplet remains unchanged.
+
+Additional current validation against this checkout:
+
+```text
+cmake -S . -B build/native -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF  # exit 0
+ctest --test-dir build/native --output-on-failure  # exit 0, 34/34
+cmake -S . -B build/ilic-github -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork -DIOX_ILIC_VERSION=0.10.0-SNAPSHOT -DIOX_ILIC_GIT_TAG=e901af64247082b5164252b675d87bd7a2aa829d  # exit 0
+ctest --test-dir build/ilic-github --output-on-failure  # exit 0, 36/36
+```

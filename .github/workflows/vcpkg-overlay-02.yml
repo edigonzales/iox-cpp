@@ -38,7 +38,7 @@ jobs:
     env:
       IOX_VCPKG_ROOT: ${{ github.workspace }}/build/vcpkg
       VCPKG_TRIPLET: ${{ matrix.triplet }}
-      ILIC_VERSION: 0.10.0-snapshot.cd74490b
+      ILIC_VERSION: 0.10.0-snapshot.e901af64
       VCPKG_BUILTIN_BASELINE: d015e31e90838a4c9dfa3eed45979bc70d9357fc
       VCPKG_DOWNLOADS: ${{ github.workspace }}/.cache/vcpkg/downloads
       VCPKG_DISABLE_METRICS: "1"
@@ -106,7 +106,14 @@ jobs:
           curl --fail --location --retry 3 \
             "https://github.com/$GITHUB_REPOSITORY/archive/$source_sha.tar.gz" \
             --output "$archive"
-          sha512=$(sha512sum "$archive" | awk '{print $1}')
+          if command -v sha512sum >/dev/null 2>&1; then
+            sha512=$(sha512sum "$archive" | awk '{print $1}')
+          elif command -v shasum >/dev/null 2>&1; then
+            sha512=$(shasum -a 512 "$archive" | awk '{print $1}')
+          else
+            echo "No SHA-512 utility available on this runner" >&2
+            exit 1
+          fi
           node scripts/prepare-vcpkg-registry-port.mjs \
             --template-dir vcpkg/ports/iox-cpp \
             --output-dir "$GITHUB_WORKSPACE/build/current-overlay/iox-cpp" \
@@ -220,6 +227,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_TOOLCHAIN_FILE=${{ env.IOX_VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
           -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+          ${{ matrix.triplet == 'x64-windows-static' && '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded' || '' }}
           -DVCPKG_MANIFEST_MODE=OFF
           -DVCPKG_INSTALLED_DIR=${{ github.workspace }}/build/vcpkg-consumer/vcpkg_installed
           -DIOX_CONSUMER_REQUIRE_ILIC=ON

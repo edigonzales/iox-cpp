@@ -37,7 +37,7 @@ jobs:
     env:
       IOX_VCPKG_ROOT: ${{ github.workspace }}/build/vcpkg
       VCPKG_TRIPLET: ${{ matrix.triplet }}
-      ILIC_VERSION: 0.10.0-snapshot.cd74490b
+      ILIC_VERSION: 0.10.0-snapshot.e901af64
       VCPKG_BUILTIN_BASELINE: d015e31e90838a4c9dfa3eed45979bc70d9357fc
       VCPKG_DOWNLOADS: ${{ github.workspace }}/.cache/vcpkg/downloads
       VCPKG_DISABLE_METRICS: "1"
@@ -190,6 +190,7 @@ jobs:
           -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
           -DCMAKE_TOOLCHAIN_FILE=${{ env.IOX_VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
           -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+          ${{ matrix.triplet == 'x64-windows-static' && '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded' || '' }}
           -DVCPKG_MANIFEST_MODE=OFF
           -DVCPKG_INSTALLED_DIR=${{ github.workspace }}/build/sdk-deps/vcpkg_installed
           -DBUILD_TESTING=OFF
@@ -212,6 +213,7 @@ jobs:
           -DCMAKE_PREFIX_PATH=${{ github.workspace }}/build/iox-prefix
           -DCMAKE_TOOLCHAIN_FILE=${{ env.IOX_VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
           -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+          ${{ matrix.triplet == 'x64-windows-static' && '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded' || '' }}
           -DVCPKG_MANIFEST_MODE=OFF
           -DVCPKG_INSTALLED_DIR=${{ github.workspace }}/build/sdk-deps/vcpkg_installed
           -DIOX_CONSUMER_REQUIRE_ILIC=ON
