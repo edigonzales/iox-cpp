@@ -735,6 +735,26 @@ while a standalone CMake consumer defaults to `/MD`. Both CI consumer
 configurations now pass `-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` only for
 that static triplet; the dynamic Windows triplet remains unchanged.
 
+### Phase 21 Windows publisher manifest repair
+
+The Windows publisher and binary-only restore manifests preserve single
+features as JSON arrays by wrapping the `ConvertFrom-Json` result in an
+explicit PowerShell array. Both steps validate the serialized manifest before
+calling vcpkg. The Windows environment now points `VCPKG_ROOT` at the pinned
+checkout used by the workflow, eliminating the mismatched-root warning.
+
+Validation of the workflow change:
+
+```text
+ruby -e 'require "yaml"; Dir[".github/workflows/*.yml"].each { |path| YAML.load_file(path); puts "YAML OK: #{path}" }'  # exit 0
+node -e 'for (const raw of ["[\"ilic\"]", "[\"geos\"]", "[\"ilic\",\"geos\"]"]) { const parsed = JSON.parse(raw); const features = Array.isArray(parsed) ? parsed : [parsed]; const manifest = { dependencies: [{ features }] }; if (!Array.isArray(manifest.dependencies[0].features)) process.exit(1); } console.log("Single- and multi-feature JSON arrays OK")'  # exit 0
+git diff --check  # exit 0
+```
+
+PowerShell is not installed in the local macOS checkout; the exact
+PowerShell serialization and Windows vcpkg invocation remain covered by
+Windows CI.
+
 Additional current validation against this checkout:
 
 ```text

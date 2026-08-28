@@ -143,10 +143,10 @@ jobs:
         with:
           arch: x64
 
-      - name: Clear Visual Studio vcpkg root
+      - name: Set Visual Studio vcpkg root
         if: runner.os == 'Windows'
         shell: pwsh
-        run: '"VCPKG_ROOT=" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+        run: '"VCPKG_ROOT=$env:VCPKG_ROOT_DIR" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
 
       - name: Install Mono for NuGet
         if: runner.os != 'Windows'
@@ -189,8 +189,10 @@ jobs:
         run: |
           $root = Join-Path $env:GITHUB_WORKSPACE 'build\iox-publisher'
           New-Item -ItemType Directory -Force -Path $root | Out-Null
-          $features = $env:IOX_FEATURES | ConvertFrom-Json
-          @{name='iox-binary-cache-publisher'; 'version-string'='0'; dependencies=@(@{name='iox-cpp'; features=$features}); overrides=@(@{name='iox-cpp'; 'version-string'=$env:IOX_VERSION})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg.json')
+          $features = @($env:IOX_FEATURES | ConvertFrom-Json)
+          $manifest = @{name='iox-binary-cache-publisher'; 'version-string'='0'; dependencies=@(@{name='iox-cpp'; features=$features}); overrides=@(@{name='iox-cpp'; 'version-string'=$env:IOX_VERSION})} | ConvertTo-Json -Depth 10
+          if ($manifest -notmatch '"features"\s*:\s*\[') { throw 'Publisher manifest features must be a JSON array' }
+          $manifest | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg.json')
           @{ 'default-registry'=@{kind='builtin'; baseline=$env:VCPKG_BUILTIN_BASELINE}; registries=@(@{kind='git'; repository='https://github.com/edigonzales/ilic-fork.git'; reference='vcpkg-registry'; baseline=$env:IOX_REGISTRY_BASELINE; packages=@('ilic','iox-cpp')}) } | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg-configuration.json')
 
       - name: Authenticate NuGet source (Unix)
@@ -240,8 +242,10 @@ jobs:
         run: |
           $root = Join-Path $env:GITHUB_WORKSPACE 'build\iox-restore'
           New-Item -ItemType Directory -Force -Path $root | Out-Null
-          $features = $env:IOX_FEATURES | ConvertFrom-Json
-          @{name='iox-binary-cache-restore'; 'version-string'='0'; dependencies=@(@{name='iox-cpp'; features=$features}); overrides=@(@{name='iox-cpp'; 'version-string'=$env:IOX_VERSION})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg.json')
+          $features = @($env:IOX_FEATURES | ConvertFrom-Json)
+          $manifest = @{name='iox-binary-cache-restore'; 'version-string'='0'; dependencies=@(@{name='iox-cpp'; features=$features}); overrides=@(@{name='iox-cpp'; 'version-string'=$env:IOX_VERSION})} | ConvertTo-Json -Depth 10
+          if ($manifest -notmatch '"features"\s*:\s*\[') { throw 'Restore manifest features must be a JSON array' }
+          $manifest | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg.json')
           @{ 'default-registry'=@{kind='builtin'; baseline=$env:VCPKG_BUILTIN_BASELINE}; registries=@(@{kind='git'; repository='https://github.com/edigonzales/ilic-fork.git'; reference='vcpkg-registry'; baseline=$env:IOX_REGISTRY_BASELINE; packages=@('ilic','iox-cpp')}) } | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg-configuration.json')
           Push-Location $root
           try { & "$env:VCPKG_ROOT_DIR\vcpkg.exe" install "--triplet=$env:VCPKG_TRIPLET" --only-binarycaching } finally { Pop-Location }
