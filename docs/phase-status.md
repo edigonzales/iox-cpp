@@ -23,6 +23,7 @@
 | 18 | completed | 04bac0b | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic warnings-as-errors build (0), CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 8/8 | deferred to Phase 20 | Concrete MetaModelStore API, pointer-free compact index, exact translations/QNames, roles, views, transient members, enums and transfer order |
 | 19 | completed | 07ba57e | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic build CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 10/10; real browser + module worker pass | deferred to Phase 20 | ABI/result schema 2 states, bounded JS writer output, streaming Node/browser workers, normalized diagnostic/event and exact 236-byte writer parity |
 | 20 | completed | this commit | Debug 38/38; Release 38/38; ASan/UBSan 38/38; 100,000-object reader/writer smoke | Emscripten 3.1.64 build (0); Node/WASM 10/10 | core 98.12/85.81; json 97.77/87.22; xml 94.86/88.26; xtf 93.24/86.16; ABI 90.25/85.52; ilic 92.32/75.00 (line/branch %) | Five fuzz targets 5/5; 214-method matrix; seven-case pinned Java differential; macOS only, Linux/Windows open |
+| 22 | completed | this commit | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 34/34); dependency-lock tests 2/2 | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 10/10) | N/A | Locked cached ilic/Expat/yyjson dependencies on four triplets, source-built iox, external-fork fallback, ilic-main canary |
 
 The older Phase 11 and post-11 percentages were aggregate reports, not the
 per-module release gates required for 0.2. Phase 20 supersedes them with one
@@ -762,4 +763,39 @@ cmake -S . -B build/native -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF  # exi
 ctest --test-dir build/native --output-on-failure  # exit 0, 34/34
 cmake -S . -B build/ilic-github -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_ENABLE_ILIC=ON -DIOX_ILIC_SOURCE_DIR=/Users/stefan/sources/ilic-fork -DIOX_ILIC_VERSION=0.10.0-SNAPSHOT -DIOX_ILIC_GIT_TAG=e901af64247082b5164252b675d87bd7a2aa829d  # exit 0
 ctest --test-dir build/ilic-github --output-on-failure  # exit 0, 36/36
+```
+
+## Harmonized cached native dependency builds — Phase 22
+
+`release/dependencies.lock.json` is now the single committed source for the
+ilic source/archive identity, vcpkg tool revision, builtin baseline, and shared
+registry baseline. The blocking four-triplet CI restores the locked ilic,
+Expat 2.8.1, and yyjson 0.12.0 packages with `--only-binarycaching`, then builds
+the current iox checkout from source with `IOX_FETCH_ILIC=OFF`. An external
+fork without package credentials uses the same manifests with a source
+fallback instead.
+
+The stable source contract remains ilic `v0.9.10` and is blocking for iox
+release tags. Current `ilic/main` is deliberately separate: the scheduled or
+manual canary resolves and records its full SHA, builds ilic from source, and
+does not make the reproducible main CI fail. The tested dependency roles are:
+
+| Path | ilic | Expat | yyjson | Gate |
+|------|------|-------|--------|------|
+| Local source build | optional sibling/tag source | 2.6.4 source | 0.12.0 source | blocking locally |
+| Reproducible native CI | locked vcpkg snapshot | 2.8.1 binary | 0.12.0 binary | blocking |
+| Stable release contract | `v0.9.10` source | 2.6.4 source | 0.12.0 source | blocking on `v*` |
+| Current-main canary | resolved full SHA source | 2.6.4 source | 0.12.0 source | visible, non-blocking |
+
+### Phase 22 verification commands
+
+```text
+python3 scripts/release_metadata.py check                         # exit 0
+python3 -m unittest test/release_metadata_test.py                 # exit 0, 2/2
+./scripts/build-native.sh                                         # exit 0
+./scripts/test-native.sh                                          # exit 0, 34/34
+./scripts/build-wasm.sh                                           # exit 0, Emscripten 3.1.64
+./scripts/test-wasm.sh                                            # exit 0, 10/10
+ruby -e 'require "yaml"; Dir[".github/workflows/*.yml"].each { |path| YAML.load_file(path) }'  # exit 0
+git diff --check                                                   # exit 0
 ```

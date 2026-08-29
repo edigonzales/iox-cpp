@@ -24,6 +24,7 @@
 | 19 | Native, WASM, Browser, and Worker Parity | completed |
 | 20 | Independent Conformance and Release Gates | completed |
 | 21 | Native vcpkg SDK Packaging and Binary Cache | completed |
+| 22 | Harmonized Cached Native Dependency Builds | completed |
 
 ## Acceptance Criteria per Phase
 
@@ -133,3 +134,10 @@ See `docs/phase-status.md` for detailed per-phase criteria and test results.
   repeated-memory, and warnings-as-errors gates
 - Platform claims limited to runs actually performed; Linux and Windows remain
   explicitly open
+
+### Phase 22
+- Committed dependency lock is the source of all ilic and vcpkg pins
+- Current iox source builds against cached ilic, Expat, and yyjson packages
+- Internal builds require the binary cache; external forks retain a source fallback
+- The moving `ilic/main` integration is isolated in a non-blocking canary
+- Stable iox tags retain a blocking source test against ilic `v0.9.10`

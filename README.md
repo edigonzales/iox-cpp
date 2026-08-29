@@ -9,7 +9,7 @@ event stream containing transfers, baskets, objects, and end events.
 - XTF 2.3 objects, references, structures, and geometry;
 - XTF 2.4 namespaces, references, structures, and multi-geometry;
 - ordered, repeated IOM attributes with copy-on-write objects;
-- secure incremental XML parsing with private Expat 2.6.4;
+- secure incremental XML parsing with a pinned Expat dependency;
 - deterministic XML writing;
 - C99 ABI and the `@interlis/iox-wasm` Node/browser/worker package;
 - optional direct `ilic-core` integration through `iox-ilic`.
@@ -18,7 +18,7 @@ ITF, INTERLIS 1, GML/CSV conversion, full constraint validation, GEOS/JTS
 conversion, dynamic plugins, and GUI code are intentionally out of scope.
 Release automation is documented in
 [`docs/build-und-publikationspipeline.md`](docs/build-und-publikationspipeline.md);
-it publishes only Source/WASM artifacts while native builds remain CI gates.
+native SDK variants are additionally published to the vcpkg binary cache.
 
 ## Status
 
@@ -38,9 +38,11 @@ source /path/to/emsdk/emsdk_env.sh
 ./scripts/test-wasm.sh
 ```
 
-The regular build is offline after its pinned Expat source is available. It
-does not require Java. The optional model-aware module has two explicit source
-paths.
+The regular local source build uses private Expat 2.6.4. Reproducible CI uses
+the committed dependency lock and restores ilic, Expat 2.8.1, and yyjson
+0.12.0 from the binary cache before compiling the current iox checkout.
+External forks retain a source fallback. No build requires Java. The optional
+model-aware module has two explicit source paths.
 
 For local joint development against a sibling checkout:
 

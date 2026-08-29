@@ -1,0 +1,15 @@
+{
+  "name": "iox02-ci-dependencies",
+  "version-string": "0",
+  "dependencies": [
+    "expat",
+    "yyjson",
+    "ilic"
+  ],
+  "overrides": [
+    {
+      "name": "ilic",
+      "version-string": "0.10.0-snapshot.e901af64"
+    }
+  ]
+}

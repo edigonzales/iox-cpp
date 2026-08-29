@@ -37,13 +37,12 @@ jobs:
     env:
       IOX_VCPKG_ROOT: ${{ github.workspace }}/build/vcpkg
       VCPKG_TRIPLET: ${{ matrix.triplet }}
-      ILIC_VERSION: 0.10.0-snapshot.e901af64
-      VCPKG_BUILTIN_BASELINE: d015e31e90838a4c9dfa3eed45979bc70d9357fc
       VCPKG_DOWNLOADS: ${{ github.workspace }}/.cache/vcpkg/downloads
       VCPKG_DISABLE_METRICS: "1"
       VCPKG_FEED_URL: https://nuget.pkg.github.com/edigonzales/index.json
       VCPKG_BINARY_SOURCES: clear;nuget,https://nuget.pkg.github.com/edigonzales/index.json,read
       VCPKG_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      IS_EXTERNAL_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       SCCACHE_DIR: ${{ github.workspace }}/.cache/sccache
       SCCACHE_CACHE_SIZE: 2G
       SCCACHE_BASEDIRS: ${{ github.workspace }}
@@ -53,12 +52,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/checkout@v6
-        with:
-          repository: microsoft/vcpkg
-          ref: 2026.05.25
-          path: build/vcpkg
-          persist-credentials: false
+      - name: Verify committed dependency lock
+        run: |
+          python3 scripts/release_metadata.py check
+          python3 scripts/release_metadata.py export-github-env --output "$GITHUB_ENV"
+
+      - name: Check out locked vcpkg
+        shell: bash
+        run: git clone --depth 1 --branch "$IOX_VCPKG_REF" https://github.com/microsoft/vcpkg.git "$IOX_VCPKG_ROOT"
 
       - uses: mozilla-actions/sccache-action@v0.0.11
         with:
@@ -102,67 +103,21 @@ jobs:
           New-Item -ItemType Directory -Force -Path $env:VCPKG_DOWNLOADS | Out-Null
           & "$env:IOX_VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
 
-      - name: Resolve ilic registry baseline (Unix)
-        if: runner.os != 'Windows'
+      - name: Stage locked dependency manifest
         shell: bash
         run: |
-          baseline="$(git ls-remote https://github.com/edigonzales/ilic-fork.git refs/heads/vcpkg-registry | awk '{print $1}')"
-          [[ "$baseline" =~ ^[0-9a-f]{40}$ ]]
-          echo "ILIC_REGISTRY_BASELINE=$baseline" >> "$GITHUB_ENV"
-
-      - name: Resolve ilic registry baseline (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $baseline = ((git ls-remote https://github.com/edigonzales/ilic-fork.git refs/heads/vcpkg-registry) -split '\s+')[0]
-          if ($baseline -notmatch '^[0-9a-f]{40}$') { throw 'Could not resolve ilic registry baseline' }
-          "ILIC_REGISTRY_BASELINE=$baseline" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Configure dependency manifest (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          root="$GITHUB_WORKSPACE/build/sdk-deps"
-          mkdir -p "$root"
-          cat > "$root/vcpkg.json" <<EOF
-          {
-            "name": "iox02-sdk-dependencies",
-            "version-string": "0",
-            "dependencies": ["expat", "yyjson", "ilic"],
-            "overrides": [{"name":"ilic","version-string":"$ILIC_VERSION"}]
-          }
-          EOF
-          cat > "$root/vcpkg-configuration.json" <<EOF
-          {
-            "default-registry": {"kind":"builtin","baseline":"$VCPKG_BUILTIN_BASELINE"},
-            "registries": [{
-              "kind":"git",
-              "repository":"https://github.com/edigonzales/ilic-fork.git",
-              "reference":"vcpkg-registry",
-              "baseline":"$ILIC_REGISTRY_BASELINE",
-              "packages":["ilic"]
-            }]
-          }
-          EOF
-
-      - name: Configure dependency manifest (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $root = Join-Path $env:GITHUB_WORKSPACE 'build\sdk-deps'
-          New-Item -ItemType Directory -Force -Path $root | Out-Null
-          @{name='iox02-sdk-dependencies'; 'version-string'='0'; dependencies=@('expat','yyjson','ilic'); overrides=@(@{name='ilic'; 'version-string'=$env:ILIC_VERSION})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg.json')
-          @{'default-registry'=@{kind='builtin'; baseline=$env:VCPKG_BUILTIN_BASELINE}; registries=@(@{kind='git'; repository='https://github.com/edigonzales/ilic-fork.git'; reference='vcpkg-registry'; baseline=$env:ILIC_REGISTRY_BASELINE; packages=@('ilic')})} | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 (Join-Path $root 'vcpkg-configuration.json')
+          rm -rf "$GITHUB_WORKSPACE/build/sdk-deps"
+          cp -R release/vcpkg-dependencies "$GITHUB_WORKSPACE/build/sdk-deps"
 
       - name: Authenticate GitHub Packages (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && env.IS_EXTERNAL_FORK != 'true'
         shell: bash
         run: |
           NUGET_PATH="$("$IOX_VCPKG_ROOT/vcpkg" fetch nuget | tail -n 1)"
           mono "$NUGET_PATH" sources add -Source "$VCPKG_FEED_URL" -StorePasswordInClearText -Name GitHubPackages -UserName "$GITHUB_ACTOR" -Password "$VCPKG_GITHUB_TOKEN"
 
       - name: Authenticate GitHub Packages (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && env.IS_EXTERNAL_FORK != 'true'
         shell: pwsh
         run: |
           $nuget = (& "$env:IOX_VCPKG_ROOT\vcpkg.exe" fetch nuget | Select-Object -Last 1)
@@ -171,14 +126,27 @@ jobs:
       - name: Install SDK dependencies (Unix)
         if: runner.os != 'Windows'
         shell: bash
-        run: cd "$GITHUB_WORKSPACE/build/sdk-deps" && "$IOX_VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET"
+        run: |
+          cd "$GITHUB_WORKSPACE/build/sdk-deps"
+          if [[ "$IS_EXTERNAL_FORK" == true ]]; then
+            VCPKG_BINARY_SOURCES=clear "$IOX_VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET"
+          else
+            "$IOX_VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET" --only-binarycaching
+          fi
 
       - name: Install SDK dependencies (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Push-Location "$env:GITHUB_WORKSPACE\build\sdk-deps"
-          try { & "$env:IOX_VCPKG_ROOT\vcpkg.exe" install "--triplet=$env:VCPKG_TRIPLET" } finally { Pop-Location }
+          try {
+            if ($env:IS_EXTERNAL_FORK -eq 'true') {
+              $env:VCPKG_BINARY_SOURCES = 'clear'
+              & "$env:IOX_VCPKG_ROOT\vcpkg.exe" install "--triplet=$env:VCPKG_TRIPLET"
+            } else {
+              & "$env:IOX_VCPKG_ROOT\vcpkg.exe" install "--triplet=$env:VCPKG_TRIPLET" --only-binarycaching
+            }
+          } finally { Pop-Location }
 
       - name: Configure installable SDK
         run: >-

@@ -9,83 +9,144 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   native:
-    name: Native (${{ matrix.name }})
+    name: Native source with cached dependencies (${{ matrix.triplet }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Linux x86_64
-            os: ubuntu-latest
-          - name: macOS ARM64
-            os: macos-14
-          - name: Windows x86_64
-            os: windows-latest
+          - os: ubuntu-latest
+            triplet: x64-linux
+          - os: macos-14
+            triplet: arm64-osx
+          - os: windows-2022
+            triplet: x64-windows
+          - os: windows-2022
+            triplet: x64-windows-static
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 50
+    env:
+      VCPKG_ROOT_DIR: ${{ github.workspace }}/build/vcpkg
+      VCPKG_INSTALLED_DIR: ${{ github.workspace }}/build/ci-deps/vcpkg_installed
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/build/vcpkg-downloads
+      VCPKG_DISABLE_METRICS: "1"
+      VCPKG_FEED_URL: https://nuget.pkg.github.com/edigonzales/index.json
+      VCPKG_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      IS_EXTERNAL_FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Verify lock and export pinned toolchain
+        run: |
+          python3 scripts/release_metadata.py check
+          python3 scripts/release_metadata.py export-github-env --output "$GITHUB_ENV"
       - name: Verify runner architecture
         shell: bash
         run: |
-          set -euo pipefail
           case "${{ runner.os }}" in
             Linux) test "$(uname -m)" = x86_64 ;;
             macOS) test "$(uname -m)" = arm64 ;;
             Windows) test "$(uname -m)" = x86_64 || test "${PROCESSOR_ARCHITECTURE:-}" = AMD64 ;;
           esac
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes libxml2-dev ninja-build
-      - name: Resolve exact ilic revision
-        if: runner.os != 'Windows'
+      - if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Install host tools
         shell: bash
         run: |
           set -euo pipefail
-          ilic_base_version=$(sed -nE 's/^set\(IOX_ILIC_VERSION "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' cmake/IoxDependencies.cmake)
-          if [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git "refs/tags/v${ilic_base_version}^{}" | awk 'NR == 1 { print $1 }')
-            [[ -n "$ilic_sha" ]] || ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git "refs/tags/v${ilic_base_version}" | awk 'NR == 1 { print $1 }')
-          else
-            ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git refs/heads/main | awk 'NR == 1 { print $1 }')
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get update
+            sudo apt-get install --yes mono-complete ninja-build
+          elif [[ "$RUNNER_OS" == macOS ]]; then
+            brew install mono ninja
           fi
-          [[ "$ilic_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Could not resolve ilic revision" >&2; exit 1; }
-          # The main branch may be ahead of the stable ilic release pinned in
-          # IoxDependencies.cmake (for example 0.10.0-SNAPSHOT vs 0.9.10).
-          # Compile the test contract against the runtime version of the exact
-          # source revision selected above.
-          ilic_version=$(bash scripts/resolve-ilic-runtime-version.sh "$ilic_sha")
-          {
-            echo "IOX_ILIC_VERSION=$ilic_version"
-            echo "IOX_ILIC_GIT_TAG=$ilic_sha"
-          } >> "$GITHUB_ENV"
-      - name: Configure native build (Unix)
-        if: runner.os != 'Windows'
+      - name: Check out and bootstrap locked vcpkg
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$IOX_VCPKG_REF" https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT_DIR"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            "$VCPKG_ROOT_DIR/bootstrap-vcpkg.bat" -disableMetrics
+          else
+            "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+      - name: Authenticate binary cache
+        if: env.IS_EXTERNAL_FORK != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            nuget_path=$("$VCPKG_ROOT_DIR/vcpkg.exe" fetch nuget | tail -n 1)
+            "$nuget_path" sources add -Source "$VCPKG_FEED_URL" -StorePasswordInClearText -Name GitHubPackages -UserName "$GITHUB_ACTOR" -Password "$VCPKG_GITHUB_TOKEN"
+          else
+            nuget_path=$("$VCPKG_ROOT_DIR/vcpkg" fetch nuget | tail -n 1)
+            mono "$nuget_path" sources add -Source "$VCPKG_FEED_URL" -StorePasswordInClearText -Name GitHubPackages -UserName "$GITHUB_ACTOR" -Password "$VCPKG_GITHUB_TOKEN"
+          fi
+      - name: Install locked dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          command="$VCPKG_ROOT_DIR/vcpkg"
+          [[ "$RUNNER_OS" == Windows ]] && command="$VCPKG_ROOT_DIR/vcpkg.exe"
+          extra=()
+          if [[ "$IS_EXTERNAL_FORK" == true ]]; then
+            export VCPKG_BINARY_SOURCES=clear
+            echo "External fork: source fallback enabled"
+          else
+            export VCPKG_BINARY_SOURCES="clear;nuget,$VCPKG_FEED_URL,read"
+            extra+=(--only-binarycaching)
+          fi
+          "$command" install \
+            --x-manifest-root="$GITHUB_WORKSPACE/release/vcpkg-dependencies" \
+            --x-install-root="$VCPKG_INSTALLED_DIR" \
+            --downloads-root="$VCPKG_DOWNLOADS" \
+            --triplet="${{ matrix.triplet }}" "${extra[@]}"
+      - name: Configure iox source against installed dependencies
+        shell: bash
         run: >-
           cmake -S . -B build/ci -G Ninja
           -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT_DIR/scripts/buildsystems/vcpkg.cmake"
+          -DCMAKE_PREFIX_PATH="$VCPKG_INSTALLED_DIR/${{ matrix.triplet }}"
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+          -DVCPKG_MANIFEST_MODE=OFF
+          -DVCPKG_INSTALLED_DIR="$VCPKG_INSTALLED_DIR"
+          ${{ matrix.triplet == 'x64-windows-static' && '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded' || '' }}
           -DBUILD_TESTING=ON
           -DIOX_BUILD_EXAMPLES=ON
+          -DIOX_USE_SYSTEM_EXPAT=ON
+          -DIOX_USE_SYSTEM_YYJSON=ON
           -DIOX_ENABLE_ILIC=ON
-          -DIOX_FETCH_ILIC=ON
-          -DIOX_ILIC_VERSION="$IOX_ILIC_VERSION"
-          -DIOX_ILIC_GIT_TAG="$IOX_ILIC_GIT_TAG"
-      - name: Configure native build (Windows)
-        if: runner.os == 'Windows'
-        run: >-
-          cmake -S . -B build/ci -A x64
-          -DCMAKE_BUILD_TYPE=Release
-          -DBUILD_TESTING=ON
-          -DIOX_BUILD_EXAMPLES=ON
-          -DIOX_ENABLE_ILIC=OFF
-      - name: Build and test native libraries
+          -DIOX_FETCH_ILIC=OFF
+      - name: Build and test current iox source
         run: |
           cmake --build build/ci --config Release --parallel
           ctest --test-dir build/ci -C Release --output-on-failure
+
+  stable-ilic-contract:
+    name: Stable ilic source contract
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install --yes ninja-build
+      - name: Build against the documented stable ilic tag
+        run: |
+          cmake -S . -B build/stable-ilic -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
+            -DIOX_ENABLE_ILIC=ON -DIOX_FETCH_ILIC=ON \
+            -DIOX_ILIC_VERSION=0.9.10 -DIOX_ILIC_GIT_TAG=v0.9.10
+          cmake --build build/stable-ilic --parallel
+          ctest --test-dir build/stable-ilic --output-on-failure
 
   wasm:
     name: WebAssembly package

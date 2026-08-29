@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "project": "iox-cpp",
+  "dependencies": {
+    "ilic": {
+      "version": "0.10.0-snapshot.e901af64",
+      "sourceSha": "e901af64247082b5164252b675d87bd7a2aa829d",
+      "archiveSha512": "da4164656eee321e2d9c2f8d405624f2168eefcd6d34bba7211ebb5fe2bb016297e423df8ab5966431328ff67bd6440efb3a7381facdde4749b64966f59a62cd"
+    },
+    "expat": {
+      "version": "2.8.1"
+    },
+    "yyjson": {
+      "version": "0.12.0"
+    }
+  },
+  "vcpkg": {
+    "toolRef": "2026.05.25",
+    "builtinBaseline": "d015e31e90838a4c9dfa3eed45979bc70d9357fc",
+    "registry": {
+      "repository": "https://github.com/edigonzales/ilic-fork.git",
+      "reference": "vcpkg-registry",
+      "baseline": "4c1fcfd5feec69019f2dd87b5f28390ff618b667"
+    }
+  }
+}
