@@ -4,6 +4,7 @@
   "dependencies": {
     "ilic": {
       "version": "0.10.0-snapshot.e901af64",
+      "runtimeVersion": "0.10.0-SNAPSHOT",
       "sourceSha": "e901af64247082b5164252b675d87bd7a2aa829d",
       "archiveSha512": "da4164656eee321e2d9c2f8d405624f2168eefcd6d34bba7211ebb5fe2bb016297e423df8ab5966431328ff67bd6440efb3a7381facdde4749b64966f59a62cd"
     },

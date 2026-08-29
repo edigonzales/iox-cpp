@@ -784,7 +784,7 @@ does not make the reproducible main CI fail. The tested dependency roles are:
 | Path | ilic | Expat | yyjson | Gate |
 |------|------|-------|--------|------|
 | Local source build | optional sibling/tag source | 2.6.4 source | 0.12.0 source | blocking locally |
-| Reproducible native CI | locked vcpkg snapshot | 2.8.1 binary | 0.12.0 binary | blocking |
+| Reproducible native CI | locked vcpkg snapshot; runtime `0.10.0-SNAPSHOT` | 2.8.1 binary | 0.12.0 binary | blocking |
 | Stable release contract | `v0.9.10` source | 2.6.4 source | 0.12.0 source | blocking on `v*` |
 | Current-main canary | resolved full SHA source | 2.6.4 source | 0.12.0 source | visible, non-blocking |
 
@@ -843,10 +843,22 @@ variable syntax, and the cached-dependency job creates `VCPKG_DOWNLOADS`
 before bootstrapping vcpkg. The installed-SDK and overlay workflows also run
 when the dependency lock or its validator changes.
 
+The second pull-request run then restored every binary dependency and built
+all four triplets successfully. It exposed a remaining identity mix-up in the
+runtime contract test: stable source tag `0.9.10`, vcpkg package version
+`0.10.0-snapshot.e901af64`, and the package's reported runtime version
+`0.10.0-SNAPSHOT` had been treated as one value. The dependency lock now
+records the latter explicitly as `runtimeVersion`; CI passes that value to the
+strict runtime test, whose failure output now prints both expected and actual
+values.
+
 ```text
 python3 scripts/release_metadata.py check                         # exit 0
-python3 test/release_metadata_test.py                             # exit 0, 6/6
+python3 test/release_metadata_test.py                             # exit 0, 7/7
 node --test test/release_scripts_test.mjs                         # exit 0, 2/2
+cmake -S . -B build/ci-contract-make -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/Users/stefan/sources/iox-cpp/build/vcpkg-registry-smoke/vcpkg_installed/arm64-osx -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_USE_SYSTEM_EXPAT=ON -DIOX_USE_SYSTEM_YYJSON=ON -DIOX_ENABLE_ILIC=ON -DIOX_FETCH_ILIC=OFF -DIOX_ILIC_VERSION=0.10.0-SNAPSHOT  # exit 0
+cmake --build build/ci-contract-make --target iox-test-ilic-version --parallel  # exit 0
+ctest --test-dir build/ci-contract-make --output-on-failure -R '^iox.test.ilic.version$'  # exit 0, 1/1
 ./scripts/build-native.sh                                         # exit 0
 ./scripts/test-native.sh                                          # exit 0, 34/34
 ./scripts/build-wasm.sh                                           # exit 0, Emscripten 3.1.64

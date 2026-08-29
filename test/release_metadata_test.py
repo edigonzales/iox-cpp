@@ -38,6 +38,20 @@ class DependencyLockTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "stale"):
                 release_metadata.sync(root, True)
 
+    def test_lock_rejects_a_runtime_version_from_another_release_line(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "release").mkdir()
+            lock = json.loads(
+                (ROOT / "release/dependencies.lock.json").read_text(encoding="utf-8")
+            )
+            lock["dependencies"]["ilic"]["runtimeVersion"] = "0.11.0-SNAPSHOT"
+            (root / "release/dependencies.lock.json").write_text(
+                json.dumps(lock), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "share a base version"):
+                release_metadata.load_lock(root)
+
     def test_snapshot_version_is_deterministic_and_uses_twelve_sha_characters(self):
         version = release_metadata.snapshot_version("0.2.0", self.sha)
         self.assertEqual(version, "0.2.0-snapshot.g0123456789ab")
@@ -85,6 +99,10 @@ class DependencyLockTest(unittest.TestCase):
             )
             lock = release_metadata.load_lock(ROOT)
             self.assertEqual(exported["IOX_VCPKG_REF"], lock["vcpkg"]["toolRef"])
+            self.assertEqual(
+                exported["IOX_ILIC_RUNTIME_VERSION"],
+                lock["dependencies"]["ilic"]["runtimeVersion"],
+            )
             self.assertEqual(
                 exported["IOX_ILIC_SOURCE_SHA"],
                 lock["dependencies"]["ilic"]["sourceSha"],

@@ -75,8 +75,11 @@ integration remains intentional for the stable `v0.9.10` contract because
 that historical tag predates ilic's installable native CMake package. Current
 ilic `0.10` snapshots do ship an installable package and are consumed through
 vcpkg in the reproducible binary-cache CI. Test `iox.test.ilic.version`
-verifies the exact runtime version; the existing model-based test also proves
-that the compact index does not retain metamodel pointers beyond construction.
+verifies the exact runtime version committed as `runtimeVersion` in the
+dependency lock. This is deliberately separate from the vcpkg package version:
+the historical package `0.10.0-snapshot.e901af64` reports
+`0.10.0-SNAPSHOT` at runtime. The existing model-based test also proves that
+the compact index does not retain metamodel pointers beyond construction.
 
 ### Pin verification
 

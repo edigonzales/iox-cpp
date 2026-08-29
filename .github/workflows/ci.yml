@@ -126,6 +126,7 @@ jobs:
           -DIOX_USE_SYSTEM_YYJSON=ON
           -DIOX_ENABLE_ILIC=ON
           -DIOX_FETCH_ILIC=OFF
+          -DIOX_ILIC_VERSION="$IOX_ILIC_RUNTIME_VERSION"
       - name: Build and test current iox source
         run: |
           cmake --build build/ci --config Release --parallel

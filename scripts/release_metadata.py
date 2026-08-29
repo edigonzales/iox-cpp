@@ -19,6 +19,9 @@ SHA512_RE = re.compile(r"^[0-9a-f]{128}$")
 SNAPSHOT_RE = re.compile(
     r"^(?P<base>[0-9]+\.[0-9]+\.[0-9]+)-snapshot\.g(?P<sha>[0-9a-f]{12})$"
 )
+RUNTIME_VERSION_RE = re.compile(
+    r"^[0-9]+\.[0-9]+\.[0-9]+(?:-SNAPSHOT|-snapshot\.g[0-9a-f]{12})?$"
+)
 
 
 def require_semver(value: str) -> str:
@@ -96,6 +99,11 @@ def load_lock(root: pathlib.Path) -> dict:
         version,
     ):
         raise ValueError("ilic version is neither a supported legacy nor current vcpkg version")
+    runtime_version = ilic.get("runtimeVersion", "")
+    if not RUNTIME_VERSION_RE.fullmatch(runtime_version):
+        raise ValueError("ilic runtimeVersion is neither stable nor a supported snapshot")
+    if runtime_version.split("-", 1)[0] != version.split("-", 1)[0]:
+        raise ValueError("ilic runtimeVersion and vcpkg version must share a base version")
     return data
 
 
@@ -199,6 +207,7 @@ def export_github_env(root: pathlib.Path, output: pathlib.Path) -> None:
         "IOX_VCPKG_BUILTIN_BASELINE": vcpkg["builtinBaseline"],
         "IOX_REGISTRY_BASELINE": vcpkg["registry"]["baseline"],
         "IOX_ILIC_PACKAGE_VERSION": ilic["version"],
+        "IOX_ILIC_RUNTIME_VERSION": ilic["runtimeVersion"],
         "IOX_ILIC_SOURCE_SHA": ilic["sourceSha"],
         "IOX_ILIC_ARCHIVE_SHA512": ilic["archiveSha512"],
     }

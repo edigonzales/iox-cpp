@@ -138,6 +138,7 @@ See `docs/phase-status.md` for detailed per-phase criteria and test results.
 
 ### Phase 22
 - Committed dependency lock is the source of all ilic and vcpkg pins
+- The lock distinguishes the selected vcpkg package from its reported runtime version
 - Current iox source builds against cached ilic, Expat, and yyjson packages
 - Internal builds require the binary cache; external forks retain a source fallback
 - The moving `ilic/main` integration is isolated in a non-blocking canary
