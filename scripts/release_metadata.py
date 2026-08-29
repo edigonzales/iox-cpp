@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -206,6 +207,15 @@ def export_github_env(root: pathlib.Path, output: pathlib.Path) -> None:
             stream.write(f"{key}={value}\n")
 
 
+def github_env_output(output: pathlib.Path | None) -> pathlib.Path:
+    if output is not None:
+        return output
+    value = os.environ.get("GITHUB_ENV")
+    if not value:
+        raise ValueError("export-github-env requires --output or GITHUB_ENV")
+    return pathlib.Path(value)
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser()
     result.add_argument("--project-root", type=pathlib.Path, default=pathlib.Path.cwd())
@@ -224,7 +234,7 @@ def parser() -> argparse.ArgumentParser:
     manifest.add_argument("--toolchain")
     manifest.add_argument("--output", type=pathlib.Path, required=True)
     export = sub.add_parser("export-github-env")
-    export.add_argument("--output", type=pathlib.Path, required=True)
+    export.add_argument("--output", type=pathlib.Path)
     return result
 
 
@@ -260,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         else:
-            export_github_env(root, args.output)
+            export_github_env(root, github_env_output(args.output))
     except (ValueError, subprocess.CalledProcessError) as error:
         print(str(error), file=sys.stderr)
         return 1

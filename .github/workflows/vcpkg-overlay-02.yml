@@ -8,6 +8,9 @@ on:
       - "cmake/**"
       - "include/**"
       - "source/**"
+      - "release/**"
+      - "scripts/release_metadata.py"
+      - "test/release_metadata_test.py"
       - "test/consumer/**"
       - "vcpkg/**"
       - "scripts/prepare-vcpkg-registry-port.mjs"
@@ -54,7 +57,7 @@ jobs:
       - name: Verify committed dependency lock
         run: |
           python3 scripts/release_metadata.py check
-          python3 scripts/release_metadata.py export-github-env --output "$GITHUB_ENV"
+          python3 scripts/release_metadata.py export-github-env
 
       - name: Check out locked vcpkg
         shell: bash

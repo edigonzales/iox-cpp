@@ -42,8 +42,9 @@ jobs:
           persist-credentials: false
       - name: Verify lock and export pinned toolchain
         run: |
+          python3 test/release_metadata_test.py
           python3 scripts/release_metadata.py check
-          python3 scripts/release_metadata.py export-github-env --output "$GITHUB_ENV"
+          python3 scripts/release_metadata.py export-github-env
       - name: Verify runner architecture
         shell: bash
         run: |
@@ -71,6 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           git clone --depth 1 --branch "$IOX_VCPKG_REF" https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT_DIR"
+          python3 -c 'import os, pathlib; pathlib.Path(os.environ["VCPKG_DOWNLOADS"]).mkdir(parents=True, exist_ok=True)'
           if [[ "$RUNNER_OS" == Windows ]]; then
             "$VCPKG_ROOT_DIR/bootstrap-vcpkg.bat" -disableMetrics
           else

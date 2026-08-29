@@ -1,8 +1,10 @@
 import importlib.util
 import json
+import os
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -68,6 +70,25 @@ class DependencyLockTest(unittest.TestCase):
             release_metadata.load_lock(ROOT)["dependencies"]["ilic"]["sourceSha"],
         )
         self.assertEqual(manifest["build"]["githubRunId"], "42")
+
+    def test_github_environment_export_does_not_depend_on_the_job_shell(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "github-env"
+            with mock.patch.dict(os.environ, {"GITHUB_ENV": str(output)}):
+                result = release_metadata.main(
+                    ["--project-root", str(ROOT), "export-github-env"]
+                )
+            self.assertEqual(result, 0)
+            exported = dict(
+                line.split("=", 1)
+                for line in output.read_text(encoding="utf-8").splitlines()
+            )
+            lock = release_metadata.load_lock(ROOT)
+            self.assertEqual(exported["IOX_VCPKG_REF"], lock["vcpkg"]["toolRef"])
+            self.assertEqual(
+                exported["IOX_ILIC_SOURCE_SHA"],
+                lock["dependencies"]["ilic"]["sourceSha"],
+            )
 
 
 if __name__ == "__main__":

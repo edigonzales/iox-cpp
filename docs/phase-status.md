@@ -792,7 +792,7 @@ does not make the reproducible main CI fail. The tested dependency roles are:
 
 ```text
 python3 scripts/release_metadata.py check                         # exit 0
-python3 -m unittest test/release_metadata_test.py                 # exit 0, 2/2
+python3 test/release_metadata_test.py                             # exit 0, 2/2
 ./scripts/build-native.sh                                         # exit 0
 ./scripts/test-native.sh                                          # exit 0, 34/34
 ./scripts/build-wasm.sh                                           # exit 0, Emscripten 3.1.64
@@ -822,10 +822,31 @@ published until its one-time npm/Trusted-Publisher bootstrap succeeds.
 
 ```text
 python3 scripts/release_metadata.py check                         # exit 0
-python3 -m unittest test/release_metadata_test.py                 # exit 0, 5/5
+python3 test/release_metadata_test.py                             # exit 0, 5/5
 node --test test/release_scripts_test.mjs                         # exit 0, 2/2
 node scripts/verify-release.mjs --staging-root build/phase23-release --expected-version 0.2.0-snapshot.ga0cb15f5661e --expected-source-sha a0cb15f5661e779ba438d2d8a7f7bb06627961b8  # exit 0
 npm pack --dry-run --json build/phase23-release/package           # exit 0, provenance included
+./scripts/build-native.sh                                         # exit 0
+./scripts/test-native.sh                                          # exit 0, 34/34
+./scripts/build-wasm.sh                                           # exit 0, Emscripten 3.1.64
+./scripts/test-wasm.sh                                            # exit 0, 10/10
+ruby -e 'require "yaml"; Dir[".github/workflows/*.yml"].each { |path| YAML.load_file(path) }'  # exit 0
+git diff --check                                                   # exit 0
+```
+
+### Phase 23 CI portability repair
+
+The first pull-request run exposed two runner-specific setup defects before
+any compiler work started. `export-github-env` now reads the `GITHUB_ENV`
+path directly from the process environment instead of relying on shell
+variable syntax, and the cached-dependency job creates `VCPKG_DOWNLOADS`
+before bootstrapping vcpkg. The installed-SDK and overlay workflows also run
+when the dependency lock or its validator changes.
+
+```text
+python3 scripts/release_metadata.py check                         # exit 0
+python3 test/release_metadata_test.py                             # exit 0, 6/6
+node --test test/release_scripts_test.mjs                         # exit 0, 2/2
 ./scripts/build-native.sh                                         # exit 0
 ./scripts/test-native.sh                                          # exit 0, 34/34
 ./scripts/build-wasm.sh                                           # exit 0, Emscripten 3.1.64
