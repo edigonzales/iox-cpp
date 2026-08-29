@@ -24,6 +24,7 @@
 | 19 | completed | 07ba57e | Top-level warnings-as-errors build (0); CTest 35/35; direct ilic build CTest 30/30 | Emscripten 3.1.64 build (0); Node/WASM 10/10; real browser + module worker pass | deferred to Phase 20 | ABI/result schema 2 states, bounded JS writer output, streaming Node/browser workers, normalized diagnostic/event and exact 236-byte writer parity |
 | 20 | completed | this commit | Debug 38/38; Release 38/38; ASan/UBSan 38/38; 100,000-object reader/writer smoke | Emscripten 3.1.64 build (0); Node/WASM 10/10 | core 98.12/85.81; json 97.77/87.22; xml 94.86/88.26; xtf 93.24/86.16; ABI 90.25/85.52; ilic 92.32/75.00 (line/branch %) | Five fuzz targets 5/5; 214-method matrix; seven-case pinned Java differential; macOS only, Linux/Windows open |
 | 22 | completed | this commit | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 34/34); dependency-lock tests 2/2 | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 10/10) | N/A | Locked cached ilic/Expat/yyjson dependencies on four triplets, source-built iox, external-fork fallback, ilic-main canary |
+| 23 | completed | this commit | `./scripts/build-native.sh` (0); `./scripts/test-native.sh` (0, 34/34); metadata tests 5/5; release-script tests 2/2 | `./scripts/build-wasm.sh` (0, Emscripten 3.1.64); `./scripts/test-wasm.sh` (0, 10/10); staged npm consumer pass | N/A | Unified 12-SHA versions, full provenance, manual snapshots, sole registry writer, npm dry-run verification |
 
 The older Phase 11 and post-11 percentages were aggregate reports, not the
 per-module release gates required for 0.2. Phase 20 supersedes them with one
@@ -792,6 +793,39 @@ does not make the reproducible main CI fail. The tested dependency roles are:
 ```text
 python3 scripts/release_metadata.py check                         # exit 0
 python3 -m unittest test/release_metadata_test.py                 # exit 0, 2/2
+./scripts/build-native.sh                                         # exit 0
+./scripts/test-native.sh                                          # exit 0, 34/34
+./scripts/build-wasm.sh                                           # exit 0, Emscripten 3.1.64
+./scripts/test-wasm.sh                                            # exit 0, 10/10
+ruby -e 'require "yaml"; Dir[".github/workflows/*.yml"].each { |path| YAML.load_file(path) }'  # exit 0
+git diff --check                                                   # exit 0
+```
+
+## Deterministic release provenance — Phase 23
+
+npm and vcpkg now derive the same snapshot identity from the committed iox
+source: `X.Y.Z-snapshot.g<12-character SHA>`. The full SHA, dependency lock,
+baselines, run ID, date, and toolchain remain in `interlis-release.json`; the
+npm package also carries an explicit `gitHead`. Old timestamp/run-ID and
+eight-character schemes remain historical inputs only and cannot be generated
+by the new release helpers.
+
+Snapshots require a manual dispatch from `main`; stable publication requires
+a new matching `vX.Y.Z` tag. `iox-cpp` no longer checks out or pushes the
+shared registry. It sends a content-addressed request to the serialized
+`ilic-fork` writer, validates the public result, and only then dispatches its
+own binary publisher. The existing cross-repository token is confined to that
+request. `@interlis/iox-wasm` remains explicitly documented as not yet
+published until its one-time npm/Trusted-Publisher bootstrap succeeds.
+
+### Phase 23 verification commands
+
+```text
+python3 scripts/release_metadata.py check                         # exit 0
+python3 -m unittest test/release_metadata_test.py                 # exit 0, 5/5
+node --test test/release_scripts_test.mjs                         # exit 0, 2/2
+node scripts/verify-release.mjs --staging-root build/phase23-release --expected-version 0.2.0-snapshot.ga0cb15f5661e --expected-source-sha a0cb15f5661e779ba438d2d8a7f7bb06627961b8  # exit 0
+npm pack --dry-run --json build/phase23-release/package           # exit 0, provenance included
 ./scripts/build-native.sh                                         # exit 0
 ./scripts/test-native.sh                                          # exit 0, 34/34
 ./scripts/build-wasm.sh                                           # exit 0, Emscripten 3.1.64

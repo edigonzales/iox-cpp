@@ -25,6 +25,7 @@
 | 20 | Independent Conformance and Release Gates | completed |
 | 21 | Native vcpkg SDK Packaging and Binary Cache | completed |
 | 22 | Harmonized Cached Native Dependency Builds | completed |
+| 23 | Deterministic Release Provenance | completed |
 
 ## Acceptance Criteria per Phase
 
@@ -141,3 +142,10 @@ See `docs/phase-status.md` for detailed per-phase criteria and test results.
 - Internal builds require the binary cache; external forks retain a source fallback
 - The moving `ilic/main` integration is isolated in a non-blocking canary
 - Stable iox tags retain a blocking source test against ilic `v0.9.10`
+
+### Phase 23
+- npm and vcpkg snapshots use `X.Y.Z-snapshot.g<12-character source SHA>`
+- `interlis-release.json` and npm `gitHead` retain full source/dependency SHAs
+- Snapshot publication is manual; stable publication requires a matching `vX.Y.Z` tag
+- Only `ilic-fork` writes the shared vcpkg registry
+- The binary publisher validates the registry entry before building and restoring every feature variant

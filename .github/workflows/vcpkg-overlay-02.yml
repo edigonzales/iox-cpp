@@ -102,7 +102,7 @@ jobs:
           set -euo pipefail
           source_sha=$(git rev-parse HEAD)
           base_version=$(sed -nE 's/.*project\(iox-cpp VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
-          version="$base_version-snapshot.${source_sha:0:8}"
+          version="$base_version-snapshot.g${source_sha:0:12}"
           archive="$RUNNER_TEMP/iox-cpp-$source_sha.tar.gz"
           curl --fail --location --retry 3 \
             "https://github.com/$GITHUB_REPOSITORY/archive/$source_sha.tar.gz" \
@@ -129,7 +129,7 @@ jobs:
         run: |
           $sourceSha = (git rev-parse HEAD).Trim()
           $baseVersion = ((Select-String -Path CMakeLists.txt -Pattern 'project\(iox-cpp VERSION ([0-9]+\.[0-9]+\.[0-9]+)' | Select-Object -First 1).Matches[0].Groups[1].Value)
-          $version = "$baseVersion-snapshot.$($sourceSha.Substring(0, 8))"
+          $version = "$baseVersion-snapshot.g$($sourceSha.Substring(0, 12))"
           $archive = Join-Path $env:RUNNER_TEMP "iox-cpp-$sourceSha.tar.gz"
           Invoke-WebRequest -Uri "https://github.com/$env:GITHUB_REPOSITORY/archive/$sourceSha.tar.gz" -OutFile $archive
           $sha512 = (Get-FileHash -Path $archive -Algorithm SHA512).Hash.ToLowerInvariant()

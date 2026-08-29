@@ -1,19 +1,9 @@
 name: Publish iox-cpp
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      ilic_sha:
-        description: Optional exact ilic-fork commit SHA; required with ilic_version
-        required: false
-        type: string
-      ilic_version:
-        description: Optional exact ilic version X.Y.Z; required with ilic_sha
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -26,101 +16,43 @@ concurrency:
 jobs:
   resolve:
     name: Resolve immutable release contract
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     outputs:
       source_sha: ${{ steps.contract.outputs.source_sha }}
-      source_ref: ${{ steps.contract.outputs.source_ref }}
       channel: ${{ steps.contract.outputs.channel }}
       version: ${{ steps.contract.outputs.version }}
-      base_version: ${{ steps.contract.outputs.base_version }}
-      ilic_sha: ${{ steps.contract.outputs.ilic_sha }}
-      ilic_version: ${{ steps.contract.outputs.ilic_version }}
       tag: ${{ steps.contract.outputs.tag }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
-      - name: Resolve release contract
+      - name: Resolve release contract from tag or manual snapshot
         id: contract
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
-          WORKFLOW_RUN_REF: ${{ github.event.workflow_run.head_branch }}
-          INPUT_ILIC_SHA: ${{ inputs.ilic_sha }}
-          INPUT_ILIC_VERSION: ${{ inputs.ilic_version }}
         shell: bash
         run: |
           set -euo pipefail
-
-          source_sha="${WORKFLOW_RUN_SHA:-$(git rev-parse HEAD)}"
-          source_ref="${WORKFLOW_RUN_REF:-$GITHUB_REF_NAME}"
-          if [[ ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Release source is not a full commit SHA: $source_sha" >&2
-            exit 1
-          fi
-          if [[ "$EVENT_NAME" == workflow_run && ! "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            tagged_source_ref=$(git ls-remote --tags https://github.com/${GITHUB_REPOSITORY}.git 'refs/tags/v*' \
-              | awk -v sha="$source_sha" '$1 == sha && $2 ~ /\^\{\}$/ { sub("refs/tags/", "", $2); sub("\\^\\{\\}$", "", $2); print $2; exit }')
-            source_ref="${tagged_source_ref:-$source_ref}"
-          fi
-
-          base_version=$(node -p "require('./packages/iox-wasm/package.json').version")
-          cmake_version=$(sed -nE 's/.*project\(iox-cpp VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
-          [[ "$base_version" == "$cmake_version" ]] || {
-            echo "CMake version $cmake_version does not match package version $base_version" >&2
-            exit 1
-          }
-
-          channel=snapshot
-          tag=""
-          if [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          python3 scripts/release_metadata.py check
+          source_sha=$(git rev-parse HEAD)
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Stable release requires vX.Y.Z" >&2; exit 1; }
+            [[ "$(git rev-list -n 1 "$GITHUB_REF_NAME")" == "$source_sha" ]] || { echo "Tag does not point at checkout" >&2; exit 1; }
             channel=stable
-            tag="$source_ref"
-            expected_version="${source_ref#v}"
-            [[ "$expected_version" == "$base_version" ]] || {
-              echo "Tag $source_ref does not match project version $base_version" >&2
-              exit 1
-            }
-            version="$expected_version"
+            tag=$GITHUB_REF_NAME
+            version=$(python3 scripts/release_metadata.py version --kind stable --tag "$tag" --source-sha "$source_sha")
           else
-            timestamp=$(date -u +%Y%m%d%H%M%S)
-            version="${base_version}-SNAPSHOT.${timestamp}.${GITHUB_RUN_ID}"
+            [[ "$GITHUB_REF" == refs/heads/main ]] || { echo "Snapshots may only be dispatched from main" >&2; exit 1; }
+            channel=snapshot
+            tag=""
+            version=$(python3 scripts/release_metadata.py version --kind snapshot --source-sha "$source_sha")
           fi
-
-          ilic_sha="${INPUT_ILIC_SHA:-}"
-          ilic_version="${INPUT_ILIC_VERSION:-}"
-          if [[ -n "$ilic_sha" || -n "$ilic_version" ]]; then
-            [[ -n "$ilic_sha" && -n "$ilic_version" ]] || {
-              echo "ilic_sha and ilic_version must be supplied together" >&2
-              exit 1
-            }
-          elif [[ "$channel" == stable ]]; then
-            ilic_version=$(sed -nE 's/^set\(IOX_ILIC_VERSION "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' cmake/IoxDependencies.cmake)
-            ilic_tag=$(sed -nE 's/^set\(IOX_ILIC_GIT_TAG "([^"]+)".*/\1/p' cmake/IoxDependencies.cmake)
-            [[ -n "$ilic_tag" ]] || ilic_tag="v$ilic_version"
-            ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git "refs/tags/${ilic_tag}^{}" | awk 'NR == 1 { print $1 }')
-            [[ -n "$ilic_sha" ]] || ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git "refs/tags/$ilic_tag" | awk 'NR == 1 { print $1 }')
-          else
-            ilic_sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git refs/heads/main | awk 'NR == 1 { print $1 }')
-            ilic_version=$(sed -nE 's/^set\(IOX_ILIC_VERSION "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' cmake/IoxDependencies.cmake)
-          fi
-
-          [[ "$ilic_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid ilic version: $ilic_version" >&2; exit 1; }
-          [[ "$ilic_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid ilic SHA: $ilic_sha" >&2; exit 1; }
           {
             echo "source_sha=$source_sha"
-            echo "source_ref=$source_ref"
             echo "channel=$channel"
             echo "version=$version"
-            echo "base_version=$base_version"
-            echo "ilic_sha=$ilic_sha"
-            echo "ilic_version=$ilic_version"
             echo "tag=$tag"
           } >> "$GITHUB_OUTPUT"
 
@@ -152,23 +84,30 @@ jobs:
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
           ./scripts/build-wasm.sh
           npm test --prefix packages/iox-wasm
-      - name: Stage release package and manifest
+      - name: Stage package with deterministic provenance
         shell: bash
         run: |
           set -euo pipefail
+          published_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 scripts/release_metadata.py manifest \
+            --artifact-version "${{ needs.resolve.outputs.version }}" \
+            --source-sha "${{ needs.resolve.outputs.source_sha }}" \
+            --run-id "$GITHUB_RUN_ID" \
+            --published-at "$published_at" \
+            --toolchain "emscripten-$(tr -d '[:space:]' < .emscripten-version)" \
+            --output "$RUNNER_TEMP/interlis-release.json"
           node scripts/stage-release.mjs \
             --channel "${{ needs.resolve.outputs.channel }}" \
             --version "${{ needs.resolve.outputs.version }}" \
             --source-sha "${{ needs.resolve.outputs.source_sha }}" \
-            --ilic-version "${{ needs.resolve.outputs.ilic_version }}" \
-            --ilic-sha "${{ needs.resolve.outputs.ilic_sha }}" \
-            --run-id "$GITHUB_RUN_ID" \
+            --release-manifest "$RUNNER_TEMP/interlis-release.json" \
             --output build/release
           mkdir -p build/release/tarballs
           npm pack build/release/package --pack-destination build/release/tarballs >/dev/null
           node scripts/verify-release.mjs \
             --staging-root build/release \
-            --expected-version "${{ needs.resolve.outputs.version }}"
+            --expected-version "${{ needs.resolve.outputs.version }}" \
+            --expected-source-sha "${{ needs.resolve.outputs.source_sha }}"
           git archive --format=tar.gz \
             --prefix="iox-cpp-${{ needs.resolve.outputs.version }}/" \
             -o build/release/iox-cpp-${{ needs.resolve.outputs.version }}-source.tar.gz \
@@ -181,15 +120,13 @@ jobs:
             build/release/tarballs/*.tgz
             build/release/*-source.tar.gz
             build/release/SHA256SUMS
-            build/release/release-manifest.json
+            build/release/interlis-release.json
           if-no-files-found: error
           retention-days: 14
 
   publish-npm:
     name: Publish @interlis/iox-wasm
-    needs:
-      - resolve
-      - build
+    needs: [resolve, build]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -207,7 +144,7 @@ jobs:
           registry-url: https://registry.npmjs.org
       - name: Install OIDC-capable npm
         run: npm install --global npm@11.18.0
-      - name: Publish package idempotently
+      - name: Publish immutable package version
         env:
           NPM_CONFIG_PROVENANCE: true
           EXPECTED_VERSION: ${{ needs.resolve.outputs.version }}
@@ -217,37 +154,22 @@ jobs:
         run: |
           set -euo pipefail
           tarball=$(find build/release/tarballs -type f -name '*.tgz' -print -quit)
-          package_name=$(tar -xOf "$tarball" package/package.json | node -e 'let d=""; process.stdin.on("data", c => d += c).on("end", () => process.stdout.write(JSON.parse(d).name))')
+          package_name=$(tar -xOf "$tarball" package/package.json | jq -r .name)
+          test "$(tar -xOf "$tarball" package/package.json | jq -r .gitHead)" = "$EXPECTED_SHA"
+          tar -xOf "$tarball" package/interlis-release.json | jq -e \
+            --arg version "$EXPECTED_VERSION" --arg sha "$EXPECTED_SHA" \
+            '.artifactVersion == $version and .sourceSha == $sha' >/dev/null
           if npm view "$package_name@$EXPECTED_VERSION" version >/dev/null 2>&1; then
-            existing_sha=$(npm view "$package_name@$EXPECTED_VERSION" gitHead 2>/dev/null || true)
-            [[ "$existing_sha" == "$EXPECTED_SHA" ]] || {
-              echo "Existing $package_name@$EXPECTED_VERSION has gitHead ${existing_sha:-<missing>}, expected $EXPECTED_SHA" >&2
-              exit 1
-            }
+            test "$(npm view "$package_name@$EXPECTED_VERSION" gitHead)" = "$EXPECTED_SHA"
             echo "Already published $package_name@$EXPECTED_VERSION from $EXPECTED_SHA"
           else
             npm publish "$tarball" --access public --tag "$NPM_TAG"
           fi
-          for attempt in {1..12}; do
-            version=$(npm view "$package_name@$EXPECTED_VERSION" version 2>/dev/null || true)
-            git_head=$(npm view "$package_name@$EXPECTED_VERSION" gitHead 2>/dev/null || true)
-            if [[ "$version" == "$EXPECTED_VERSION" && "$git_head" == "$EXPECTED_SHA" ]]; then
-              if [[ "$NPM_TAG" == latest ]]; then
-                latest=$(npm view "$package_name@latest" version 2>/dev/null || true)
-                [[ "$latest" == "$EXPECTED_VERSION" ]] || { sleep 5; continue; }
-              fi
-              exit 0
-            fi
-            [[ "$attempt" -lt 12 ]] || { echo "npm registry metadata did not converge" >&2; exit 1; }
-            sleep 5
-          done
+          test "$(npm view "$package_name@$EXPECTED_VERSION" gitHead)" = "$EXPECTED_SHA"
 
   github-release:
     name: Publish GitHub release assets
-    needs:
-      - resolve
-      - build
-      - publish-npm
+    needs: [resolve, build, publish-npm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -256,74 +178,43 @@ jobs:
         with:
           name: iox-release-${{ github.run_id }}
           path: dist
-      - name: Publish source and WASM assets
+      - name: Publish immutable stable or moving snapshot assets
         env:
           GH_TOKEN: ${{ github.token }}
           CHANNEL: ${{ needs.resolve.outputs.channel }}
           RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
-          VERSION: ${{ needs.resolve.outputs.version }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
-          api_root="repos/$GITHUB_REPOSITORY"
+          mapfile -t assets < <(find dist -type f -print | sort)
+          (( ${#assets[@]} > 0 )) || { echo "No release assets found" >&2; exit 1; }
           if [[ "$CHANNEL" == stable ]]; then
-            tag="$RELEASE_TAG"
-            title="iox-cpp $tag"
-            if ! gh api "$api_root/releases/tags/$tag" >/dev/null 2>&1; then
-              gh api --method POST "$api_root/releases" \
-                -f tag_name="$tag" -f name="$title" \
-                -F draft=false -F prerelease=false -F make_latest=true >/dev/null
+            tag=$RELEASE_TAG
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "Stable release $tag already exists; refusing to replace it" >&2
+              exit 1
             fi
+            gh release create "$tag" "${assets[@]}" --verify-tag --title "iox-cpp $tag" --latest
           else
             tag=snapshot
-            if release_id=$(gh api "$api_root/releases/tags/$tag" --jq .id 2>/dev/null); then
-              gh api --method PATCH "$api_root/releases/$release_id" \
-                -f name="iox-cpp snapshot" \
-                -f body="Moving snapshot built from $GITHUB_SHA (run $GITHUB_RUN_ID)." \
-                -F draft=false -F prerelease=true -f make_latest=false >/dev/null
+            if ! git ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" refs/tags/snapshot >/dev/null 2>&1; then
+              gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                -f ref=refs/tags/snapshot -f sha="$SOURCE_SHA" >/dev/null
             else
-              gh api --method POST "$api_root/releases" \
-                -f tag_name="$tag" -f name="iox-cpp snapshot" \
-                -f body="Moving snapshot built from $GITHUB_SHA (run $GITHUB_RUN_ID)." \
-                -F draft=false -F prerelease=true -f make_latest=false >/dev/null
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/snapshot" \
+                -f sha="$SOURCE_SHA" -F force=true >/dev/null
             fi
-          fi
-          release_id=$(gh api "$api_root/releases/tags/$tag" --jq .id)
-          if [[ "$CHANNEL" != stable ]]; then
-            gh api --paginate "$api_root/releases/$release_id/assets?per_page=100" \
-              --jq '.[].id' | while read -r asset_id; do
-                [[ -n "$asset_id" ]] && gh api --method DELETE "$api_root/releases/assets/$asset_id" >/dev/null
-              done
-          fi
-          for asset in dist/tarballs/*.tgz dist/*-source.tar.gz dist/SHA256SUMS dist/release-manifest.json; do
-            [[ -f "$asset" ]] || continue
-            asset_name=${asset##*/}
-            existing_id=$(gh api --paginate "$api_root/releases/$release_id/assets?per_page=100" \
-              --jq ".[] | select(.name == \"$asset_name\") | .id" | head -n 1)
-            if [[ -n "$existing_id" && "$CHANNEL" == stable ]]; then
-              existing="$RUNNER_TEMP/existing-$asset_name"
-              gh api "$api_root/releases/assets/$existing_id" \
-                -H 'Accept: application/octet-stream' > "$existing"
-              cmp -s "$asset" "$existing" || {
-                echo "Immutable stable asset differs: $asset_name" >&2
-                exit 1
-              }
-              echo "Verified existing stable asset: $asset_name"
-            elif [[ "$CHANNEL" == stable ]]; then
-              gh release upload "$tag" "$asset"
-            else
-              gh release upload "$tag" "$asset" --clobber
+            if gh release view snapshot >/dev/null 2>&1; then
+              gh release delete snapshot --yes --cleanup-tag=false
             fi
-          done
+            gh release create snapshot "${assets[@]}" --prerelease --title "iox-cpp snapshot" \
+              --notes "Moving snapshot built from $SOURCE_SHA (run $GITHUB_RUN_ID)."
+          fi
 
   request-vcpkg-publication:
     name: Request native vcpkg publication
-    needs:
-      - resolve
-      - build
-      - publish-npm
-      - github-release
-    if: success()
+    needs: [resolve, build, publish-npm, github-release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -334,23 +225,12 @@ jobs:
           SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
           RELEASE_KIND: ${{ needs.resolve.outputs.channel }}
           RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
-          RELEASE_RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
           set -euo pipefail
-          RELEASE_TAG="${RELEASE_TAG:-snapshot}"
           jq -n \
             --arg source_sha "$SOURCE_SHA" \
             --arg release_kind "$RELEASE_KIND" \
-            --arg release_tag "$RELEASE_TAG" \
-            --arg release_run_id "$RELEASE_RUN_ID" \
-            '{
-              event_type: "vcpkg-release-ready",
-              client_payload: {
-                source_sha: $source_sha,
-                release_kind: $release_kind,
-                release_tag: $release_tag,
-                release_run_id: $release_run_id
-              }
-            }' |
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input -
+            --arg release_tag "${RELEASE_TAG:-snapshot}" \
+            '{event_type:"vcpkg-release-ready",client_payload:{source_sha:$source_sha,release_kind:$release_kind,release_tag:$release_tag,release_run_id:env.GITHUB_RUN_ID}}' |
+            gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" --input -

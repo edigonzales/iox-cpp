@@ -13,6 +13,8 @@ SPEC.loader.exec_module(release_metadata)
 
 
 class DependencyLockTest(unittest.TestCase):
+    sha = "0123456789abcdef0123456789abcdef01234567"
+
     def test_lock_renders_exact_ilic_override_and_baseline(self):
         data = release_metadata.load_lock(ROOT)
         files = release_metadata.rendered_files(data)
@@ -33,6 +35,39 @@ class DependencyLockTest(unittest.TestCase):
             path.write_text("{}\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "stale"):
                 release_metadata.sync(root, True)
+
+    def test_snapshot_version_is_deterministic_and_uses_twelve_sha_characters(self):
+        version = release_metadata.snapshot_version("0.2.0", self.sha)
+        self.assertEqual(version, "0.2.0-snapshot.g0123456789ab")
+        self.assertEqual(
+            release_metadata.validate_artifact_version(version, self.sha), "snapshot"
+        )
+
+    def test_old_new_publication_schemas_are_rejected(self):
+        for version in (
+            "0.2.0-SNAPSHOT.20260826043335.32930660314",
+            "0.2.0-snapshot.01234567",
+            "0.2.0-snapshot.gffffffffffff",
+        ):
+            with self.subTest(version=version):
+                with self.assertRaises(ValueError):
+                    release_metadata.validate_artifact_version(version, self.sha)
+
+    def test_manifest_contains_full_locked_provenance(self):
+        manifest = release_metadata.release_manifest(
+            root=ROOT,
+            artifact_version="0.2.0-snapshot.g0123456789ab",
+            source_sha=self.sha,
+            run_id="42",
+            published_at="2026-08-29T12:00:00Z",
+            toolchain="emscripten-3.1.64",
+        )
+        self.assertEqual(manifest["sourceSha"], self.sha)
+        self.assertEqual(
+            manifest["dependencies"]["ilic"]["sourceSha"],
+            release_metadata.load_lock(ROOT)["dependencies"]["ilic"]["sourceSha"],
+        )
+        self.assertEqual(manifest["build"]["githubRunId"], "42")
 
 
 if __name__ == "__main__":

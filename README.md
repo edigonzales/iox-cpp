@@ -112,6 +112,10 @@ build/native/iox-dump --roundtrip input.xtf output.xtf
 
 ## WebAssembly and JavaScript
 
+The package interface is complete, but `@interlis/iox-wasm` is not yet
+published on npm; use the package from this checkout until the one-time npm
+bootstrap in the release guide has completed.
+
 ```js
 import { createIoxModule, XtfReader } from '@interlis/iox-wasm';
 

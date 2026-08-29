@@ -1,4 +1,4 @@
-name: Publish iox-cpp vcpkg registry version
+name: Request iox-cpp vcpkg registry version
 
 on:
   repository_dispatch:
@@ -20,27 +20,19 @@ on:
         required: true
         default: snapshot
         type: string
-      release_run_id:
-        description: Upstream release workflow run id
-        required: false
-        default: "0"
-        type: string
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
-  group: iox-vcpkg-registry-publish
+  group: iox-vcpkg-publication-request
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish immutable iox-cpp registry version
+  request:
+    name: Request and verify immutable shared registry version
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      VCPKG_DISABLE_METRICS: "1"
+    timeout-minutes: 15
     steps:
       - name: Validate release metadata
         id: release
@@ -49,34 +41,25 @@ jobs:
           EVENT_SOURCE_SHA: ${{ github.event.client_payload.source_sha }}
           EVENT_RELEASE_KIND: ${{ github.event.client_payload.release_kind }}
           EVENT_RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
-          EVENT_RELEASE_RUN_ID: ${{ github.event.client_payload.release_run_id }}
           INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
           INPUT_RELEASE_KIND: ${{ inputs.release_kind }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
-          INPUT_RELEASE_RUN_ID: ${{ inputs.release_run_id }}
         run: |
           set -euo pipefail
-          source_sha=$EVENT_SOURCE_SHA
-          release_kind=$EVENT_RELEASE_KIND
-          release_tag=$EVENT_RELEASE_TAG
-          release_run_id=$EVENT_RELEASE_RUN_ID
-          [[ -n "$source_sha" ]] || source_sha=$INPUT_SOURCE_SHA
-          [[ -n "$release_kind" ]] || release_kind=$INPUT_RELEASE_KIND
-          [[ -n "$release_tag" ]] || release_tag=$INPUT_RELEASE_TAG
-          [[ -n "$release_run_id" ]] || release_run_id=$INPUT_RELEASE_RUN_ID
-          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid source SHA: $source_sha" >&2; exit 1; }
-          [[ "$release_kind" == snapshot || "$release_kind" == stable ]] || { echo "Invalid release kind: $release_kind" >&2; exit 1; }
+          source_sha=${EVENT_SOURCE_SHA:-$INPUT_SOURCE_SHA}
+          release_kind=${EVENT_RELEASE_KIND:-$INPUT_RELEASE_KIND}
+          release_tag=${EVENT_RELEASE_TAG:-$INPUT_RELEASE_TAG}
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid source SHA" >&2; exit 1; }
+          [[ "$release_kind" == snapshot || "$release_kind" == stable ]] || { echo "Invalid release kind" >&2; exit 1; }
           if [[ "$release_kind" == stable ]]; then
-            [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Stable release requires a vX.Y.Z tag" >&2; exit 1; }
+            [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Stable release requires vX.Y.Z" >&2; exit 1; }
           else
-            [[ "$release_tag" == snapshot ]] || { echo "Snapshot release must use the snapshot tag" >&2; exit 1; }
+            [[ "$release_tag" == snapshot ]] || { echo "Snapshot release tag must be snapshot" >&2; exit 1; }
           fi
-          [[ "$release_run_id" =~ ^[0-9]+$ ]] || { echo "Invalid release run id: $release_run_id" >&2; exit 1; }
           {
             echo "source_sha=$source_sha"
             echo "release_kind=$release_kind"
             echo "release_tag=$release_tag"
-            echo "release_run_id=$release_run_id"
           } >> "$GITHUB_OUTPUT"
 
       - name: Check out released iox source
@@ -88,7 +71,7 @@ jobs:
           fetch-tags: true
           persist-credentials: false
 
-      - name: Resolve immutable vcpkg version
+      - name: Resolve deterministic vcpkg version
         id: metadata
         shell: bash
         env:
@@ -97,132 +80,89 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
         run: |
           set -euo pipefail
-          cmake_version=$(sed -nE 's/.*project\(iox-cpp VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' source/CMakeLists.txt)
-          [[ "$cmake_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Could not resolve iox-cpp project version" >&2; exit 1; }
+          python3 source/scripts/release_metadata.py --project-root source check
           if [[ "$RELEASE_KIND" == stable ]]; then
-            tag_sha=$(git -C source rev-list -n 1 "$RELEASE_TAG")
-            [[ "$tag_sha" == "$SOURCE_SHA" ]] || { echo "Tag $RELEASE_TAG points at $tag_sha, expected $SOURCE_SHA" >&2; exit 1; }
-            version="${RELEASE_TAG#v}"
+            test "$(git -C source rev-list -n 1 "$RELEASE_TAG")" = "$SOURCE_SHA"
+            version=$(python3 source/scripts/release_metadata.py --project-root source version --kind stable --tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA")
           else
-            short_sha=$(printf '%.8s' "$SOURCE_SHA")
-            version="$cmake_version-snapshot.$short_sha"
+            version=$(python3 source/scripts/release_metadata.py --project-root source version --kind snapshot --source-sha "$SOURCE_SHA")
           fi
-          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Publishing iox-cpp $version from $SOURCE_SHA"
 
       - name: Compute GitHub source archive SHA512
         id: archive
         shell: bash
         env:
-          SOURCE_SHA: ${{ steps.metadata.outputs.source_sha }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/iox-cpp-$SOURCE_SHA.tar.gz"
           curl --fail --location --retry 3 \
             "https://github.com/$GITHUB_REPOSITORY/archive/$SOURCE_SHA.tar.gz" \
             --output "$archive"
-          if command -v sha512sum >/dev/null 2>&1; then
-            sha512=$(sha512sum "$archive" | awk '{print $1}')
-          elif command -v shasum >/dev/null 2>&1; then
-            sha512=$(shasum -a 512 "$archive" | awk '{print $1}')
-          else
-            echo "No SHA-512 utility available on this runner" >&2
-            exit 1
-          fi
-          [[ "$sha512" =~ ^[0-9a-f]{128}$ ]] || { echo "Invalid source archive SHA512: $sha512" >&2; exit 1; }
+          sha512=$(sha512sum "$archive" | awk '{print $1}')
+          [[ "$sha512" =~ ^[0-9a-f]{128}$ ]]
           echo "sha512=$sha512" >> "$GITHUB_OUTPUT"
 
-      - name: Check out shared vcpkg registry
-        uses: actions/checkout@v6
-        with:
-          repository: edigonzales/ilic-fork
-          ref: vcpkg-registry
-          path: registry
-          fetch-depth: 0
-          token: ${{ secrets.VCPKG_REGISTRY_TOKEN }}
-
-      - name: Check out pinned vcpkg
-        uses: actions/checkout@v6
-        with:
-          repository: microsoft/vcpkg
-          ref: 2026.05.25
-          path: build/vcpkg-version-tool
-          persist-credentials: false
-
-      - name: Bootstrap vcpkg
-        shell: bash
-        run: build/vcpkg-version-tool/bootstrap-vcpkg.sh -disableMetrics
-
-      - name: Publish registry port
-        id: registry
+      - name: Dispatch publication to the sole registry writer
         env:
+          GH_TOKEN: ${{ secrets.VCPKG_REGISTRY_TOKEN }}
           VERSION: ${{ steps.metadata.outputs.version }}
-          SOURCE_SHA: ${{ steps.metadata.outputs.source_sha }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
           SOURCE_SHA512: ${{ steps.archive.outputs.sha512 }}
         shell: bash
         run: |
           set -euo pipefail
-          version_file=registry/versions/i-/iox-cpp.json
-          existing_trees=()
-          if [[ -f "$version_file" ]]; then
-            mapfile -t existing_trees < <(
-              jq -r --arg version "$VERSION" \
-                '.versions[] | select(."version-string" == $version and (."port-version" // 0) == 0) | ."git-tree"' \
-                "$version_file"
-            )
-          fi
-          tree_count=${#existing_trees[@]}
-          if (( tree_count > 1 )); then
-            echo "Registry contains duplicate iox-cpp entries for $VERSION" >&2
-            exit 1
-          fi
-          if (( tree_count == 1 )); then
-            tree=${existing_trees[0]}
-            git -C registry show "$tree:vcpkg.json" > "$RUNNER_TEMP/iox-existing-vcpkg.json"
-            git -C registry show "$tree:portfile.cmake" > "$RUNNER_TEMP/iox-existing-portfile.cmake"
-            jq -e --arg version "$VERSION" '.name == "iox-cpp" and ."version-string" == $version' "$RUNNER_TEMP/iox-existing-vcpkg.json" >/dev/null
-            grep -Fq "REF $SOURCE_SHA" "$RUNNER_TEMP/iox-existing-portfile.cmake"
-            grep -Fq "SHA512 $SOURCE_SHA512" "$RUNNER_TEMP/iox-existing-portfile.cmake"
-            echo "iox-cpp $VERSION already exists immutably as $tree"
-          else
-            node source/scripts/prepare-vcpkg-registry-port.mjs \
-              --template-dir source/vcpkg/ports/iox-cpp \
-              --output-dir registry/ports/iox-cpp \
-              --version "$VERSION" \
-              --source-sha "$SOURCE_SHA" \
-              --sha512 "$SOURCE_SHA512"
-            git -C registry add ports/iox-cpp
-            (
-              cd registry
-              "$GITHUB_WORKSPACE/build/vcpkg-version-tool/vcpkg" x-add-version \
-                --x-builtin-ports-root="$PWD/ports" \
-                --x-builtin-registry-versions-dir="$PWD/versions" \
-                iox-cpp --skip-version-format-check --verbose
-            )
-            git -C registry add versions
-            baseline_version=$(jq -r '.default["iox-cpp"].baseline' registry/versions/baseline.json)
-            [[ "$baseline_version" == "$VERSION" ]] || { echo "Registry baseline is $baseline_version after publishing $VERSION" >&2; exit 1; }
-            git -C registry config user.name "github-actions[bot]"
-            git -C registry config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git -C registry commit -m "publish iox-cpp $VERSION"
-            git -C registry push origin HEAD:vcpkg-registry
-          fi
-          registry_baseline=$(git -C registry rev-parse HEAD)
-          echo "baseline=$registry_baseline" >> "$GITHUB_OUTPUT"
+          jq -n \
+            --arg package_name iox-cpp \
+            --arg version "$VERSION" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg sha512 "$SOURCE_SHA512" \
+            '{event_type:"vcpkg-port-publication-requested",client_payload:{package_name:$package_name,version:$version,source_sha:$source_sha,sha512:$sha512,change_kind:"source"}}' |
+            gh api --method POST repos/edigonzales/ilic-fork/dispatches --input -
 
-      - name: Request binary-cache publication
+      - name: Wait for and validate the public registry entry
+        id: registry
         env:
-          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.metadata.outputs.version }}
-          SOURCE_SHA: ${{ steps.metadata.outputs.source_sha }}
-          REGISTRY_BASELINE: ${{ steps.registry.outputs.baseline }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          SOURCE_SHA512: ${{ steps.archive.outputs.sha512 }}
         shell: bash
         run: |
           set -euo pipefail
-          jq -n \
-            --arg version "$VERSION" \
-            --arg source_sha "$SOURCE_SHA" \
-            --arg registry_baseline "$REGISTRY_BASELINE" \
+          for attempt in {1..30}; do
+            rm -rf "$RUNNER_TEMP/registry"
+            git clone --quiet --depth 1 --branch vcpkg-registry \
+              https://github.com/edigonzales/ilic-fork.git "$RUNNER_TEMP/registry"
+            version_file="$RUNNER_TEMP/registry/versions/i-/iox-cpp.json"
+            if [[ -f "$version_file" ]]; then
+              mapfile -t trees < <(jq -r --arg version "$VERSION" \
+                '.versions[] | select(."version-string" == $version and (."port-version" // 0) == 0) | ."git-tree"' "$version_file")
+              (( ${#trees[@]} <= 1 )) || { echo "Duplicate registry version" >&2; exit 1; }
+              if (( ${#trees[@]} == 1 )); then
+                tree=${trees[0]}
+                git -C "$RUNNER_TEMP/registry" show "$tree:vcpkg.json" > "$RUNNER_TEMP/iox-vcpkg.json"
+                git -C "$RUNNER_TEMP/registry" show "$tree:portfile.cmake" > "$RUNNER_TEMP/iox-portfile.cmake"
+                jq -e --arg version "$VERSION" '.name == "iox-cpp" and ."version-string" == $version' "$RUNNER_TEMP/iox-vcpkg.json" >/dev/null
+                grep -Fq "REF $SOURCE_SHA" "$RUNNER_TEMP/iox-portfile.cmake"
+                grep -Fq "SHA512 $SOURCE_SHA512" "$RUNNER_TEMP/iox-portfile.cmake"
+                baseline=$(git -C "$RUNNER_TEMP/registry" rev-parse HEAD)
+                echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+            [[ "$attempt" -lt 30 ]] || { echo "Registry publication did not appear" >&2; exit 1; }
+            sleep 10
+          done
+
+      - name: Request same-repository binary-cache publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          REGISTRY_BASELINE: ${{ steps.registry.outputs.baseline }}
+        shell: bash
+        run: |
+          jq -n --arg version "$VERSION" --arg source_sha "$SOURCE_SHA" --arg registry_baseline "$REGISTRY_BASELINE" \
             '{event_type:"vcpkg-version-published",client_payload:{version:$version,source_sha:$source_sha,registry_baseline:$registry_baseline}}' |
             gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches" --input -

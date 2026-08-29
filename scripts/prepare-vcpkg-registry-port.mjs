@@ -21,17 +21,17 @@ export function validateRegistryVersion(version, sourceSha) {
     return { kind: "stable", version };
   }
 
-  const snapshot = /^(\d+\.\d+\.\d+)-snapshot\.([0-9a-f]{8})$/.exec(
+  const snapshot = /^(\d+\.\d+\.\d+)-snapshot\.g([0-9a-f]{12})$/.exec(
     version ?? "",
   );
   if (!snapshot) {
     throw new Error(
-      "vcpkg version must be X.Y.Z or X.Y.Z-snapshot.<8-character-source-sha>",
+      "vcpkg version must be X.Y.Z or X.Y.Z-snapshot.g<12-character-source-sha>",
     );
   }
-  if (snapshot[2] !== sourceSha.slice(0, 8)) {
+  if (snapshot[2] !== sourceSha.slice(0, 12)) {
     throw new Error(
-      `snapshot suffix ${snapshot[2]} does not match source SHA ${sourceSha.slice(0, 8)}`,
+      `snapshot suffix ${snapshot[2]} does not match source SHA ${sourceSha.slice(0, 12)}`,
     );
   }
   return { kind: "snapshot", version, baseVersion: snapshot[1] };

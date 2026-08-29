@@ -28,21 +28,13 @@ function validate(options) {
   if (!/^(snapshot|stable)$/.test(required(options, "channel"))) {
     throw new Error("--channel must be snapshot or stable");
   }
-  if (!/^\d+\.\d+\.\d+(?:-SNAPSHOT\.\d{14}\.\d+)?$/.test(required(options, "version"))) {
+  if (!/^\d+\.\d+\.\d+(?:-snapshot\.g[0-9a-f]{12})?$/.test(required(options, "version"))) {
     throw new Error(`Invalid release version: ${options.version}`);
   }
   if (!/^[0-9a-f]{40}$/.test(required(options, "source-sha"))) {
     throw new Error("--source-sha must be a full lowercase commit SHA");
   }
-  if (!/^\d+\.\d+\.\d+$/.test(required(options, "ilic-version"))) {
-    throw new Error("--ilic-version must be X.Y.Z");
-  }
-  if (!/^[0-9a-f]{40}$/.test(required(options, "ilic-sha"))) {
-    throw new Error("--ilic-sha must be a full lowercase commit SHA");
-  }
-  if (!/^\d+$/.test(required(options, "run-id"))) {
-    throw new Error("--run-id must contain only digits");
-  }
+  required(options, "release-manifest");
 }
 
 export async function stageRelease(options) {
@@ -69,26 +61,30 @@ export async function stageRelease(options) {
   }
   const baseVersion = manifest.version;
   manifest.version = options.version;
+  manifest.gitHead = options["source-sha"];
+  manifest.files = [...new Set([...(manifest.files ?? []), "interlis-release.json"])];
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-  const releaseManifest = {
-    channel: options.channel,
-    version: options.version,
-    baseVersion,
-    sourceSha: options["source-sha"],
-    ilicVersion: options["ilic-version"],
-    ilicSha: options["ilic-sha"],
-    runId: options["run-id"],
-    timestamp: options.timestamp ?? new Date().toISOString(),
-    package: {
-      name: manifest.name,
-      directory: "package",
-    },
-  };
-  await writeFile(
-    resolve(output, "release-manifest.json"),
-    `${JSON.stringify(releaseManifest, null, 2)}\n`,
+  const releaseManifest = JSON.parse(
+    await readFile(resolve(options["release-manifest"]), "utf8"),
   );
+  if (
+    releaseManifest.project !== "iox-cpp" ||
+    releaseManifest.artifactVersion !== options.version ||
+    releaseManifest.sourceSha !== options["source-sha"] ||
+    releaseManifest.versionKind !== options.channel
+  ) {
+    throw new Error("release manifest does not match the staged package contract");
+  }
+  if (baseVersion !== options.version.split("-", 1)[0]) {
+    throw new Error(`Package base version ${baseVersion} does not match ${options.version}`);
+  }
+  const serializedManifest = `${JSON.stringify(releaseManifest, null, 2)}\n`;
+  await writeFile(
+    resolve(output, "interlis-release.json"),
+    serializedManifest,
+  );
+  await writeFile(resolve(packageDir, "interlis-release.json"), serializedManifest);
   return releaseManifest;
 }
 

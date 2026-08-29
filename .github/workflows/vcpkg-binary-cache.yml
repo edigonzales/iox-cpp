@@ -30,6 +30,8 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
       registry_baseline: ${{ steps.resolve.outputs.registry_baseline }}
       source_sha: ${{ steps.resolve.outputs.source_sha }}
+      vcpkg_ref: ${{ steps.lock.outputs.vcpkg_ref }}
+      builtin_baseline: ${{ steps.lock.outputs.builtin_baseline }}
     steps:
       - name: Resolve and validate request
         id: resolve
@@ -49,15 +51,35 @@ jobs:
           [[ -n "$version" ]] || version=$INPUT_VERSION
           [[ -n "$registry_baseline" ]] || registry_baseline=$INPUT_REGISTRY_BASELINE
           [[ -n "$source_sha" ]] || source_sha=$INPUT_SOURCE_SHA
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ || "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-snapshot\.[0-9a-f]{8}$ ]] || { echo "Invalid iox-cpp vcpkg version: $version" >&2; exit 1; }
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ || "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-snapshot\.g[0-9a-f]{12}$ || "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-snapshot\.[0-9a-f]{8}$ ]] || { echo "Invalid iox-cpp vcpkg version: $version" >&2; exit 1; }
           [[ "$registry_baseline" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid registry baseline: $registry_baseline" >&2; exit 1; }
-          if [[ -n "$source_sha" && ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Invalid source SHA: $source_sha" >&2
-            exit 1
-          fi
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid source SHA: $source_sha" >&2; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "registry_baseline=$registry_baseline" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.resolve.outputs.source_sha }}
+          path: source
+          persist-credentials: false
+
+      - name: Verify source lock and export vcpkg toolchain
+        id: lock
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+          SOURCE_SHA: ${{ steps.resolve.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 source/scripts/release_metadata.py --project-root source check
+          if [[ "$VERSION" =~ -snapshot\.g ]]; then
+            test "$VERSION" = "$(python3 source/scripts/release_metadata.py --project-root source version --source-sha "$SOURCE_SHA")"
+          elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            test "$VERSION" = "$(sed -nE 's/.*project\(iox-cpp VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' source/CMakeLists.txt)"
+          fi
+          echo "vcpkg_ref=$(jq -r .vcpkg.toolRef source/release/dependencies.lock.json)" >> "$GITHUB_OUTPUT"
+          echo "builtin_baseline=$(jq -r .vcpkg.builtinBaseline source/release/dependencies.lock.json)" >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish iox-cpp (${{ matrix.triplet }}, ${{ matrix.feature_name }})
@@ -122,20 +144,17 @@ jobs:
       IOX_VERSION: ${{ needs.metadata.outputs.version }}
       IOX_REGISTRY_BASELINE: ${{ needs.metadata.outputs.registry_baseline }}
       IOX_FEATURES: ${{ matrix.features }}
-      VCPKG_BUILTIN_BASELINE: d015e31e90838a4c9dfa3eed45979bc70d9357fc
+      VCPKG_BUILTIN_BASELINE: ${{ needs.metadata.outputs.builtin_baseline }}
+      IOX_VCPKG_REF: ${{ needs.metadata.outputs.vcpkg_ref }}
       VCPKG_DOWNLOADS: ${{ github.workspace }}/.cache/vcpkg/downloads
       VCPKG_DISABLE_METRICS: "1"
       VCPKG_FEED_URL: https://nuget.pkg.github.com/edigonzales/index.json
       VCPKG_BINARY_SOURCES: clear;nuget,https://nuget.pkg.github.com/edigonzales/index.json,readwrite
       VCPKG_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Check out pinned vcpkg
-        uses: actions/checkout@v6
-        with:
-          repository: microsoft/vcpkg
-          ref: 2026.05.25
-          path: build/vcpkg
-          persist-credentials: false
+      - name: Check out locked vcpkg
+        shell: bash
+        run: git clone --depth 1 --branch "$IOX_VCPKG_REF" https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT_DIR"
 
       - name: Set up MSVC developer command prompt
         if: runner.os == 'Windows'
