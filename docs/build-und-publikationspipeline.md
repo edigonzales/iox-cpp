@@ -26,8 +26,12 @@ dieselbe Identität:
 Datum und GitHub-Run-ID stehen in `interlis-release.json`, nicht in der
 Versionsnummer. Das Manifest enthält den vollständigen iox-SHA, die exakte
 ilic-/Expat-/yyjson-Kombination und die vcpkg-Baselines. Der npm-Tarball enthält
-zusätzlich `gitHead`. Der Dist-Tag `snapshot` zeigt nur auf Vorabversionen;
-`latest` wird ausschließlich durch ein stabiles `vX.Y.Z`-Release gesetzt.
+zusätzlich `gitHead`. Der Workflow publiziert Vorabversionen ausschließlich
+unter dem Dist-Tag `snapshot`. npm hat beim einmaligen ersten Paket-Bootstrap
+zusätzlich automatisch `latest` auf denselben Snapshot gesetzt; bis zum ersten
+stabilen Release können deshalb beide Tags identisch sein. Consumer sollen
+vorläufig ausdrücklich `@snapshot` verwenden. Danach wird `latest`
+ausschließlich durch stabile `vX.Y.Z`-Releases weiterbewegt.
 
 ## Native Abhängigkeiten und Binary Cache
 
@@ -59,9 +63,9 @@ den exakten Snapshot aus `release/dependencies.lock.json`; aktuelles
 reproduzierbare Paketkombination und frühe Warnung vor zukünftigen Änderungen
 nicht miteinander vermischt.
 
-`@ilic/iox-wasm` ist derzeit noch nicht auf npm publiziert. Vor dem ersten
-Publish muss die Paket-/Owner-/2FA-Einrichtung einmalig abgeschlossen und der
-Trusted Publisher auf `edigonzales/iox-cpp` sowie
-`.github/workflows/publish-iox.yml` eingeschränkt werden. Bis dieser Bootstrap
-erfolgreich war, darf die Dokumentation das Paket nicht als verfügbar
-bezeichnen.
+`@ilic/iox-wasm` ist auf npm publiziert. Der einmalige Paket-/Owner-/2FA-
+Bootstrap ist abgeschlossen; weitere Publikationen laufen über den auf
+`edigonzales/iox-cpp` und `.github/workflows/publish-iox.yml` eingeschränkten
+Trusted Publisher. Eine bereits vorhandene Version wird nur als idempotent
+akzeptiert, wenn vollständiger `gitHead` und Tarball-`SHA-512` mit dem lokal
+gebauten Artefakt übereinstimmen.

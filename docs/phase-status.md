@@ -815,8 +815,9 @@ a new matching `vX.Y.Z` tag. `iox-cpp` no longer checks out or pushes the
 shared registry. It sends a content-addressed request to the serialized
 `ilic-fork` writer, validates the public result, and only then dispatches its
 own binary publisher. The existing cross-repository token is confined to that
-request. `@ilic/iox-wasm` remains explicitly documented as not yet
-published until its one-time npm/Trusted-Publisher bootstrap succeeds.
+request. At implementation time, `@ilic/iox-wasm` remained explicitly
+documented as unpublished until its one-time npm/Trusted-Publisher bootstrap
+succeeded.
 
 ### Phase 23 verification commands
 
@@ -882,6 +883,35 @@ python3 test/release_metadata_test.py                             # exit 0, 7/7
 node --test test/release_scripts_test.mjs                         # exit 0, 2/2
 npm pack --dry-run --ignore-scripts --json ./packages/iox-wasm    # exit 0, name @ilic/iox-wasm
 node scripts/verify-release.mjs --staging-root build/scope-release --expected-version 0.2.0-snapshot.g6f10ab80c536 --expected-source-sha 6f10ab80c536e4d4dfad83b8cf9e3ce509fff442  # exit 0, installed @ilic/iox-wasm
+./scripts/build-native.sh                                         # exit 0
+./scripts/test-native.sh                                          # exit 0, 34/34
+./scripts/build-wasm.sh                                           # exit 0, Emscripten 3.1.64
+./scripts/test-wasm.sh                                            # exit 0, 10/10
+ruby -e 'require "yaml"; Dir[".github/workflows/*.yml"].each { |path| YAML.load_file(path) }'  # exit 0
+git diff --check                                                   # exit 0
+```
+
+### Phase 23 npm bootstrap idempotency repair
+
+The first manual `@ilic/iox-wasm` bootstrap completed while publish workflow
+run `33324629992` was already in progress. Its initial registry lookup did not
+yet see the new version, while the later write endpoint correctly rejected the
+duplicate immutable version. The publisher now treats registry visibility as
+eventually consistent: it retries after a failed publish and accepts an
+existing version only when the full `gitHead` and tarball SHA-512 integrity are
+identical. A conflicting version remains a hard failure.
+
+The public package was verified as
+`0.2.0-snapshot.gc6372835c545`, source
+`c6372835c545b507922c0f79dd6e698283959ed1`, with both `snapshot` and the
+bootstrap-created `latest` tag pointing at that same version.
+
+```text
+bash -n scripts/publish-npm-idempotent.sh                         # exit 0
+node --test test/npm_publish_idempotent_test.mjs                  # exit 0, 4/4
+node --test test/release_scripts_test.mjs                         # exit 0, 2/2
+python3 scripts/release_metadata.py check                         # exit 0
+python3 test/release_metadata_test.py                             # exit 0, 7/7
 ./scripts/build-native.sh                                         # exit 0
 ./scripts/test-native.sh                                          # exit 0, 34/34
 ./scripts/build-wasm.sh                                           # exit 0, Emscripten 3.1.64

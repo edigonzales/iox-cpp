@@ -112,9 +112,12 @@ build/native/iox-dump --roundtrip input.xtf output.xtf
 
 ## WebAssembly and JavaScript
 
-The package interface is complete, but `@ilic/iox-wasm` is not yet
-published on npm; use the package from this checkout until the one-time npm
-bootstrap in the release guide has completed.
+The package interface is published on npm as `@ilic/iox-wasm`. Until the first
+stable release, install the explicitly selected snapshot channel:
+
+```sh
+npm install @ilic/iox-wasm@snapshot
+```
 
 ```js
 import { createIoxModule, XtfReader } from '@ilic/iox-wasm';

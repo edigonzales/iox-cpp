@@ -134,6 +134,10 @@ jobs:
       actions: read
       id-token: write
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@v7
         with:
           name: iox-release-${{ github.run_id }}
@@ -159,13 +163,9 @@ jobs:
           tar -xOf "$tarball" package/interlis-release.json | jq -e \
             --arg version "$EXPECTED_VERSION" --arg sha "$EXPECTED_SHA" \
             '.artifactVersion == $version and .sourceSha == $sha' >/dev/null
-          if npm view "$package_name@$EXPECTED_VERSION" version >/dev/null 2>&1; then
-            test "$(npm view "$package_name@$EXPECTED_VERSION" gitHead)" = "$EXPECTED_SHA"
-            echo "Already published $package_name@$EXPECTED_VERSION from $EXPECTED_SHA"
-          else
-            npm publish "$tarball" --access public --tag "$NPM_TAG"
-          fi
-          test "$(npm view "$package_name@$EXPECTED_VERSION" gitHead)" = "$EXPECTED_SHA"
+          TARBALL="$tarball" \
+          PACKAGE_NAME="$package_name" \
+          bash scripts/publish-npm-idempotent.sh
 
   github-release:
     name: Publish GitHub release assets
