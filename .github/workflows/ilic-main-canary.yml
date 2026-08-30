@@ -1,0 +1,42 @@
+name: ilic main compatibility canary
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  current-ilic-main:
+    name: Current iox source with current ilic main
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install --yes ninja-build
+      - name: Resolve current ilic main without changing the dependency lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(git ls-remote https://github.com/edigonzales/ilic-fork.git refs/heads/main | awk 'NR == 1 {print $1}')
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          version=$(bash scripts/resolve-ilic-runtime-version.sh "$sha")
+          {
+            echo "IOX_ILIC_GIT_TAG=$sha"
+            echo "IOX_ILIC_VERSION=$version"
+          } >> "$GITHUB_ENV"
+          echo "Canary ilic source: $sha ($version)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Build and test source integration
+        run: |
+          cmake -S . -B build/ilic-main-canary -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
+            -DIOX_ENABLE_ILIC=ON -DIOX_FETCH_ILIC=ON \
+            -DIOX_ILIC_VERSION="$IOX_ILIC_VERSION" \
+            -DIOX_ILIC_GIT_TAG="$IOX_ILIC_GIT_TAG"
+          cmake --build build/ilic-main-canary --parallel
+          ctest --test-dir build/ilic-main-canary --output-on-failure

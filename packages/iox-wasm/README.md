@@ -4,6 +4,10 @@ INTERLIS XTF 2.3/2.4 Reader/Writer WebAssembly module.
 
 ## Status
 
+`@interlis/iox-wasm` is not yet published on npm. The release workflow and
+package checks are ready, but the npm package name and Trusted Publisher still
+require the one-time owner/2FA bootstrap described in the release guide.
+
 The package exposes the generated Emscripten ES module through a synchronous
 reader/writer API after asynchronous initialization. It supports XTF 2.3 and
 2.4, incremental byte feeds, ordered `event`-discriminated Iox events, and a

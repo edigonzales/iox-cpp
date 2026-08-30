@@ -71,10 +71,15 @@ public C++ model types are `metamodel::Model`, `SubModel`, `Class`, and
 `AttrOrParam`; `iox-ilic` adapts directly to those names. The regular build
 does not fetch or configure the optional module, while `IOX_FETCH_ILIC` now
 uses the immutable `v0.9.10` tag when explicitly enabled. Source-level
-integration is intentional because ilic does not yet ship an installable
-native CMake package. Test `iox.test.ilic.version` verifies the exact runtime
-version; the existing model-based test also proves that the compact index does
-not retain metamodel pointers beyond construction.
+integration remains intentional for the stable `v0.9.10` contract because
+that historical tag predates ilic's installable native CMake package. Current
+ilic `0.10` snapshots do ship an installable package and are consumed through
+vcpkg in the reproducible binary-cache CI. Test `iox.test.ilic.version`
+verifies the exact runtime version committed as `runtimeVersion` in the
+dependency lock. This is deliberately separate from the vcpkg package version:
+the historical package `0.10.0-snapshot.e901af64` reports
+`0.10.0-SNAPSHOT` at runtime. The existing model-based test also proves that
+the compact index does not retain metamodel pointers beyond construction.
 
 ### Pin verification
 

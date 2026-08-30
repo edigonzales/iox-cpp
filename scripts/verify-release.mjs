@@ -16,6 +16,10 @@ function argument(name, fallback) {
 const staging = resolve(argument("staging-root", "build/release"));
 const expectedVersion = argument("expected-version");
 if (!expectedVersion) throw new Error("--expected-version is required");
+const expectedSourceSha = argument("expected-source-sha");
+if (!/^[0-9a-f]{40}$/.test(expectedSourceSha ?? "")) {
+  throw new Error("--expected-source-sha must be a full lowercase Git SHA");
+}
 
 const packageJsonPath = join(staging, "package", "package.json");
 const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
@@ -27,9 +31,33 @@ if (packageJson.version !== expectedVersion) {
     `Expected ${expectedVersion}, found ${packageJson.version} in staged package`,
   );
 }
+if (packageJson.gitHead !== expectedSourceSha) {
+  throw new Error(`Expected gitHead ${expectedSourceSha}, found ${packageJson.gitHead}`);
+}
+const releaseManifest = JSON.parse(
+  await readFile(join(staging, "package", "interlis-release.json"), "utf8"),
+);
+if (
+  releaseManifest.artifactVersion !== expectedVersion ||
+  releaseManifest.sourceSha !== expectedSourceSha
+) {
+  throw new Error("interlis-release.json does not match the expected release identity");
+}
 
 const consumer = await mkdtemp(join(tmpdir(), "iox-release-consumer-"));
 try {
+  const { stdout: dryRunJson } = await exec(
+    "npm",
+    ["pack", "--dry-run", "--ignore-scripts", "--json"],
+    { cwd: join(staging, "package") },
+  );
+  const dryRun = JSON.parse(dryRunJson);
+  const packedPaths = new Set(dryRun[0]?.files?.map((entry) => entry.path) ?? []);
+  for (const requiredPath of ["package.json", "interlis-release.json", "iox-wasm.mjs", "iox-wasm.wasm"]) {
+    if (!packedPaths.has(requiredPath)) {
+      throw new Error(`npm pack --dry-run omitted ${requiredPath}`);
+    }
+  }
   await exec("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", consumer], {
     cwd: join(staging, "package"),
   });

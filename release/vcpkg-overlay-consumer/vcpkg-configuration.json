@@ -1,0 +1,17 @@
+{
+  "default-registry": {
+    "kind": "builtin",
+    "baseline": "d015e31e90838a4c9dfa3eed45979bc70d9357fc"
+  },
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/edigonzales/ilic-fork.git",
+      "reference": "vcpkg-registry",
+      "baseline": "4c1fcfd5feec69019f2dd87b5f28390ff618b667",
+      "packages": [
+        "ilic"
+      ]
+    }
+  ]
+}
