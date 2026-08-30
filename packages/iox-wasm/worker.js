@@ -1,5 +1,5 @@
 /**
- * Worker protocol for @interlis/iox-wasm.
+ * Worker protocol for @ilic/iox-wasm.
  *
  * Use this file as a module worker. The exported handler also provides a
  * browser-independent harness for Node tests.

@@ -27,7 +27,7 @@ test("staged npm package contains gitHead and complete release provenance", asyn
   await mkdir(source);
   await writeFile(
     join(source, "package.json"),
-    `${JSON.stringify({ name: "@interlis/iox-wasm", version: "0.2.0", files: ["iox-wasm.mjs", "iox-wasm.wasm"] })}\n`,
+    `${JSON.stringify({ name: "@ilic/iox-wasm", version: "0.2.0", files: ["iox-wasm.mjs", "iox-wasm.wasm"] })}\n`,
   );
   await writeFile(join(source, "iox-wasm.mjs"), "export default {};\n");
   await writeFile(join(source, "iox-wasm.wasm"), "wasm");

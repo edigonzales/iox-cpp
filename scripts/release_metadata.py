@@ -69,7 +69,7 @@ def project_version(root: pathlib.Path) -> str:
     )
     if package.get("version") != version:
         raise ValueError(
-            f"@interlis/iox-wasm version {package.get('version')} does not match {version}"
+            f"@ilic/iox-wasm version {package.get('version')} does not match {version}"
         )
     return version
 

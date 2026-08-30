@@ -1,4 +1,4 @@
-/** TypeScript declarations for @interlis/iox-wasm 0.2. */
+/** TypeScript declarations for @ilic/iox-wasm 0.2. */
 
 export interface IoxModuleOptions {
   locateFile?: (path: string) => string;

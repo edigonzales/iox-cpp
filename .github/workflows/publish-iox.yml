@@ -125,7 +125,7 @@ jobs:
           retention-days: 14
 
   publish-npm:
-    name: Publish @interlis/iox-wasm
+    name: Publish @ilic/iox-wasm
     needs: [resolve, build]
     runs-on: ubuntu-latest
     timeout-minutes: 20

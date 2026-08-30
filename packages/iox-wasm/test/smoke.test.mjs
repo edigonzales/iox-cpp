@@ -1,5 +1,5 @@
 /**
- * Smoke tests for @interlis/iox-wasm module initialization.
+ * Smoke tests for @ilic/iox-wasm module initialization.
  */
 import { createIoxModule } from '../index.js';
 import { strict as assert } from 'node:assert';

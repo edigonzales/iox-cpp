@@ -23,7 +23,7 @@ if (!/^[0-9a-f]{40}$/.test(expectedSourceSha ?? "")) {
 
 const packageJsonPath = join(staging, "package", "package.json");
 const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
-if (packageJson.name !== "@interlis/iox-wasm") {
+if (packageJson.name !== "@ilic/iox-wasm") {
   throw new Error(`Unexpected package name: ${packageJson.name}`);
 }
 if (packageJson.version !== expectedVersion) {
@@ -72,7 +72,7 @@ try {
     cwd: installDir,
   });
   const installed = JSON.parse(
-    await readFile(join(installDir, "node_modules/@interlis/iox-wasm/package.json"), "utf8"),
+    await readFile(join(installDir, "node_modules/@ilic/iox-wasm/package.json"), "utf8"),
   );
   if (installed.version !== expectedVersion) {
     throw new Error(`Installed package has version ${installed.version}`);
@@ -81,4 +81,4 @@ try {
   await rm(consumer, { recursive: true, force: true });
 }
 
-console.log(`Verified @interlis/iox-wasm@${expectedVersion}`);
+console.log(`Verified @ilic/iox-wasm@${expectedVersion}`);

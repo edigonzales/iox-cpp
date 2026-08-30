@@ -11,7 +11,7 @@ event stream containing transfers, baskets, objects, and end events.
 - ordered, repeated IOM attributes with copy-on-write objects;
 - secure incremental XML parsing with a pinned Expat dependency;
 - deterministic XML writing;
-- C99 ABI and the `@interlis/iox-wasm` Node/browser/worker package;
+- C99 ABI and the `@ilic/iox-wasm` Node/browser/worker package;
 - optional direct `ilic-core` integration through `iox-ilic`.
 
 ITF, INTERLIS 1, GML/CSV conversion, full constraint validation, GEOS/JTS
@@ -112,12 +112,12 @@ build/native/iox-dump --roundtrip input.xtf output.xtf
 
 ## WebAssembly and JavaScript
 
-The package interface is complete, but `@interlis/iox-wasm` is not yet
+The package interface is complete, but `@ilic/iox-wasm` is not yet
 published on npm; use the package from this checkout until the one-time npm
 bootstrap in the release guide has completed.
 
 ```js
-import { createIoxModule, XtfReader } from '@interlis/iox-wasm';
+import { createIoxModule, XtfReader } from '@ilic/iox-wasm';
 
 const module = await createIoxModule();
 const reader = new XtfReader(module, inputBytes);

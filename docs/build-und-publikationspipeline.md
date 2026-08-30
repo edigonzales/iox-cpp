@@ -59,7 +59,7 @@ den exakten Snapshot aus `release/dependencies.lock.json`; aktuelles
 reproduzierbare Paketkombination und frühe Warnung vor zukünftigen Änderungen
 nicht miteinander vermischt.
 
-`@interlis/iox-wasm` ist derzeit noch nicht auf npm publiziert. Vor dem ersten
+`@ilic/iox-wasm` ist derzeit noch nicht auf npm publiziert. Vor dem ersten
 Publish muss die Paket-/Owner-/2FA-Einrichtung einmalig abgeschlossen und der
 Trusted Publisher auf `edigonzales/iox-cpp` sowie
 `.github/workflows/publish-iox.yml` eingeschränkt werden. Bis dieser Bootstrap

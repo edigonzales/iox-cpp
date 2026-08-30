@@ -30,7 +30,7 @@ Der funktionale Fokus liegt ausschliesslich auf einem modernen, nativen und WebA
 10. keine DOM-Abhängigkeit in JavaScript voraussetzen.
 11. weitere Reader und Writer über C++-Interfaces und eine explizite Registry erweiterbar machen.
 12. eine stabile C-ABI für WebAssembly und spätere Sprachbindings bereitstellen.
-13. ein lokales npm-Paket unter `packages/iox-wasm` mit dem Paketnamen `@interlis/iox-wasm` enthalten.
+13. ein lokales npm-Paket unter `packages/iox-wasm` mit dem Paketnamen `@ilic/iox-wasm` enthalten.
 14. mindestens 90 Prozent Line Coverage und mindestens 85 Prozent Branch Coverage für die Kernbibliotheken erreichen.
 15. Roundtrip-, Negativ-, Grenzwert-, Unicode-, Fuzz- und Native/WASM-Paritätstests enthalten.
 16. eine ausführliche, agentenlesbare Projektsteuerung über `AGENTS.md` und repo-lokale Skills bereitstellen.
@@ -1876,8 +1876,8 @@ Der Writer darf bei `enforceTransferOrder=true` Attribute anhand des konkreten `
 Mindestens das modellfreie `iox-wasm` ist Pflicht. Optionales späteres Bundle:
 
 ```text
-@interlis/iox-wasm          modellfrei
-@interlis/iox-wasm/ilic     nur falls technisch und grössenmässig sinnvoll
+@ilic/iox-wasm          modellfrei
+@ilic/iox-wasm/ilic     nur falls technisch und grössenmässig sinnvoll
 ```
 
 Vor einer zweiten Variante muss die Bundlegrösse gemessen und dokumentiert werden. Die initiale Fertigstellung darf nicht von der `ilic`-WASM-Integration blockiert werden.
@@ -2008,7 +2008,7 @@ Fehlerresultat:
 
 ```json
 {
-  "name": "@interlis/iox-wasm",
+  "name": "@ilic/iox-wasm",
   "version": "0.1.0",
   "type": "module",
   "engines": {
@@ -3361,7 +3361,7 @@ phase 7: finalize streaming c abi and wasm core
 
 ---
 
-## Phase 8 – Idiomatisches `@interlis/iox-wasm`
+## Phase 8 – Idiomatisches `@ilic/iox-wasm`
 
 ### Ziel
 
@@ -3393,7 +3393,7 @@ Ein benutzerfreundliches ES-Modul mit TypeScript-Typen, Iterator, `readAll`, Wri
 
 ### Nutzbares Artefakt
 
-Lokal verwendbares npm-Paket `@interlis/iox-wasm` für Browser, Worker und Node.js.
+Lokal verwendbares npm-Paket `@ilic/iox-wasm` für Browser, Worker und Node.js.
 
 ### Commit
 
@@ -3537,7 +3537,7 @@ Zusätzlich dokumentierte Sanitizer- und Fuzz-Kommandos.
 
 ### Nutzbares Artefakt
 
-Lokaler Release Candidate von `iox-cpp`, `iox-ilic`, `iox-abi` und `@interlis/iox-wasm`.
+Lokaler Release Candidate von `iox-cpp`, `iox-ilic`, `iox-abi` und `@ilic/iox-wasm`.
 
 ### Commit
 
