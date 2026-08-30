@@ -148,5 +148,6 @@ See `docs/phase-status.md` for detailed per-phase criteria and test results.
 - npm and vcpkg snapshots use `X.Y.Z-snapshot.g<12-character source SHA>`
 - `interlis-release.json` and npm `gitHead` retain full source/dependency SHAs
 - Snapshot publication is manual; stable publication requires a matching `vX.Y.Z` tag
+- npm retries are idempotent only for an identical full source SHA and tarball integrity
 - Only `ilic-fork` writes the shared vcpkg registry
 - The binary publisher validates the registry entry before building and restoring every feature variant
