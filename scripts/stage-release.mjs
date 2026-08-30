@@ -56,7 +56,7 @@ export async function stageRelease(options) {
 
   const manifestPath = resolve(packageDir, "package.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  if (manifest.name !== "@interlis/iox-wasm") {
+  if (manifest.name !== "@ilic/iox-wasm") {
     throw new Error(`Unexpected package name: ${manifest.name}`);
   }
   const baseVersion = manifest.version;

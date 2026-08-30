@@ -1,5 +1,5 @@
 /**
- * Example: Read XTF events using @interlis/iox-wasm
+ * Example: Read XTF events using @ilic/iox-wasm
  *
  * Usage: node node-read-events.mjs <input.xtf>
  *

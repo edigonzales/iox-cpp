@@ -1,10 +1,10 @@
-# @interlis/iox-wasm
+# @ilic/iox-wasm
 
 INTERLIS XTF 2.3/2.4 Reader/Writer WebAssembly module.
 
 ## Status
 
-`@interlis/iox-wasm` is not yet published on npm. The release workflow and
+`@ilic/iox-wasm` is not yet published on npm. The release workflow and
 package checks are ready, but the npm package name and Trusted Publisher still
 require the one-time owner/2FA bootstrap described in the release guide.
 
@@ -18,7 +18,7 @@ request-ID based module-worker protocol.
 ```js
 import {
   createIoxModule, IncrementalXtfReader, XtfWriter
-} from '@interlis/iox-wasm';
+} from '@ilic/iox-wasm';
 
 const mod = await createIoxModule();
 const reader = new IncrementalXtfReader(mod);

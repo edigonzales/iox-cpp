@@ -26,7 +26,7 @@ The build produces an ES module with `MODULARIZE=1` and `EXPORT_ES6=1`.
 
 ```
 packages/iox-wasm/
-├── package.json          # @interlis/iox-wasm
+├── package.json          # @ilic/iox-wasm
 ├── index.js              # ES module entry point
 ├── index.d.ts            # TypeScript declarations
 ├── worker.js             # Web Worker protocol
@@ -44,7 +44,7 @@ packages/iox-wasm/
 ### Module Initialization
 
 ```js
-import { createIoxModule } from '@interlis/iox-wasm';
+import { createIoxModule } from '@ilic/iox-wasm';
 
 const mod = await createIoxModule({
     locateFile: (path) => `/wasm/${path}`
@@ -57,7 +57,7 @@ console.log(mod.version());    // "0.2.0"
 ### Reading XTF
 
 ```js
-import { createIoxModule, XtfReader } from '@interlis/iox-wasm';
+import { createIoxModule, XtfReader } from '@ilic/iox-wasm';
 
 const mod = await createIoxModule();
 const data = new Uint8Array(await readFile('data.xtf'));
@@ -73,7 +73,7 @@ reader.close();
 ### Incremental Reading
 
 ```js
-import { IncrementalXtfReader } from '@interlis/iox-wasm';
+import { IncrementalXtfReader } from '@ilic/iox-wasm';
 
 const reader = new IncrementalXtfReader(mod, { expectedVersion: '2.3' });
 
@@ -92,7 +92,7 @@ const remaining = reader.finish();
 ### Writing XTF
 
 ```js
-import { XtfWriter } from '@interlis/iox-wasm';
+import { XtfWriter } from '@ilic/iox-wasm';
 
 const writer = new XtfWriter(mod, { version: '2.3', sender: 'MyApp' });
 

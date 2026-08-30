@@ -1,5 +1,5 @@
 /**
- * @interlis/iox-wasm — INTERLIS XTF 2.3/2.4 Reader/Writer
+ * @ilic/iox-wasm — INTERLIS XTF 2.3/2.4 Reader/Writer
  *
  * The public API uses the canonical `event` discriminator documented by the
  * C ABI.  All native handles are released on normal and exceptional paths.

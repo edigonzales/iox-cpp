@@ -815,7 +815,7 @@ a new matching `vX.Y.Z` tag. `iox-cpp` no longer checks out or pushes the
 shared registry. It sends a content-addressed request to the serialized
 `ilic-fork` writer, validates the public result, and only then dispatches its
 own binary publisher. The existing cross-repository token is confined to that
-request. `@interlis/iox-wasm` remains explicitly documented as not yet
+request. `@ilic/iox-wasm` remains explicitly documented as not yet
 published until its one-time npm/Trusted-Publisher bootstrap succeeds.
 
 ### Phase 23 verification commands
@@ -859,6 +859,29 @@ node --test test/release_scripts_test.mjs                         # exit 0, 2/2
 cmake -S . -B build/ci-contract-make -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/Users/stefan/sources/iox-cpp/build/vcpkg-registry-smoke/vcpkg_installed/arm64-osx -DBUILD_TESTING=ON -DIOX_BUILD_EXAMPLES=OFF -DIOX_BUILD_TOOLS=OFF -DIOX_USE_SYSTEM_EXPAT=ON -DIOX_USE_SYSTEM_YYJSON=ON -DIOX_ENABLE_ILIC=ON -DIOX_FETCH_ILIC=OFF -DIOX_ILIC_VERSION=0.10.0-SNAPSHOT  # exit 0
 cmake --build build/ci-contract-make --target iox-test-ilic-version --parallel  # exit 0
 ctest --test-dir build/ci-contract-make --output-on-failure -R '^iox.test.ilic.version$'  # exit 0, 1/1
+./scripts/build-native.sh                                         # exit 0
+./scripts/test-native.sh                                          # exit 0, 34/34
+./scripts/build-wasm.sh                                           # exit 0, Emscripten 3.1.64
+./scripts/test-wasm.sh                                            # exit 0, 10/10
+ruby -e 'require "yaml"; Dir[".github/workflows/*.yml"].each { |path| YAML.load_file(path) }'  # exit 0
+git diff --check                                                   # exit 0
+```
+
+### Phase 23 npm scope correction
+
+Before the first public npm bootstrap, the package contract was corrected from
+the unused `@interlis` scope to the existing project scope. The authoritative
+package name is now `@ilic/iox-wasm`; release staging, installed-tarball
+verification, tests, workflow labels, examples, typings, and documentation all
+use the same identity. CMake target names, generated file names, and the local
+`packages/iox-wasm` directory remain unchanged.
+
+```text
+python3 scripts/release_metadata.py check                         # exit 0
+python3 test/release_metadata_test.py                             # exit 0, 7/7
+node --test test/release_scripts_test.mjs                         # exit 0, 2/2
+npm pack --dry-run --ignore-scripts --json ./packages/iox-wasm    # exit 0, name @ilic/iox-wasm
+node scripts/verify-release.mjs --staging-root build/scope-release --expected-version 0.2.0-snapshot.g6f10ab80c536 --expected-source-sha 6f10ab80c536e4d4dfad83b8cf9e3ce509fff442  # exit 0, installed @ilic/iox-wasm
 ./scripts/build-native.sh                                         # exit 0
 ./scripts/test-native.sh                                          # exit 0, 34/34
 ./scripts/build-wasm.sh                                           # exit 0, Emscripten 3.1.64
