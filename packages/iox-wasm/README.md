@@ -1,42 +1,29 @@
 # @ilic/iox-wasm
 
-INTERLIS XTF 2.3/2.4 Reader/Writer WebAssembly module.
+WebAssembly-Reader/-Writer für INTERLIS XTF 2.3/2.4. Bis zum ersten stabilen
+Release wird der ausdrücklich gewählte Snapshot-Kanal installiert:
 
-## Status
+```sh
+npm install @ilic/iox-wasm@snapshot
+```
 
-`@ilic/iox-wasm` is published on npm. Until the first stable release, install
-the explicitly selected snapshot channel with
-`npm install @ilic/iox-wasm@snapshot`. New snapshots are published only by a
-manual release workflow through the configured Trusted Publisher.
-
-The package exposes the generated Emscripten ES module through a synchronous
-reader/writer API after asynchronous initialization. It supports XTF 2.3 and
-2.4, incremental byte feeds, ordered `event`-discriminated Iox events, and a
-request-ID based module-worker protocol.
-
-## Usage
+Snapshots entstehen nur durch den manuellen Release-Workflow. Die Version
+folgt `X.Y.Z-snapshot.g<12-stelliger Source-SHA>`; das Paket enthält
+`interlis-release.json` und einen vollständigen `gitHead`.
 
 ```js
-import {
-  createIoxModule, IncrementalXtfReader, XtfWriter
-} from '@ilic/iox-wasm';
+import { createIoxModule, IncrementalXtfReader } from '@ilic/iox-wasm';
 
-const mod = await createIoxModule();
-const reader = new IncrementalXtfReader(mod);
+const module = await createIoxModule();
+const reader = new IncrementalXtfReader(module);
 for await (const chunk of inputStream) {
   for (const event of reader.feed(chunk)) console.log(event);
 }
 for (const event of reader.finish()) console.log(event);
 reader.close();
-
-const writer = new XtfWriter(mod, { version: '2.3' });
-writer.write(startTransferEvent);
-await outputStream.write(writer.takeOutput());
-writer.write(endTransferEvent);
-await outputStream.write(writer.finish());
-writer.close();
 ```
 
-`worker.js` exposes the same batch and streaming operations to browser and
-Node module workers, including explicit cancellation of unfinished sessions.
-Its protocol types are declared in `worker.d.ts`.
+`worker.js` stellt dieselben Batch- und Streamingoperationen für Browser- und
+Node-Module-Worker bereit, einschliesslich Abbruch nicht abgeschlossener
+Sessions. Protokolltypen stehen in `worker.d.ts`; das Eventformat ist unter
+[`docs/event-json-schema.md`](../../docs/event-json-schema.md) dokumentiert.

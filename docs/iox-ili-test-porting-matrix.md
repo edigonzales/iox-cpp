@@ -1,10 +1,11 @@
-# iox-ili XTF Test Porting Matrix
+# Portierungsmatrix der iox-ili-XTF-Tests
 
-This document is the method-level inventory for the pinned `iox-ili` XTF
-tests. It records the behavioral mapping to the C++ event API; it is not a
-claim that Java source can be copied line-for-line.
+Dieses maschinell geprüfte Inventar ordnet die gepinnten `iox-ili`-XTF-
+Testmethoden dem C++-Eventvertrag zu. Es behauptet nicht, dass Java-Quellcode
+zeilenweise übernommen werden kann. Java-Methodennamen und die drei
+Status-Tokens bleiben als unveränderliche externe Identifikatoren erhalten.
 
-## Reference and counting rules
+## Referenz und Zählregeln
 
 - Repository: `https://github.com/claeis/iox-ili`
 - Immutable source revision: `1af01d4bf6b675a490b9f5ad44d41723fdfa3c0f`
@@ -17,19 +18,18 @@ claim that Java source can be copied line-for-line.
 - Fixture provenance manifest: `test/fixtures/iox-ili-fixtures.tsv`
 - Offline manifest check: `./scripts/verify-iox-ili-fixtures.sh`
 
-Each method listed in a row has exactly one of the three release statuses
-below. The status describes the observable contract, not whether Java source
-was copied.
+Jede Methode besitzt genau einen der drei folgenden Status. Der Status
+beschreibt beobachtbares Verhalten, nicht eine Quellcodeübernahme.
 
-### Status definitions
+### Statusdefinitionen
 
-| Status | Meaning |
+| Status | Bedeutung |
 |---|---|
-| `adapted` | The behavior is represented, but assertions use the ordered C++ event stream, COW IOM objects, structured diagnostics, or canonical XML. |
-| `deliberate-difference` | iox-cpp intentionally has a different, documented contract, such as preserving every basket or omitting general validation. |
-| `out-of-scope` | The Java test covers an excluded product area such as ITF, CSV, GML, JTS, or general model validation. |
+| `adapted` | Das Verhalten ist vertreten; Assertions verwenden den geordneten C++-Eventstream, COW-IOM-Objekte, strukturierte Diagnosen oder kanonisches XML. |
+| `deliberate-difference` | iox-cpp besitzt bewusst einen anderen dokumentierten Vertrag, etwa vollständige Korberhaltung oder keine allgemeine Validierung. |
+| `out-of-scope` | Der Java-Test betrifft ausgeschlossene Bereiche wie ITF, CSV, GML, JTS oder allgemeine Modellvalidierung. |
 
-## XTF 2.3 reader
+## XTF-2.3-Reader
 
 | Java source | Java test methods | Status | C++ verification |
 |---|---|---|---|
@@ -38,7 +38,7 @@ was copied.
 | `Xtf23ReaderDataTest.java` | `testDatasection_Empty_Ok`, `testBasket_Empty_Ok`, `testMultiBasket_Ok`, `testEmptyObjects_Ok`, `testBooleanDataTypes_Ok`, `testTextType_Ok`, `testTextType_List_Ok`, `testTextTypes_WithEmptyLine_Ok`, `testEnumerationType_Ok`, `testOidType_Ok`, `testOidType_Fail`, `testDateAndTimeType_Ok`, `testBlackBoxType_Ok`, `testBlackBoxType_NoSpace_Ok`, `testNumericDataTypes_Ok`, `testAlignmentDataTypes_Ok`, `testFormattedDataTypes_Ok`, `testStructureType_Ok`, `testStructure2Type_Ok`, `testReferenceAttrType_Ok`, `testAttributePath_Ok`, `testCoords_Ok`, `testPolylinesWithStraights_Ok`, `testPolylinesWithArcs_Ok`, `testPolylinesWithArcsNoSpace_Ok`, `testPolylinesWithArcsRadius_Ok`, `testPolylineNoSegment_Fail`, `testSurface_Ok`, `testCommentary_Ok`, `testArea_Ok`, `testView_Ok`, `testSurfaceNoBoundary_Fail`, `testSurfaceNoBoundary_NoSpace_Fail`, `testSurfaceNoPolyline_Fail`, `testMissingCoord_Fail`, `testSameAttrNamesInDifClasses_Ok`, `testSameClassNamesInDifTopics_Ok`, `testTopicNameLikeClassName_Ok`, `testAttrClassTopicNameSame_Ok` | `adapted` | Existing XTF 2.3 object/geometry tests plus all-fixture event fingerprints |
 | `Xtf23ReaderAssociationTest.java` | `embedded_Ok`, `embeddedAssociationWithAttributes_Ok`, `embedded_ClassPathRef_Ok`, `standAlone_WithAttributes_Ok`, `setOrderPos_Ok`, `embedded_1to1_OrderPos_Ok`, `standAlone_Ok`, `commentsInsideAssociation_Ok`, `sameTargetClass_Ok`, `deleteObjectWithRef_Fail` | `adapted` | Existing association tests; `iox_ili_xtf23_reference_fixture_preserves_attributes_and_values` |
 
-## XTF 2.4 reader
+## XTF-2.4-Reader
 
 | Java source | Java test methods | Status | C++ verification |
 |---|---|---|---|
@@ -53,7 +53,7 @@ was copied.
 | `Xtf24ReaderAssociationTest.java` | `roleNotExist_Fail`, `associationNotExist_Fail` | `adapted` | The direct model index rejects unknown or ambiguous names with stable `ilic.unknown_name`/`ilic.model_mismatch` diagnostics |
 | `Xtf24ReaderAssociationTest.java` | `moreRolesThanDefined_Ok` | `deliberate-difference` | General cardinality validation is an explicit non-goal; iox-cpp preserves the data instead of pretending to validate it |
 
-## XTF 2.4 writer
+## XTF-2.4-Writer
 
 | Java source | Java test methods | Status | C++ verification |
 |---|---|---|---|
@@ -61,7 +61,7 @@ was copied.
 | `Xtf24ReaderTranslationTest.java` | `TranslatedModelName_Ok` | `adapted` | Direct `iox-ilic` reader tests map translated model, topic, class and property names without retaining model pointers |
 | `Xtf24WriterTranslationTest.java` | `writeBasket_Ok`, `writeTranslatedBasket_Fail` | `adapted` | Direct `iox-ilic` writer tests select the header language, map QNames and fail terminally on ambiguous or invalid translation |
 
-## Factory and utility tests
+## Factory- und Hilfstests
 
 | Java source | Java test methods | Status | C++ verification |
 |---|---|---|---|
@@ -70,28 +70,26 @@ was copied.
 | `ReaderFactoryTest.java` | `itfReader2_Ok`, `itfReader2_txtExtension_Ok`, `itfReader2_csvExtension_Ok`, `csvReader_itfExtension_fail`, `csvReader_EmptyCsvFile_Ok`, `csvReader_Ok`, `csvReader_txtExtension_fail`, `gml20Reader_ili10_Ok`, `gml20Reader_ili10_csvFile_Ok`, `gml20Reader_ili10_txtExtension_Ok`, `gml20Reader_ili23_Ok`, `gml20Reader_ili23_txtExtension_Ok` | `out-of-scope` | ITF, CSV, and GML are excluded by the product specification |
 | `GetModelsTest.java` | `itfReader2_Ok`, `csvReader_Ok`, `gml20Reader_Ok` | `out-of-scope` | ITF, CSV, and GML are excluded by the product specification |
 
-## C++ verification contract
+## C++-Prüfvertrag
 
-The ported tests use `test/conformance/IoxIliTestSupport.h` to compare:
+Die portierten Tests verwenden `test/conformance/IoxIliTestSupport.h` für:
 
-- ordered `IoxEvent` variants;
-- object tags, object identity, ordered attributes, repeated values, and
-  reference metadata;
-- expanded XML names where XTF 2.4 provides them;
-- diagnostic severity and stable diagnostic code;
-- one-shot parsing against one-byte, seven-byte, and 64-byte chunking;
-- semantic Reader → Writer → Reader roundtrips; and
-- deterministic writer bytes for the same event stream.
+- geordnete `IoxEvent`-Varianten;
+- Tags, Identität, geordnete Attribute, wiederholte Werte und Referenzen;
+- expandierte XML-Namen in XTF 2.4;
+- Severity und stabilen Diagnosecode;
+- One-shot-, Ein-, Sieben- und 64-Byte-Chunking;
+- semantische Reader→Writer→Reader-Roundtrips;
+- deterministische Writerbytes für denselben Eventstream.
 
-Java exception text and Java-specific XML lexical choices are not compared
-byte-for-byte. XTF 2.3 default-namespace/header-attribute differences and
-the C++ canonical `ili:` representation remain documented in
-`docs/conformance.md`.
+Java-Exceptiontexte und Java-spezifische lexikalische XML-Entscheidungen werden
+nicht byteweise verglichen. Bewusste Abweichungen stehen unter
+[`conformance.md`](conformance.md).
 
-## Deliberate boundaries represented by the matrix
+## Bewusste Grenzen
 
-The only relevant differences are intentional: no basket filter and no
-general cardinality validator. The generic core does not invent a model
-provider and does not reject or filter fachlich relevant data merely because
-it lacks a model. Model-dependent mapping is tested in the optional, direct
-`iox-ilic` integration.
+Die relevanten Unterschiede sind absichtlich: kein Korbfilter und kein
+allgemeiner Kardinalitätsvalidator. Der generische Kern erfindet keinen
+Model-Provider und verwirft fachlich relevante Daten nicht nur wegen eines
+fehlenden Modells. Modellabhängiges Mapping wird in der optionalen direkten
+`iox-ilic`-Integration geprüft.

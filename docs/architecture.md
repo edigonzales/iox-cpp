@@ -1,159 +1,63 @@
-# iox-cpp Architecture
+# Architektur
 
-## Overview
-
-`iox-cpp` is a native C++17 and WebAssembly library for reading and writing
-INTERLIS XTF 2.3 and XTF 2.4 transfer files.
-
-## Module Structure
+`iox-cpp` liest und schreibt INTERLIS XTF 2.3/2.4 nativ und als
+WebAssembly-Modul.
 
 ```text
-iox-core        model-independent objects, events, and interfaces
-iox-geometry    model-free IOM-to-WKB projection (optional GEOS validation)
-iox-xtf         generic XTF 2.3/2.4 reader/writer
-iox-json        test/example event format
-iox-abi         stable C ABI
-iox-factory     built-in format registry and reader/writer facades
-iox-ilic        direct ilic-core integration (optional)
+iox-core        modellfreie Objekte, Events und Interfaces
+iox-geometry    IOM-zu-WKB-Projektion, optional mit GEOS-Prüfung
+iox-xtf         generischer XTF-2.3/2.4-Reader und -Writer
+iox-json        Eventformat für Tests und Beispiele
+iox-abi         stabile C-ABI
+iox-factory     Registry und Convenience-Fassaden
+iox-ilic        optionale direkte ilic-core-Integration
 ```
 
-## Dependency Direction
+## Abhängigkeitsrichtung
 
-```
-iox-core  ←  iox-json
-iox-core  ←  iox-geometry
-iox-core  ←  iox-xtf
-iox-core  ←  iox-abi
-iox-xtf   ←  iox-ilic  (links ilic-core directly)
-iox-geometry ← iox-ilic (geometry descriptors and projection target)
+```text
+iox-core  ← iox-json, iox-geometry, iox-xtf, iox-abi
+iox-xtf   ← iox-ilic
+iox-geometry ← iox-ilic
 iox-factory → iox-xtf + iox-json
 ```
 
-- `iox-core` has NO XML, Expat, XTF, JSON, or ilic dependency.
-- `iox-xtf` has NO ilic-core dependency.
-- `iox-ilic` links directly to concrete `ilic::core` types from `v0.9.10`.
-- There is no abstract model-provider framework.
-- `iox-factory` is the convenience layer that may depend on both built-in
-  formats; `iox-core` remains format-independent.
+`iox-core` kennt weder XML, Expat, XTF, JSON noch ilic. `iox-xtf` kennt
+`ilic-core` nicht. Nur das optionale `iox-ilic` bindet konkrete ilic-Typen ein;
+es gibt kein abstraktes Model-Provider- oder dynamisches Plugin-System.
 
-When enabled, `iox-ilic` consumes the concrete pinned-fork API in namespace
-`metamodel`. Its public entry point accepts `MetaModelStore` directly. The
-constructor walks that store once and copies only names, translation links,
-QNames, role targets, enumeration paths, transfer order and small semantic
-flags into a private index; it retains no metamodel pointers. The adapter is
-composed around the generic `XtfReader`/`XtfWriter` and does not make the
-generic XTF targets depend on `ilic-core`.
+`IlicModelIndex` läuft einmal über `metamodel::MetaModelStore` und kopiert nur
+Namen, Übersetzungsbeziehungen, QNames, Rollen, Enumerationen,
+Transferreihenfolge und kleine Flags. Es hält keine Metamodellzeiger. Die
+kopierten Property- und Geometriedeskriptoren sind unter
+[Modelldeskriptoren](model-descriptors.md) beschrieben.
 
-`IlicModelIndex` also exposes copied `PropertyDescriptor` and
-`GeometryDescriptor` values. Property descriptors preserve stable semantic
-FQNs while selecting translated transfer names for the requested target
-model. Geometry descriptors copy coordinate dimensions, line kinds,
-`MaxOverlap`, line-form flags, custom line-form structure names, and the line
-attribute flag. Empty line-form lists are normalized to the INTERLIS default
-of straight segments. These APIs retain no pointers into the source model
-store and may safely be used after that store is destroyed; see
-`docs/model-descriptors.md`.
-
-Name lookup is exact: a canonical or translated scoped name and an expanded
-XML QName identify one semantic concept or fail with `ilic.model_mismatch` when
-ambiguous. The selected transfer-header model chooses the target-language
-variant. The ilic layer handles transfer names, inherited properties, roles,
-embedded roles, association transferability, transient views/properties and
-enumeration translations. It deliberately is not a general validator: it
-does not claim constraint, cardinality or file-wide reference validation.
-The CMake options `IOX_ILIC_SOURCE_DIR` and `IOX_FETCH_ILIC` select the
-immutable fork source; the latter fetches tag `v0.9.10` and builds it as a
-library-only source subproject. `iox-core` and `iox-xtf` remain completely
-independent of ilic, and the default build keeps `iox-ilic` disabled.
-
-## Normative Event Stream
-
-The core API is an ordered `std::variant` event stream:
+## Event- und Objektmodell
 
 ```text
 StartTransferEvent → (StartBasketEvent → ObjectEvent* → EndBasketEvent)* → EndTransferEvent
 ```
 
-Readers produce this stream; writers consume it. All convenience APIs
-delegate to this core.
+Reader erzeugen, Writer konsumieren diesen geordneten `std::variant`-Stream.
+Nur `BasketReader` puffert bewusst einen ganzen Korb. `IomObject` ist ein
+Copy-on-Write-Handle; schreibende Operationen lösen gemeinsam benutzten Zustand
+vor der Änderung. [IOM-Pfade](iom-path.md) greifen auf primitive Werte zu.
 
-`BasketReader` is the only intentionally basket-buffering facade. It applies
-an optional object-count limit and reports a stable fatal diagnostic when the
-limit is exceeded.
+## XTF und XML
 
-## IomObject — Copy-on-Write
+Der Reader verwendet einen privaten, statisch gebundenen Expat und akzeptiert
+beliebige Byte-Chunks. Der Writer erzeugt kontrolliertes UTF-8-XML. Parser- und
+XML-Eventtypen sind keine öffentliche API. XTF 2.3 und 2.4 besitzen getrennte
+Dialekte; Factory-Sniffing wählt nur den passenden Reader.
 
-`IomObject` is a small, copyable handle wrapping `std::shared_ptr<Impl>`.
-Mutating methods call `detach()` to copy shared state before modification,
-providing value-like semantics without deep copies on every assignment.
+Reader besitzen eine begrenzte Event-Queue und liefern `NeedInput`, `Event`
+oder `End`. Writer sind terminal: Nach einem Fehler oder `close()` ist kein
+weiteres Schreiben erlaubt. Diagnosen haben stabile Codes; Meldungstexte dürfen
+sich weiterentwickeln.
 
-`IomPath` provides the model-free path surface used by later value and update
-consumers. It supports only attribute steps with first, 1-based index, or
-wildcard selection. Reads return copied primitive matches; writes require one
-non-wildcard primitive match and explicitly write updated nested children back
-through their parents so copy-on-write remains observable and correct. See
-`docs/iom-path.md`.
+## Parallelität und Lebensdauer
 
-`iox-geometry` is model-free and writes deterministic little-endian WKB for
-the supported IOM coordinate, line, and polygon forms. Arc segments are
-approximated using a bounded sagitta and the exact source endpoint; optional
-GEOS validation is isolated behind `IOX_ENABLE_GEOS` and re-entrant RAII
-contexts. No GEOS download or public GEOS type is part of the core build. See
-`docs/geometry.md`.
-
-## XML Strategy
-
-- **Reader:** Expat (pinned, static, private). Incremental chunk-based parsing.
-- **Writer:** Controlled internal UTF-8 XML writer.
-- XML parser and writer headers live under `source/xml`; neither Expat nor the
-  internal XML event types are part of the installed/public API.
-- Parser callbacks copy QName/attribute data and catch every exception before
-  returning through Expat's C callback frame.
-- `XtfReader` coordinates version detection, event-order validation, input
-  chunks, and a bounded event deque. When `maxQueuedEvents` is reached it
-  suspends Expat and resumes only after the consumer drains an event.
-- No DOM construction for the whole document.
-- No Xerces, no external entity resolution, no DTD.
-
-## XTF Dialects
-
-`XtfReader` and `XtfWriter` are the single public coordinators. The complete
-XTF 2.3 reader and writer are private dialects under `source/xtf/v23`; the
-reader receives expanded XML names and builds only the current header or
-attribute subtree, never a document DOM. The writer consumes one event at a
-time and writes directly to `OutputSink`. Wire-format decisions stay in the
-dialect, while queueing, limits, terminal writer state, and event order stay in
-the coordinators. A failed writer is permanently terminal, and `close()` never
-invents missing end events. XTF 2.4 has its own private reader and writer under
-`source/xtf/v24`; it shares only coordination and XML mechanics with 2.3.
-The 2.4 dialect requires stored expanded names or explicit header namespace
-metadata and never fabricates a model namespace URI. Common logic is extracted
-only when the wire rules are genuinely identical.
-
-## Format Registry
-
-Additional formats register via explicit C++ interfaces and a testable
-registry. Content sniffers return bounded confidence scores; content beats an
-extension hint and registration order is the deterministic tie-breaker. The
-default registry is initialized by a thread-safe function-local static and
-contains XTF plus JSON events when `IOX_ENABLE_JSON_FORMAT` is enabled. No
-dynamic plugin loading or global static registrar constructors are used.
-
-## Error Model
-
-Readers and writers keep structured diagnostics with stable codes. Nonfatal
-issues are returned through `takeDiagnostics()`. Fatal parser, state,
-resource, and I/O failures throw `IoxError`; the C ABI converts them into
-terminal status/result objects and never lets an exception cross the C
-boundary.
-
-## C ABI
-
-Stable C99-compatible header with opaque handles. All exceptions are caught
-at the boundary. Strings are UTF-8. Caller-owned buffers are freed after
-function return.
-
-## WASM
-
-Emscripten 3.1.64 with `MODULARIZE=1` and `EXPORT_ES6=1`. Environments:
-web, worker, node. No DOM dependencies.
+Reader, Writer und ilic-Indizes besitzen ihren Zustand selbst und teilen keine
+globalen Parser-, Modell- oder GEOS-Kontexte. Ein Objekt wird nicht gleichzeitig
+aus mehreren Threads verwendet; unabhängige Instanzen dürfen parallel laufen.
+Callbacks lassen keine C++-Exception über C- oder Emscripten-Grenzen entkommen.

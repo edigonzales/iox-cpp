@@ -1,33 +1,24 @@
-# Native IOM geometry projection
+# Native IOM-Geometrieprojektion
 
-`IomGeometryConverter` treats an IOM geometry object as the source of truth
-and produces a deterministic little-endian WKB projection. The converter does
-not mutate or retain the input object. 2D and 3D output use ordinary WKB type
-codes and ISO dimensional type codes (`1000 + base type`) respectively; no
-SRID or curve-WKB type is emitted.
+`IomGeometryConverter` erzeugt deterministisches Little-Endian-WKB, ohne das
+IOM-Eingabeobjekt zu verändern oder zu behalten. 2D verwendet normale, 3D die
+ISO-Typcodes `1000 + Basistyp`; SRID und Curve-WKB werden nicht ausgegeben.
 
-Supported projections are `COORD`/`MULTICOORD`, `POLYLINE` and its multi
-variant, and complete `SURFACE`/`AREA` and multi-surface/multi-area values.
-Polygon rings must be closed and line parts must connect in input order. An
-explicit `interior` boundary becomes a polygon hole. The converter does not
-polygonize arbitrary unordered linework or run `MakeValid`.
+Unterstützt sind `COORD`/`MULTICOORD`, `POLYLINE`/MultiPolyline sowie
+vollständige `SURFACE`/`AREA`- und Multi-Varianten. Ringe müssen geschlossen
+und Linienteile in Eingabereihenfolge verbunden sein. `interior` wird zum Loch;
+ungeordnetes Linienwerk wird weder polygonisiert noch mit `MakeValid` repariert.
 
-`ARC` segments are lossily projected to straight WKB segments. The arc
-midpoint (`A1`, `A2`, and optional `A3`) and endpoint (`C1`, `C2`, and
-optional `C3`) determine the circle and sweep. The sagitta is taken from
-`arcToleranceOverride`, otherwise the descriptor's positive `MaxOverlap`, or
-the configured default. The final endpoint is copied exactly from the IOM
-value to avoid accumulated floating-point drift. The result reports whether
-arcs were approximated and which tolerance was used.
+`ARC` wird verlustbehaftet in gerade Segmente projiziert. Toleranzpriorität:
+expliziter Override, positives `MaxOverlap`, dann der konfigurierte Default.
+Der Endpunkt wird exakt aus dem IOM kopiert, um Drift zu vermeiden. Das
+Resultat meldet Approximation und verwendete Toleranz.
 
-Incomplete/clipped values, custom line forms, line attributes, mixed 2D/3D
-ordinates, unsupported dimensions, malformed numbers, broken rings, and
-unsupported segment tags raise `IoxError(DiagnosticCode::InvalidGeometry)`.
+Clipping, eigene Linienformen, Linienattribute, gemischte Dimensionen,
+ungültige Zahlen/Ringe und unbekannte Segmente ergeben
+`DiagnosticCode::InvalidGeometry`.
 
-GEOS is optional and never downloaded by iox-cpp. With `IOX_ENABLE_GEOS=OFF`,
-the deterministic native WKB path is used. With GEOS enabled, a private RAII
-context and the re-entrant C API validate the projected WKB; there are no
-global handlers or public GEOS types. WKB is intentionally the boundary
-format: future consumers may attach SRID/model metadata separately, but they
-must not infer that the lossy WKB projection can reconstruct original arcs or
-line forms.
+GEOS ist optional. Ohne GEOS bleibt der deterministische WKB-Pfad aktiv; mit
+GEOS validiert ein privater re-entrant RAII-Kontext das Ergebnis. WKB ist die
+bewusste Grenze und kann ursprüngliche Bögen oder Linienformen nicht
+rekonstruieren.
